@@ -24,3 +24,6 @@ dist/
 *.env
 !*.example.env
 !creds.example.env
+
+# Generator output — produced by generate_aci.py, not source
+platform/netascode/aci/tenants.yaml
