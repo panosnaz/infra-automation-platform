@@ -1,0 +1,117 @@
+network-platform-engineering/
+│
+├── README.md
+├── START-HERE.md
+├── CLAUDE.md
+├── .gitignore
+├── LICENSE
+│
+├── docs/
+│   │
+│   ├── vision/
+│   │   ├── 00-Project-Charter.md
+│   │   ├── 01-Current-State.md
+│   │   └── 02-Target-Architecture.md
+│   │
+│   ├── architecture/
+│   │   ├── Platform-Principles.md
+│   │   ├── Reference-Architecture.md
+│   │   ├── Technology-Stack.md
+│   │   ├── Repository-Structure.md
+│   │   └── Platform-Glossary.md
+│   │
+│   ├── decisions/
+│   │   ├── ADR-001-Nautobot-Source-of-Truth.md
+│   │   ├── ADR-002-Terraform-Desired-State.md
+│   │   ├── ADR-003-Ansible-Day2.md
+│   │   ├── ADR-004-Platform-API.md
+│   │   ├── ADR-005-Workflow-Orchestration.md
+│   │   ├── ADR-006-Platform-Control-Plane.md
+│   │   ├── ADR-007-Canonical-Engineering-Model.md
+│   │   ├── ADR-008-Validation.md
+│   │   ├── ADR-009-Knowledge-Layer.md
+│   │   ├── ADR-010-AI-Engineering-Assistant.md
+│   │   ├── ADR-011-Event-Driven-Automation.md
+│   │   ├── ADR-012-Secrets-Management.md
+│   │   └── ADR-013-Observability.md
+│   │
+│   ├── validation/
+│   │   ├── README.md
+│   │   ├── 01-Schema-Validation.md
+│   │   ├── 02-Infrastructure-Validation.md
+│   │   ├── 03-Service-Validation.md
+│   │   └── 04-Continuous-Compliance.md
+│   │
+│   ├── operations/
+│   │   ├── Deployment-Workflow.md
+│   │   ├── Day2-Operations.md
+│   │   ├── Lifecycle-Management.md
+│   │   └── Roadmap.md
+│   │
+│   ├── security/
+│   │   └── Security-Architecture.md
+│   │
+│   ├── observability/
+│   │   └── Observability-Architecture.md
+│   │
+│   ├── ai/
+│   │   └── AI-Architecture.md
+│   │
+│   ├── knowledge/
+│   │   └── Knowledge-Layer.md
+│   │
+│   └── diagrams/
+│       ├── ACI_IaC_Platform_Architecture.drawio
+│       ├── High-Level-Platform-Architecture.md
+│       ├── Closed-Loop-Engineering.md
+│       ├── Engineering-Control-Plane.md
+│       └── Domain-Expansion-Model.md
+│
+├── lab/
+│   │
+│   ├── README.md
+│   │
+│   ├── docker/
+│   │   └── nautobot/
+│   │       ├── docker-compose.yml
+│   │       ├── config/
+│   │       ├── environments/
+│   │       ├── plugins/
+│   │       ├── docs/
+│   │       └── ...
+│   │
+│   ├── cml/
+│   │
+│   ├── aci/
+│   │
+│   ├── vxlan/
+│   │
+│   └── demo-data/
+│
+├── platform/
+│   │
+│   ├── terraform/
+│   │
+│   ├── ansible/
+│   │
+│   ├── python/
+│   │
+│   ├── netascode/
+│   │
+│   ├── platform-api/
+│   │
+│   └── workflows/
+│
+├── tests/
+│   ├── pyats/
+│   ├── integration/
+│   └── compliance/
+│
+├── scripts/
+│
+├── assets/
+│   └── images/
+│
+├── .github/
+│
+└── .vscode/

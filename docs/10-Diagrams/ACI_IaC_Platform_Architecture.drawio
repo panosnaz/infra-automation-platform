@@ -1,0 +1,535 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mxGraphModel dx="2000" dy="1400" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="2450" pageHeight="2220" math="0" shadow="1">
+  <root>
+    <mxCell id="0" />
+    <mxCell id="1" parent="0" />
+
+    <!-- ====== HEADER ====== -->
+    <mxCell id="HDR_bg" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#0d1b2a;strokeColor=none;" vertex="1" parent="1">
+      <mxGeometry x="20" y="10" width="2110" height="55" as="geometry" />
+    </mxCell>
+    <mxCell id="HDR_title" value="&lt;b&gt;&lt;font style=&quot;font-size:22px;&quot; color=&quot;#ffffff&quot;&gt;Network Platform Engineering — Intent-Based Infrastructure Automation v2&lt;/font&gt;&lt;/b&gt;" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;" vertex="1" parent="1">
+      <mxGeometry x="20" y="10" width="2110" height="55" as="geometry" />
+    </mxCell>
+    <mxCell id="HDR_sub" value="&lt;font color=&quot;#607d8b&quot; style=&quot;font-size:11px;&quot;&gt;Nautobot · Terraform · Ansible · pyATS · OPA · Vault · AI Agents — Closed-Loop Hub-and-Spoke Architecture · 2026&lt;/font&gt;" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;" vertex="1" parent="1">
+      <mxGeometry x="20" y="63" width="2110" height="22" as="geometry" />
+    </mxCell>
+
+    <!-- ====== LEFT COLUMN: Knowledge & Context Layer ====== -->
+    <mxCell id="KNOW_bg" value="" style="rounded=12;whiteSpace=wrap;html=1;fillColor=#e0f2f1;strokeColor=#004d40;strokeWidth=2;" vertex="1" parent="1">
+      <mxGeometry x="20" y="90" width="315" height="420" as="geometry" />
+    </mxCell>
+    <mxCell id="KNOW_banner" value="" style="rounded=8;whiteSpace=wrap;html=1;fillColor=#00695c;strokeColor=none;" vertex="1" parent="1">
+      <mxGeometry x="20" y="90" width="315" height="30" as="geometry" />
+    </mxCell>
+    <mxCell id="KNOW_title" value="&lt;b&gt;&lt;font color=&quot;#ffffff&quot; style=&quot;font-size:12px;&quot;&gt;Knowledge &amp;amp; Context Layer&lt;/font&gt;&lt;/b&gt;" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;" vertex="1" parent="1">
+      <mxGeometry x="20" y="90" width="315" height="30" as="geometry" />
+    </mxCell>
+    <mxCell id="KNOW_content" value="&lt;font style=&quot;font-size:10px;&quot; color=&quot;#004d40&quot;&gt;&lt;b&gt;Technologies:&lt;/b&gt;&lt;br&gt;&lt;/font&gt;&lt;table cellpadding=&quot;2&quot; width=&quot;95%&quot;&gt;&lt;tr&gt;&lt;td style=&quot;background:#00897b;color:#fff;border-radius:4px;padding:3px 6px;font-size:10px;&quot;&gt;&lt;b&gt;Obsidian&lt;/b&gt;&lt;/td&gt;&lt;td style=&quot;background:#00897b;color:#fff;border-radius:4px;padding:3px 6px;font-size:10px;&quot;&gt;&lt;b&gt;Git&lt;/b&gt;&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&quot;background:#00897b;color:#fff;border-radius:4px;padding:3px 6px;font-size:10px;&quot;&gt;&lt;b&gt;MkDocs&lt;/b&gt;&lt;/td&gt;&lt;td style=&quot;background:#00897b;color:#fff;border-radius:4px;padding:3px 6px;font-size:10px;&quot;&gt;&lt;b&gt;Qdrant&lt;/b&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px;&quot; color=&quot;#004d40&quot;&gt;&lt;b&gt;Stores:&lt;/b&gt;&lt;br&gt;• Architecture Decisions&lt;br&gt;• Runbooks &amp;amp; Standards&lt;br&gt;• Diagrams &amp;amp; Policies&lt;br&gt;• Vector Embeddings (RAG)&lt;/font&gt;&lt;br&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px;&quot; color=&quot;#004d40&quot;&gt;&lt;b&gt;Purpose:&lt;/b&gt;&lt;br&gt;• AI Agent Context&lt;br&gt;• RAG for AI Queries&lt;br&gt;• Documentation Source&lt;/font&gt;&lt;br&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px;&quot; color=&quot;#00695c&quot;&gt;&lt;i&gt;AI Agents consume this layer&lt;br&gt;for contextual awareness&lt;/i&gt;&lt;/font&gt;" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=8;spacingTop=6;" vertex="1" parent="1">
+      <mxGeometry x="20" y="122" width="315" height="385" as="geometry" />
+    </mxCell>
+
+    <!-- ====== LEFT COLUMN: Secrets Management ====== -->
+    <mxCell id="SEC_bg" value="" style="rounded=12;whiteSpace=wrap;html=1;fillColor=#eceff1;strokeColor=#455a64;strokeWidth=2;" vertex="1" parent="1">
+      <mxGeometry x="20" y="525" width="315" height="225" as="geometry" />
+    </mxCell>
+    <mxCell id="SEC_banner" value="" style="rounded=8;whiteSpace=wrap;html=1;fillColor=#37474f;strokeColor=none;" vertex="1" parent="1">
+      <mxGeometry x="20" y="525" width="315" height="30" as="geometry" />
+    </mxCell>
+    <mxCell id="SEC_title" value="&lt;b&gt;&lt;font color=&quot;#ffffff&quot; style=&quot;font-size:12px;&quot;&gt;Secrets Management&lt;/font&gt;&lt;/b&gt;" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;" vertex="1" parent="1">
+      <mxGeometry x="20" y="525" width="315" height="30" as="geometry" />
+    </mxCell>
+    <mxCell id="SEC_content" value="&lt;table cellpadding=&quot;3&quot; width=&quot;95%&quot;&gt;&lt;tr&gt;&lt;td style=&quot;background:#546e7a;color:#fff;border-radius:4px;padding:3px 6px;font-size:10px;&quot;&gt;&lt;b&gt;HashiCorp Vault&lt;/b&gt;&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&quot;background:#546e7a;color:#fff;border-radius:4px;padding:3px 6px;font-size:10px;&quot;&gt;&lt;b&gt;Azure Key Vault&lt;/b&gt;&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&quot;background:#546e7a;color:#fff;border-radius:4px;padding:3px 6px;font-size:10px;&quot;&gt;&lt;b&gt;CyberArk&lt;/b&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px;&quot; color=&quot;#37474f&quot;&gt;• Credential Injection&lt;br&gt;• Dynamic Secrets&lt;br&gt;&lt;/font&gt;&lt;font style=&quot;font-size:9px;&quot; color=&quot;#546e7a&quot;&gt;&lt;i&gt;Used by CI/CD, Terraform &amp;amp; Ansible&lt;/i&gt;&lt;/font&gt;" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=8;spacingTop=5;" vertex="1" parent="1">
+      <mxGeometry x="20" y="557" width="315" height="190" as="geometry" />
+    </mxCell>
+
+    <!-- ====== TOP CENTER: Users & Consumers ====== -->
+    <mxCell id="USR_bg" value="" style="rounded=12;whiteSpace=wrap;html=1;fillColor=#e8f5e9;strokeColor=#2e7d32;strokeWidth=2;" vertex="1" parent="1">
+      <mxGeometry x="355" y="90" width="1060" height="105" as="geometry" />
+    </mxCell>
+    <mxCell id="USR_banner" value="" style="rounded=8;whiteSpace=wrap;html=1;fillColor=#388e3c;strokeColor=none;" vertex="1" parent="1">
+      <mxGeometry x="355" y="90" width="1060" height="28" as="geometry" />
+    </mxCell>
+    <mxCell id="USR_title" value="&lt;b&gt;&lt;font color=&quot;#ffffff&quot; style=&quot;font-size:13px;&quot;&gt;Users &amp;amp; Consumers&lt;/font&gt;&lt;/b&gt;" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;" vertex="1" parent="1">
+      <mxGeometry x="355" y="90" width="1060" height="28" as="geometry" />
+    </mxCell>
+    <mxCell id="USR_NE" value="&lt;b&gt;&lt;font style=&quot;font-size:10px;&quot;&gt;Network Engineers&lt;/font&gt;&lt;/b&gt;" style="rounded=6;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#388e3c;strokeWidth=1.5;align=center;" vertex="1" parent="1">
+      <mxGeometry x="373" y="126" width="155" height="55" as="geometry" />
+    </mxCell>
+    <mxCell id="USR_AT" value="&lt;b&gt;&lt;font style=&quot;font-size:10px;&quot;&gt;Application Teams&lt;/font&gt;&lt;/b&gt;" style="rounded=6;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#388e3c;strokeWidth=1.5;align=center;" vertex="1" parent="1">
+      <mxGeometry x="538" y="126" width="155" height="55" as="geometry" />
+    </mxCell>
+    <mxCell id="USR_SN" value="&lt;b&gt;&lt;font style=&quot;font-size:10px;&quot;&gt;ServiceNow&lt;/font&gt;&lt;/b&gt;" style="rounded=6;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#388e3c;strokeWidth=1.5;align=center;" vertex="1" parent="1">
+      <mxGeometry x="703" y="126" width="135" height="55" as="geometry" />
+    </mxCell>
+    <mxCell id="USR_TM" value="&lt;b&gt;&lt;font style=&quot;font-size:10px;&quot;&gt;Teams / Slack&lt;br&gt;ChatOps&lt;/font&gt;&lt;/b&gt;" style="rounded=6;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#388e3c;strokeWidth=1.5;align=center;" vertex="1" parent="1">
+      <mxGeometry x="848" y="126" width="155" height="55" as="geometry" />
+    </mxCell>
+    <mxCell id="USR_SP" value="&lt;b&gt;&lt;font style=&quot;font-size:10px;&quot;&gt;Self-Service Portal&lt;/font&gt;&lt;/b&gt;" style="rounded=6;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#388e3c;strokeWidth=1.5;align=center;" vertex="1" parent="1">
+      <mxGeometry x="1013" y="126" width="155" height="55" as="geometry" />
+    </mxCell>
+    <mxCell id="USR_API" value="&lt;b&gt;&lt;font style=&quot;font-size:10px;&quot;&gt;REST / API&lt;/font&gt;&lt;/b&gt;" style="rounded=6;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#388e3c;strokeWidth=1.5;align=center;" vertex="1" parent="1">
+      <mxGeometry x="1178" y="126" width="220" height="55" as="geometry" />
+    </mxCell>
+
+    <!-- ====== ORCHESTRATION & INTELLIGENCE ====== -->
+    <mxCell id="ORCH_bg" value="" style="rounded=12;whiteSpace=wrap;html=1;fillColor=#fce4ec;strokeColor=#880e4f;strokeWidth=2;" vertex="1" parent="1">
+      <mxGeometry x="355" y="212" width="1060" height="200" as="geometry" />
+    </mxCell>
+    <mxCell id="ORCH_banner" value="" style="rounded=8;whiteSpace=wrap;html=1;fillColor=#880e4f;strokeColor=none;" vertex="1" parent="1">
+      <mxGeometry x="355" y="212" width="1060" height="30" as="geometry" />
+    </mxCell>
+    <mxCell id="ORCH_title" value="&lt;b&gt;&lt;font color=&quot;#ffffff&quot; style=&quot;font-size:13px;&quot;&gt;Orchestration &amp;amp; Intelligence Layer&lt;/font&gt;&lt;/b&gt;" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;" vertex="1" parent="1">
+      <mxGeometry x="355" y="212" width="1060" height="30" as="geometry" />
+    </mxCell>
+    <mxCell id="ORCH_OAI" value="&lt;b&gt;&lt;font style=&quot;font-size:10px;&quot;&gt;OpenAI&lt;/font&gt;&lt;/b&gt;" style="rounded=6;whiteSpace=wrap;html=1;fillColor=#ad1457;strokeColor=none;fontColor=#ffffff;align=center;" vertex="1" parent="1">
+      <mxGeometry x="373" y="251" width="130" height="45" as="geometry" />
+    </mxCell>
+    <mxCell id="ORCH_CL" value="&lt;b&gt;&lt;font style=&quot;font-size:10px;&quot;&gt;Claude&lt;/font&gt;&lt;/b&gt;" style="rounded=6;whiteSpace=wrap;html=1;fillColor=#ad1457;strokeColor=none;fontColor=#ffffff;align=center;" vertex="1" parent="1">
+      <mxGeometry x="513" y="251" width="130" height="45" as="geometry" />
+    </mxCell>
+    <mxCell id="ORCH_LG" value="&lt;b&gt;&lt;font style=&quot;font-size:10px;&quot;&gt;LangGraph&lt;/font&gt;&lt;/b&gt;" style="rounded=6;whiteSpace=wrap;html=1;fillColor=#ad1457;strokeColor=none;fontColor=#ffffff;align=center;" vertex="1" parent="1">
+      <mxGeometry x="653" y="251" width="130" height="45" as="geometry" />
+    </mxCell>
+    <mxCell id="ORCH_MC" value="&lt;b&gt;&lt;font style=&quot;font-size:10px;&quot;&gt;MCP Servers&lt;/font&gt;&lt;/b&gt;" style="rounded=6;whiteSpace=wrap;html=1;fillColor=#ad1457;strokeColor=none;fontColor=#ffffff;align=center;" vertex="1" parent="1">
+      <mxGeometry x="793" y="251" width="130" height="45" as="geometry" />
+    </mxCell>
+    <mxCell id="ORCH_N8" value="&lt;b&gt;&lt;font style=&quot;font-size:10px;&quot;&gt;n8n&lt;/font&gt;&lt;/b&gt;" style="rounded=6;whiteSpace=wrap;html=1;fillColor=#ad1457;strokeColor=none;fontColor=#ffffff;align=center;" vertex="1" parent="1">
+      <mxGeometry x="933" y="251" width="130" height="45" as="geometry" />
+    </mxCell>
+    <mxCell id="ORCH_FA" value="&lt;b&gt;&lt;font style=&quot;font-size:10px;&quot;&gt;FastAPI&lt;br&gt;Platform API&lt;/font&gt;&lt;/b&gt;" style="rounded=6;whiteSpace=wrap;html=1;fillColor=#ad1457;strokeColor=none;fontColor=#ffffff;align=center;" vertex="1" parent="1">
+      <mxGeometry x="1073" y="251" width="130" height="45" as="geometry" />
+    </mxCell>
+    <mxCell id="ORCH_RESP" value="&lt;font style=&quot;font-size:10px;&quot; color=&quot;#880e4f&quot;&gt;&lt;b&gt;Responsibilities:&lt;/b&gt;  ChatOps  ·  Workflow Orchestration  ·  AI Agents  ·  Self-Service  ·  Change Planning  ·  Root Cause Analysis&lt;/font&gt;" style="rounded=6;whiteSpace=wrap;html=1;fillColor=#f8bbd0;strokeColor=#c2185b;strokeWidth=1;align=center;verticalAlign=middle;" vertex="1" parent="1">
+      <mxGeometry x="373" y="307" width="830" height="32" as="geometry" />
+    </mxCell>
+    <mxCell id="ORCH_EX" value="&lt;i&gt;&lt;font style=&quot;font-size:9px;&quot; color=&quot;#6a1b9a&quot;&gt;&quot;Create SAP Tenant with VRFs&quot;   &quot;Enable BFD on L3Out PROD&quot;   &quot;Show contract compliance for all tenants&quot;&lt;/font&gt;&lt;/i&gt;" style="rounded=6;whiteSpace=wrap;html=1;fillColor=#f3e5f5;strokeColor=#7b1fa2;strokeWidth=1;align=center;verticalAlign=middle;dashed=1;" vertex="1" parent="1">
+      <mxGeometry x="373" y="347" width="830" height="30" as="geometry" />
+    </mxCell>
+
+    <!-- ====== EVENT-DRIVEN AUTOMATION ====== -->
+    <mxCell id="EVT_bg" value="" style="rounded=12;whiteSpace=wrap;html=1;fillColor=#fff8e1;strokeColor=#f57f17;strokeWidth=2;" vertex="1" parent="1">
+      <mxGeometry x="355" y="428" width="1060" height="120" as="geometry" />
+    </mxCell>
+    <mxCell id="EVT_banner" value="" style="rounded=8;whiteSpace=wrap;html=1;fillColor=#f57f17;strokeColor=none;" vertex="1" parent="1">
+      <mxGeometry x="355" y="428" width="1060" height="28" as="geometry" />
+    </mxCell>
+    <mxCell id="EVT_title" value="&lt;b&gt;&lt;font color=&quot;#ffffff&quot; style=&quot;font-size:13px;&quot;&gt;Event-Driven Automation Layer&lt;/font&gt;&lt;/b&gt;" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;" vertex="1" parent="1">
+      <mxGeometry x="355" y="428" width="1060" height="28" as="geometry" />
+    </mxCell>
+    <mxCell id="EVT_KF" value="&lt;b&gt;&lt;font style=&quot;font-size:10px;&quot;&gt;Kafka&lt;/font&gt;&lt;/b&gt;" style="rounded=6;whiteSpace=wrap;html=1;fillColor=#ef6c00;strokeColor=none;fontColor=#ffffff;align=center;" vertex="1" parent="1">
+      <mxGeometry x="373" y="466" width="160" height="40" as="geometry" />
+    </mxCell>
+    <mxCell id="EVT_RB" value="&lt;b&gt;&lt;font style=&quot;font-size:10px;&quot;&gt;RabbitMQ&lt;/font&gt;&lt;/b&gt;" style="rounded=6;whiteSpace=wrap;html=1;fillColor=#ef6c00;strokeColor=none;fontColor=#ffffff;align=center;" vertex="1" parent="1">
+      <mxGeometry x="543" y="466" width="160" height="40" as="geometry" />
+    </mxCell>
+    <mxCell id="EVT_WH" value="&lt;b&gt;&lt;font style=&quot;font-size:10px;&quot;&gt;Webhooks&lt;/font&gt;&lt;/b&gt;" style="rounded=6;whiteSpace=wrap;html=1;fillColor=#ef6c00;strokeColor=none;fontColor=#ffffff;align=center;" vertex="1" parent="1">
+      <mxGeometry x="713" y="466" width="160" height="40" as="geometry" />
+    </mxCell>
+    <mxCell id="EVT_RESP" value="&lt;font style=&quot;font-size:10px;&quot; color=&quot;#e65100&quot;&gt;&lt;b&gt;Event Routing  ·  Notifications  ·  Workflow Triggers  ·  Async Processing&lt;/b&gt;&lt;/font&gt;" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=8;" vertex="1" parent="1">
+      <mxGeometry x="883" y="466" width="500" height="40" as="geometry" />
+    </mxCell>
+
+    <!-- ====== NAUTOBOT HUB — CENTRAL EMPHASIZED ====== -->
+    <mxCell id="NB_glow" value="" style="rounded=14;whiteSpace=wrap;html=1;fillColor=#0d47a1;strokeColor=#0d47a1;strokeWidth=6;opacity=20;" vertex="1" parent="1">
+      <mxGeometry x="347" y="562" width="1076" height="258" as="geometry" />
+    </mxCell>
+    <mxCell id="NB_bg" value="" style="rounded=12;whiteSpace=wrap;html=1;fillColor=#e3f2fd;strokeColor=#0d47a1;strokeWidth=3;" vertex="1" parent="1">
+      <mxGeometry x="355" y="568" width="1060" height="245" as="geometry" />
+    </mxCell>
+    <mxCell id="NB_banner" value="" style="rounded=8;whiteSpace=wrap;html=1;fillColor=#0d47a1;strokeColor=none;" vertex="1" parent="1">
+      <mxGeometry x="355" y="568" width="1060" height="34" as="geometry" />
+    </mxCell>
+    <mxCell id="NB_title" value="&lt;b&gt;&lt;font color=&quot;#ffffff&quot; style=&quot;font-size:15px;&quot;&gt;⭐  NAUTOBOT — Authoritative Source of Truth  (Platform Hub)&lt;/font&gt;&lt;/b&gt;" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;" vertex="1" parent="1">
+      <mxGeometry x="355" y="568" width="1060" height="34" as="geometry" />
+    </mxCell>
+    <mxCell id="NB_PL" value="&lt;font style=&quot;font-size:10px;&quot;&gt;Nautobot Core&lt;/font&gt;" style="rounded=6;whiteSpace=wrap;html=1;fillColor=#1565c0;strokeColor=none;fontColor=#ffffff;align=center;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="373" y="612" width="120" height="30" as="geometry" /></mxCell>
+    <mxCell id="NB_AP" value="&lt;font style=&quot;font-size:10px;&quot;&gt;ACI Plugin&lt;/font&gt;" style="rounded=6;whiteSpace=wrap;html=1;fillColor=#1565c0;strokeColor=none;fontColor=#ffffff;align=center;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="503" y="612" width="120" height="30" as="geometry" /></mxCell>
+    <mxCell id="NB_IP" value="&lt;font style=&quot;font-size:10px;&quot;&gt;IPAM&lt;/font&gt;" style="rounded=6;whiteSpace=wrap;html=1;fillColor=#1565c0;strokeColor=none;fontColor=#ffffff;align=center;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="633" y="612" width="90" height="30" as="geometry" /></mxCell>
+    <mxCell id="NB_TN" value="&lt;font style=&quot;font-size:10px;&quot;&gt;Tenants&lt;/font&gt;" style="rounded=6;whiteSpace=wrap;html=1;fillColor=#1565c0;strokeColor=none;fontColor=#ffffff;align=center;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="733" y="612" width="90" height="30" as="geometry" /></mxCell>
+    <mxCell id="NB_VR" value="&lt;font style=&quot;font-size:10px;&quot;&gt;VRFs&lt;/font&gt;" style="rounded=6;whiteSpace=wrap;html=1;fillColor=#1565c0;strokeColor=none;fontColor=#ffffff;align=center;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="833" y="612" width="90" height="30" as="geometry" /></mxCell>
+    <mxCell id="NB_EP" value="&lt;font style=&quot;font-size:10px;&quot;&gt;EPGs&lt;/font&gt;" style="rounded=6;whiteSpace=wrap;html=1;fillColor=#1565c0;strokeColor=none;fontColor=#ffffff;align=center;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="933" y="612" width="90" height="30" as="geometry" /></mxCell>
+    <mxCell id="NB_CO" value="&lt;font style=&quot;font-size:10px;&quot;&gt;Contracts&lt;/font&gt;" style="rounded=6;whiteSpace=wrap;html=1;fillColor=#1565c0;strokeColor=none;fontColor=#ffffff;align=center;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="1033" y="612" width="90" height="30" as="geometry" /></mxCell>
+    <mxCell id="NB_L3" value="&lt;font style=&quot;font-size:10px;&quot;&gt;L3Outs&lt;/font&gt;" style="rounded=6;whiteSpace=wrap;html=1;fillColor=#1565c0;strokeColor=none;fontColor=#ffffff;align=center;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="1133" y="612" width="90" height="30" as="geometry" /></mxCell>
+    <mxCell id="NB_BD" value="&lt;font style=&quot;font-size:10px;&quot;&gt;Bridge Domains&lt;/font&gt;" style="rounded=6;whiteSpace=wrap;html=1;fillColor=#1565c0;strokeColor=none;fontColor=#ffffff;align=center;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="1243" y="612" width="115" height="30" as="geometry" /></mxCell>
+    <mxCell id="NB_note1" value="&lt;font style=&quot;font-size:10px;&quot; color=&quot;#0d47a1&quot;&gt;&lt;b&gt;⚠ Governance:&lt;/b&gt;  All desired-state changes originate here.  No direct configuration in APIC.&lt;/font&gt;" style="rounded=6;whiteSpace=wrap;html=1;fillColor=#bbdefb;strokeColor=#1565c0;strokeWidth=1.5;align=center;verticalAlign=middle;" vertex="1" parent="1">
+      <mxGeometry x="373" y="653" width="560" height="36" as="geometry" />
+    </mxCell>
+    <mxCell id="NB_AM" value="&lt;font style=&quot;font-size:10px;&quot;&gt;App Models&lt;/font&gt;" style="rounded=6;whiteSpace=wrap;html=1;fillColor=#1976d2;strokeColor=none;fontColor=#ffffff;align=center;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="943" y="653" width="120" height="36" as="geometry" /></mxCell>
+    <mxCell id="NB_VL" value="&lt;font style=&quot;font-size:10px;&quot;&gt;VLANs&lt;/font&gt;" style="rounded=6;whiteSpace=wrap;html=1;fillColor=#1976d2;strokeColor=none;fontColor=#ffffff;align=center;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="1073" y="653" width="90" height="36" as="geometry" /></mxCell>
+    <mxCell id="NB_PF" value="&lt;font style=&quot;font-size:10px;&quot;&gt;Prefixes&lt;/font&gt;" style="rounded=6;whiteSpace=wrap;html=1;fillColor=#1976d2;strokeColor=none;fontColor=#ffffff;align=center;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="1173" y="653" width="90" height="36" as="geometry" /></mxCell>
+    <mxCell id="NB_RL" value="&lt;font style=&quot;font-size:10px;&quot;&gt;Relationships&lt;/font&gt;" style="rounded=6;whiteSpace=wrap;html=1;fillColor=#1976d2;strokeColor=none;fontColor=#ffffff;align=center;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="1273" y="653" width="115" height="36" as="geometry" /></mxCell>
+    <mxCell id="NB_note2" value="&lt;font style=&quot;font-size:11px;&quot; color=&quot;#0d47a1&quot;&gt;&lt;b&gt;NAUTOBOT is the central hub.  All platform components read from and write back to Nautobot.&lt;/b&gt;&lt;/font&gt;" style="rounded=6;whiteSpace=wrap;html=1;fillColor=#e3f2fd;strokeColor=#0d47a1;strokeWidth=2;align=center;verticalAlign=middle;" vertex="1" parent="1">
+      <mxGeometry x="373" y="700" width="1000" height="100" as="geometry" />
+    </mxCell>
+
+    <!-- ====== RIGHT SERVICE: Observability ====== -->
+    <mxCell id="OBS_bg" value="" style="rounded=12;whiteSpace=wrap;html=1;fillColor=#e8eaf6;strokeColor=#283593;strokeWidth=2;" vertex="1" parent="1">
+      <mxGeometry x="1435" y="525" width="305" height="410" as="geometry" />
+    </mxCell>
+    <mxCell id="OBS_banner" value="" style="rounded=8;whiteSpace=wrap;html=1;fillColor=#283593;strokeColor=none;" vertex="1" parent="1">
+      <mxGeometry x="1435" y="525" width="305" height="30" as="geometry" />
+    </mxCell>
+    <mxCell id="OBS_title" value="&lt;b&gt;&lt;font color=&quot;#ffffff&quot; style=&quot;font-size:12px;&quot;&gt;Telemetry &amp;amp; Observability&lt;/font&gt;&lt;/b&gt;" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;" vertex="1" parent="1">
+      <mxGeometry x="1435" y="525" width="305" height="30" as="geometry" />
+    </mxCell>
+    <mxCell id="OBS_PR" value="&lt;b&gt;&lt;font style=&quot;font-size:10px;&quot;&gt;Prometheus&lt;/font&gt;&lt;/b&gt;" style="rounded=6;whiteSpace=wrap;html=1;fillColor=#3949ab;strokeColor=none;fontColor=#ffffff;align=center;" vertex="1" parent="1"><mxGeometry x="1453" y="565" width="125" height="40" as="geometry" /></mxCell>
+    <mxCell id="OBS_GR" value="&lt;b&gt;&lt;font style=&quot;font-size:10px;&quot;&gt;Grafana&lt;/font&gt;&lt;/b&gt;" style="rounded=6;whiteSpace=wrap;html=1;fillColor=#3949ab;strokeColor=none;fontColor=#ffffff;align=center;" vertex="1" parent="1"><mxGeometry x="1588" y="565" width="125" height="40" as="geometry" /></mxCell>
+    <mxCell id="OBS_EL" value="&lt;b&gt;&lt;font style=&quot;font-size:10px;&quot;&gt;ELK Stack&lt;/font&gt;&lt;/b&gt;" style="rounded=6;whiteSpace=wrap;html=1;fillColor=#3949ab;strokeColor=none;fontColor=#ffffff;align=center;" vertex="1" parent="1"><mxGeometry x="1453" y="615" width="125" height="40" as="geometry" /></mxCell>
+    <mxCell id="OBS_LK" value="&lt;b&gt;&lt;font style=&quot;font-size:10px;&quot;&gt;Loki&lt;/font&gt;&lt;/b&gt;" style="rounded=6;whiteSpace=wrap;html=1;fillColor=#3949ab;strokeColor=none;fontColor=#ffffff;align=center;" vertex="1" parent="1"><mxGeometry x="1588" y="615" width="125" height="40" as="geometry" /></mxCell>
+    <mxCell id="OBS_COLL" value="&lt;font style=&quot;font-size:10px;&quot; color=&quot;#1a237e&quot;&gt;&lt;b&gt;Collects from:&lt;/b&gt;&lt;br&gt;• Terraform pipeline&lt;br&gt;• Validation results&lt;br&gt;• Ansible health data&lt;br&gt;• Infrastructure metrics&lt;br&gt;• CI/CD pipeline runs&lt;/font&gt;" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=8;spacingTop=5;" vertex="1" parent="1">
+      <mxGeometry x="1435" y="662" width="305" height="100" as="geometry" />
+    </mxCell>
+    <mxCell id="OBS_OUT" value="&lt;font style=&quot;font-size:9px;&quot; color=&quot;#283593&quot;&gt;&lt;i&gt;Metrics, Logs &amp;amp; Alerts&lt;br&gt;feed back to Nautobot&lt;/i&gt;&lt;/font&gt;" style="rounded=6;whiteSpace=wrap;html=1;fillColor=#c5cae9;strokeColor=#3949ab;strokeWidth=1;align=center;verticalAlign=middle;" vertex="1" parent="1">
+      <mxGeometry x="1453" y="770" width="269" height="50" as="geometry" />
+    </mxCell>
+    <mxCell id="OBS_note" value="&lt;font style=&quot;font-size:9px;&quot; color=&quot;#283593&quot;&gt;&lt;b&gt;Dashboards · Alerts · SLOs&lt;/b&gt;&lt;/font&gt;" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;" vertex="1" parent="1">
+      <mxGeometry x="1435" y="826" width="305" height="100" as="geometry" />
+    </mxCell>
+
+    <!-- ====== LEFT PIPELINE: Intent Generation Layer ====== -->
+    <mxCell id="INTENT_bg" value="" style="rounded=12;whiteSpace=wrap;html=1;fillColor=#fff3e0;strokeColor=#e65100;strokeWidth=2;" vertex="1" parent="1">
+      <mxGeometry x="355" y="830" width="490" height="160" as="geometry" />
+    </mxCell>
+    <mxCell id="INTENT_banner" value="" style="rounded=8;whiteSpace=wrap;html=1;fillColor=#bf360c;strokeColor=none;" vertex="1" parent="1">
+      <mxGeometry x="355" y="830" width="490" height="28" as="geometry" />
+    </mxCell>
+    <mxCell id="INTENT_title" value="&lt;b&gt;&lt;font color=&quot;#ffffff&quot; style=&quot;font-size:12px;&quot;&gt;Intent Generation Layer&lt;/font&gt;&lt;/b&gt;" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;" vertex="1" parent="1">
+      <mxGeometry x="355" y="830" width="490" height="28" as="geometry" />
+    </mxCell>
+    <mxCell id="INTENT_PY" value="&lt;b&gt;&lt;font style=&quot;font-size:10px;&quot;&gt;Python&lt;/font&gt;&lt;/b&gt;" style="rounded=6;whiteSpace=wrap;html=1;fillColor=#e64a19;strokeColor=none;fontColor=#ffffff;align=center;" vertex="1" parent="1"><mxGeometry x="373" y="868" width="100" height="40" as="geometry" /></mxCell>
+    <mxCell id="INTENT_PD" value="&lt;b&gt;&lt;font style=&quot;font-size:10px;&quot;&gt;Pydantic&lt;/font&gt;&lt;/b&gt;" style="rounded=6;whiteSpace=wrap;html=1;fillColor=#e64a19;strokeColor=none;fontColor=#ffffff;align=center;" vertex="1" parent="1"><mxGeometry x="483" y="868" width="100" height="40" as="geometry" /></mxCell>
+    <mxCell id="INTENT_J2" value="&lt;b&gt;&lt;font style=&quot;font-size:10px;&quot;&gt;Jinja2&lt;/font&gt;&lt;/b&gt;" style="rounded=6;whiteSpace=wrap;html=1;fillColor=#e64a19;strokeColor=none;fontColor=#ffffff;align=center;" vertex="1" parent="1"><mxGeometry x="593" y="868" width="100" height="40" as="geometry" /></mxCell>
+    <mxCell id="INTENT_NAC" value="&lt;b&gt;&lt;font style=&quot;font-size:10px;&quot;&gt;NetAsCode&lt;/font&gt;&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:8px;&quot;&gt;(Optional)&lt;/font&gt;" style="rounded=6;whiteSpace=wrap;html=1;fillColor=#ff8f00;strokeColor=none;fontColor=#ffffff;align=center;" vertex="1" parent="1"><mxGeometry x="703" y="868" width="120" height="40" as="geometry" /></mxCell>
+    <mxCell id="INTENT_note" value="&lt;font style=&quot;font-size:9px;&quot; color=&quot;#bf360c&quot;&gt;Generate TF Artifacts · Generate YAML · Generate Models&lt;/font&gt;" style="rounded=4;whiteSpace=wrap;html=1;fillColor=#ffccbc;strokeColor=#e64a19;strokeWidth=1;align=center;verticalAlign=middle;" vertex="1" parent="1">
+      <mxGeometry x="373" y="917" width="450" height="28" as="geometry" />
+    </mxCell>
+
+    <!-- ====== LEFT PIPELINE: Version Control ====== -->
+    <mxCell id="VCS_bg" value="" style="rounded=12;whiteSpace=wrap;html=1;fillColor=#f3e5f5;strokeColor=#6a1b9a;strokeWidth=2;" vertex="1" parent="1">
+      <mxGeometry x="355" y="1005" width="490" height="140" as="geometry" />
+    </mxCell>
+    <mxCell id="VCS_banner" value="" style="rounded=8;whiteSpace=wrap;html=1;fillColor=#6a1b9a;strokeColor=none;" vertex="1" parent="1">
+      <mxGeometry x="355" y="1005" width="490" height="28" as="geometry" />
+    </mxCell>
+    <mxCell id="VCS_title" value="&lt;b&gt;&lt;font color=&quot;#ffffff&quot; style=&quot;font-size:12px;&quot;&gt;Version Control&lt;/font&gt;&lt;/b&gt;" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;" vertex="1" parent="1">
+      <mxGeometry x="355" y="1005" width="490" height="28" as="geometry" />
+    </mxCell>
+    <mxCell id="VCS_GH" value="&lt;b&gt;&lt;font style=&quot;font-size:11px;&quot;&gt;GitHub&lt;/font&gt;&lt;/b&gt;" style="rounded=6;whiteSpace=wrap;html=1;fillColor=#7b1fa2;strokeColor=none;fontColor=#ffffff;align=center;" vertex="1" parent="1"><mxGeometry x="373" y="1043" width="200" height="45" as="geometry" /></mxCell>
+    <mxCell id="VCS_GL" value="&lt;b&gt;&lt;font style=&quot;font-size:11px;&quot;&gt;GitLab&lt;/font&gt;&lt;/b&gt;" style="rounded=6;whiteSpace=wrap;html=1;fillColor=#7b1fa2;strokeColor=none;fontColor=#ffffff;align=center;" vertex="1" parent="1"><mxGeometry x="583" y="1043" width="200" height="45" as="geometry" /></mxCell>
+    <mxCell id="VCS_note" value="&lt;font style=&quot;font-size:9px;&quot; color=&quot;#6a1b9a&quot;&gt;Pull Requests  ·  Code Reviews  ·  Audit Trail  ·  Rollback&lt;/font&gt;" style="rounded=4;whiteSpace=wrap;html=1;fillColor=#e1bee7;strokeColor=#7b1fa2;strokeWidth=1;align=center;verticalAlign=middle;" vertex="1" parent="1">
+      <mxGeometry x="373" y="1096" width="450" height="25" as="geometry" />
+    </mxCell>
+
+    <!-- ====== LEFT PIPELINE: Policy & Governance ====== -->
+    <mxCell id="POL_bg" value="" style="rounded=12;whiteSpace=wrap;html=1;fillColor=#ffebee;strokeColor=#b71c1c;strokeWidth=2;" vertex="1" parent="1">
+      <mxGeometry x="355" y="1160" width="490" height="140" as="geometry" />
+    </mxCell>
+    <mxCell id="POL_banner" value="" style="rounded=8;whiteSpace=wrap;html=1;fillColor=#c62828;strokeColor=none;" vertex="1" parent="1">
+      <mxGeometry x="355" y="1160" width="490" height="28" as="geometry" />
+    </mxCell>
+    <mxCell id="POL_title" value="&lt;b&gt;&lt;font color=&quot;#ffffff&quot; style=&quot;font-size:12px;&quot;&gt;Policy &amp;amp; Governance (OPA)&lt;/font&gt;&lt;/b&gt;" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;" vertex="1" parent="1">
+      <mxGeometry x="355" y="1160" width="490" height="28" as="geometry" />
+    </mxCell>
+    <mxCell id="POL_OPA" value="&lt;b&gt;&lt;font style=&quot;font-size:12px;&quot;&gt;Open Policy Agent&lt;br&gt;(OPA)&lt;/font&gt;&lt;/b&gt;" style="rounded=6;whiteSpace=wrap;html=1;fillColor=#d32f2f;strokeColor=none;fontColor=#ffffff;align=center;" vertex="1" parent="1"><mxGeometry x="373" y="1198" width="240" height="55" as="geometry" /></mxCell>
+    <mxCell id="POL_RESP" value="&lt;font style=&quot;font-size:10px;&quot; color=&quot;#b71c1c&quot;&gt;• Naming Validation&lt;br&gt;• Security Rules&lt;br&gt;• Compliance Checks&lt;br&gt;• Approval Gates&lt;/font&gt;" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=8;" vertex="1" parent="1">
+      <mxGeometry x="623" y="1198" width="200" height="80" as="geometry" />
+    </mxCell>
+
+    <!-- ====== LEFT PIPELINE: CI/CD ====== -->
+    <mxCell id="CICD_bg" value="" style="rounded=12;whiteSpace=wrap;html=1;fillColor=#e8eaf6;strokeColor=#1a237e;strokeWidth=2;" vertex="1" parent="1">
+      <mxGeometry x="355" y="1315" width="490" height="165" as="geometry" />
+    </mxCell>
+    <mxCell id="CICD_banner" value="" style="rounded=8;whiteSpace=wrap;html=1;fillColor=#1a237e;strokeColor=none;" vertex="1" parent="1">
+      <mxGeometry x="355" y="1315" width="490" height="28" as="geometry" />
+    </mxCell>
+    <mxCell id="CICD_title" value="&lt;b&gt;&lt;font color=&quot;#ffffff&quot; style=&quot;font-size:12px;&quot;&gt;CI/CD Pipeline&lt;/font&gt;&lt;/b&gt;" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;" vertex="1" parent="1">
+      <mxGeometry x="355" y="1315" width="490" height="28" as="geometry" />
+    </mxCell>
+    <mxCell id="CICD_S1" value="&lt;b&gt;&lt;font style=&quot;font-size:9px;&quot;&gt;Generate&lt;/font&gt;&lt;/b&gt;" style="rounded=4;whiteSpace=wrap;html=1;fillColor=#3949ab;strokeColor=none;fontColor=#ffffff;align=center;" vertex="1" parent="1"><mxGeometry x="365" y="1353" width="80" height="35" as="geometry" /></mxCell>
+    <mxCell id="CICD_S2" value="&lt;b&gt;&lt;font style=&quot;font-size:9px;&quot;&gt;Plan&lt;/font&gt;&lt;/b&gt;" style="rounded=4;whiteSpace=wrap;html=1;fillColor=#3949ab;strokeColor=none;fontColor=#ffffff;align=center;" vertex="1" parent="1"><mxGeometry x="453" y="1353" width="80" height="35" as="geometry" /></mxCell>
+    <mxCell id="CICD_S3" value="&lt;b&gt;&lt;font style=&quot;font-size:9px;&quot;&gt;Review&lt;/font&gt;&lt;/b&gt;" style="rounded=4;whiteSpace=wrap;html=1;fillColor=#3949ab;strokeColor=none;fontColor=#ffffff;align=center;" vertex="1" parent="1"><mxGeometry x="541" y="1353" width="80" height="35" as="geometry" /></mxCell>
+    <mxCell id="CICD_S4" value="&lt;b&gt;&lt;font style=&quot;font-size:9px;&quot;&gt;Approve&lt;/font&gt;&lt;/b&gt;" style="rounded=4;whiteSpace=wrap;html=1;fillColor=#c62828;strokeColor=none;fontColor=#ffffff;align=center;" vertex="1" parent="1"><mxGeometry x="629" y="1353" width="80" height="35" as="geometry" /></mxCell>
+    <mxCell id="CICD_S5" value="&lt;b&gt;&lt;font style=&quot;font-size:9px;&quot;&gt;Apply&lt;/font&gt;&lt;/b&gt;" style="rounded=4;whiteSpace=wrap;html=1;fillColor=#1b5e20;strokeColor=none;fontColor=#ffffff;align=center;" vertex="1" parent="1"><mxGeometry x="717" y="1353" width="80" height="35" as="geometry" /></mxCell>
+    <mxCell id="CICD_PS1" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#7986cb;strokeWidth=1.5;endArrow=open;endFill=0;" edge="1" parent="1" source="CICD_S1" target="CICD_S2"><mxGeometry relative="1" as="geometry" /></mxCell>
+    <mxCell id="CICD_PS2" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#7986cb;strokeWidth=1.5;endArrow=open;endFill=0;" edge="1" parent="1" source="CICD_S2" target="CICD_S3"><mxGeometry relative="1" as="geometry" /></mxCell>
+    <mxCell id="CICD_PS3" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#7986cb;strokeWidth=1.5;endArrow=open;endFill=0;" edge="1" parent="1" source="CICD_S3" target="CICD_S4"><mxGeometry relative="1" as="geometry" /></mxCell>
+    <mxCell id="CICD_PS4" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#7986cb;strokeWidth=1.5;endArrow=open;endFill=0;" edge="1" parent="1" source="CICD_S4" target="CICD_S5"><mxGeometry relative="1" as="geometry" /></mxCell>
+    <mxCell id="CICD_TOOLS" value="&lt;font style=&quot;font-size:9px;&quot; color=&quot;#1a237e&quot;&gt;&lt;b&gt;GitHub Actions  ·  GitLab CI  ·  Azure DevOps  ·  Jenkins&lt;/b&gt;&lt;br&gt;&lt;i&gt;Uses Vault/Key Vault for secrets injection&lt;/i&gt;&lt;/font&gt;" style="rounded=4;whiteSpace=wrap;html=1;fillColor=#c5cae9;strokeColor=#3949ab;strokeWidth=1;align=center;verticalAlign=middle;" vertex="1" parent="1">
+      <mxGeometry x="365" y="1396" width="432" height="36" as="geometry" />
+    </mxCell>
+
+    <!-- ====== LEFT PIPELINE: Terraform ====== -->
+    <mxCell id="TF_bg" value="" style="rounded=12;whiteSpace=wrap;html=1;fillColor=#e0f2f1;strokeColor=#004d40;strokeWidth=2;" vertex="1" parent="1">
+      <mxGeometry x="355" y="1495" width="490" height="185" as="geometry" />
+    </mxCell>
+    <mxCell id="TF_banner" value="" style="rounded=8;whiteSpace=wrap;html=1;fillColor=#00695c;strokeColor=none;" vertex="1" parent="1">
+      <mxGeometry x="355" y="1495" width="490" height="28" as="geometry" />
+    </mxCell>
+    <mxCell id="TF_title" value="&lt;b&gt;&lt;font color=&quot;#ffffff&quot; style=&quot;font-size:12px;&quot;&gt;Terraform Desired-State Engine&lt;/font&gt;&lt;/b&gt;" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;" vertex="1" parent="1">
+      <mxGeometry x="355" y="1495" width="490" height="28" as="geometry" />
+    </mxCell>
+    <mxCell id="TF_TF" value="&lt;b&gt;&lt;font style=&quot;font-size:11px;&quot;&gt;Terraform&lt;/font&gt;&lt;/b&gt;" style="rounded=6;whiteSpace=wrap;html=1;fillColor=#00897b;strokeColor=none;fontColor=#ffffff;align=center;" vertex="1" parent="1"><mxGeometry x="373" y="1533" width="120" height="40" as="geometry" /></mxCell>
+    <mxCell id="TF_ACI" value="&lt;b&gt;&lt;font style=&quot;font-size:10px;&quot;&gt;Cisco ACI&lt;br&gt;Provider&lt;/font&gt;&lt;/b&gt;" style="rounded=6;whiteSpace=wrap;html=1;fillColor=#00897b;strokeColor=none;fontColor=#ffffff;align=center;" vertex="1" parent="1"><mxGeometry x="503" y="1533" width="120" height="40" as="geometry" /></mxCell>
+    <mxCell id="TF_STATE" value="&lt;b&gt;&lt;font style=&quot;font-size:10px;&quot;&gt;State Backend&lt;br&gt;&lt;/font&gt;&lt;/b&gt;&lt;font style=&quot;font-size:9px;&quot;&gt;Azure Storage / S3&lt;/font&gt;" style="rounded=6;whiteSpace=wrap;html=1;fillColor=#004d40;strokeColor=none;fontColor=#ffffff;align=center;" vertex="1" parent="1"><mxGeometry x="633" y="1533" width="175" height="40" as="geometry" /></mxCell>
+    <mxCell id="TF_RESP" value="&lt;font style=&quot;font-size:10px;&quot; color=&quot;#004d40&quot;&gt;&lt;b&gt;Desired-State Enforcement  ·  Drift Reconciliation  ·  State Management&lt;/b&gt;&lt;/font&gt;" style="rounded=4;whiteSpace=wrap;html=1;fillColor=#b2dfdb;strokeColor=#004d40;strokeWidth=1.5;align=center;verticalAlign=middle;" vertex="1" parent="1">
+      <mxGeometry x="373" y="1583" width="450" height="30" as="geometry" />
+    </mxCell>
+    <mxCell id="TF_GOV" value="&lt;font style=&quot;font-size:9px;&quot; color=&quot;#004d40&quot;&gt;&lt;b&gt;⚠ Terraform-owned objects must not be modified directly in APIC&lt;/b&gt;&lt;/font&gt;" style="rounded=4;whiteSpace=wrap;html=1;fillColor=#a7ffeb;strokeColor=#00695c;strokeWidth=1;align=center;verticalAlign=middle;dashed=1;" vertex="1" parent="1">
+      <mxGeometry x="373" y="1622" width="450" height="28" as="geometry" />
+    </mxCell>
+
+    <!-- ====== RIGHT PARALLEL: Ansible Operations ====== -->
+    <mxCell id="ANS_bg" value="" style="rounded=12;whiteSpace=wrap;html=1;fillColor=#fff8e1;strokeColor=#e65100;strokeWidth=2;" vertex="1" parent="1">
+      <mxGeometry x="875" y="830" width="490" height="210" as="geometry" />
+    </mxCell>
+    <mxCell id="ANS_banner" value="" style="rounded=8;whiteSpace=wrap;html=1;fillColor=#e65100;strokeColor=none;" vertex="1" parent="1">
+      <mxGeometry x="875" y="830" width="490" height="28" as="geometry" />
+    </mxCell>
+    <mxCell id="ANS_title" value="&lt;b&gt;&lt;font color=&quot;#ffffff&quot; style=&quot;font-size:12px;&quot;&gt;Operational Automation (Ansible)&lt;/font&gt;&lt;/b&gt;" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;" vertex="1" parent="1">
+      <mxGeometry x="875" y="830" width="490" height="28" as="geometry" />
+    </mxCell>
+    <mxCell id="ANS_ANS" value="&lt;b&gt;&lt;font style=&quot;font-size:14px;&quot;&gt;Ansible&lt;/font&gt;&lt;/b&gt;" style="rounded=6;whiteSpace=wrap;html=1;fillColor=#f4511e;strokeColor=none;fontColor=#ffffff;align=center;" vertex="1" parent="1"><mxGeometry x="893" y="868" width="140" height="50" as="geometry" /></mxCell>
+    <mxCell id="ANS_RESP" value="&lt;font style=&quot;font-size:10px;&quot; color=&quot;#bf360c&quot;&gt;• Health Checks&lt;br&gt;• Reporting&lt;br&gt;• Backups&lt;br&gt;• Inventory Collection&lt;br&gt;• Fault Collection&lt;br&gt;• Data Enrichment&lt;/font&gt;" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=8;spacingTop=5;" vertex="1" parent="1">
+      <mxGeometry x="1043" y="860" width="300" height="120" as="geometry" />
+    </mxCell>
+    <mxCell id="ANS_NOTE" value="&lt;font style=&quot;font-size:9px;&quot; color=&quot;#e65100&quot;&gt;&lt;b&gt;Does NOT own desired-state deployment.  Day-2 operations only.&lt;/b&gt;&lt;/font&gt;" style="rounded=4;whiteSpace=wrap;html=1;fillColor=#ffe0b2;strokeColor=#e65100;strokeWidth=1;align=center;verticalAlign=middle;dashed=1;" vertex="1" parent="1">
+      <mxGeometry x="893" y="1000" width="450" height="28" as="geometry" />
+    </mxCell>
+
+    <!-- ====== RIGHT PARALLEL: Validation & Compliance ====== -->
+    <mxCell id="VAL_bg" value="" style="rounded=12;whiteSpace=wrap;html=1;fillColor=#e8f5e9;strokeColor=#1b5e20;strokeWidth=2;" vertex="1" parent="1">
+      <mxGeometry x="875" y="1060" width="490" height="290" as="geometry" />
+    </mxCell>
+    <mxCell id="VAL_banner" value="" style="rounded=8;whiteSpace=wrap;html=1;fillColor=#2e7d32;strokeColor=none;" vertex="1" parent="1">
+      <mxGeometry x="875" y="1060" width="490" height="28" as="geometry" />
+    </mxCell>
+    <mxCell id="VAL_title" value="&lt;b&gt;&lt;font color=&quot;#ffffff&quot; style=&quot;font-size:12px;&quot;&gt;Validation &amp;amp; Compliance&lt;/font&gt;&lt;/b&gt;" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;" vertex="1" parent="1">
+      <mxGeometry x="875" y="1060" width="490" height="28" as="geometry" />
+    </mxCell>
+    <mxCell id="VAL_PA" value="&lt;b&gt;&lt;font style=&quot;font-size:11px;&quot;&gt;pyATS&lt;/font&gt;&lt;/b&gt;" style="rounded=6;whiteSpace=wrap;html=1;fillColor=#388e3c;strokeColor=none;fontColor=#ffffff;align=center;" vertex="1" parent="1"><mxGeometry x="893" y="1098" width="130" height="40" as="geometry" /></mxCell>
+    <mxCell id="VAL_CF" value="&lt;b&gt;&lt;font style=&quot;font-size:11px;&quot;&gt;Catfish&lt;/font&gt;&lt;/b&gt;" style="rounded=6;whiteSpace=wrap;html=1;fillColor=#388e3c;strokeColor=none;fontColor=#ffffff;align=center;" vertex="1" parent="1"><mxGeometry x="1033" y="1098" width="130" height="40" as="geometry" /></mxCell>
+    <mxCell id="VAL_CP" value="&lt;b&gt;&lt;font style=&quot;font-size:10px;&quot;&gt;Custom Python Tests&lt;/font&gt;&lt;/b&gt;" style="rounded=6;whiteSpace=wrap;html=1;fillColor=#388e3c;strokeColor=none;fontColor=#ffffff;align=center;" vertex="1" parent="1"><mxGeometry x="1173" y="1098" width="170" height="40" as="geometry" /></mxCell>
+    <mxCell id="VAL_PRE" value="&lt;b&gt;&lt;font style=&quot;font-size:10px;&quot; color=&quot;#1b5e20&quot;&gt;Pre-Deployment:&lt;/font&gt;&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px;&quot; color=&quot;#1b5e20&quot;&gt;• Schema Validation&lt;br&gt;• Dependency Checks&lt;br&gt;• Policy Validation&lt;/font&gt;" style="rounded=6;whiteSpace=wrap;html=1;fillColor=#c8e6c9;strokeColor=#2e7d32;strokeWidth=1;align=left;verticalAlign=top;spacingLeft=8;" vertex="1" parent="1">
+      <mxGeometry x="893" y="1148" width="220" height="95" as="geometry" /></mxCell>
+    <mxCell id="VAL_POST" value="&lt;b&gt;&lt;font style=&quot;font-size:10px;&quot; color=&quot;#1b5e20&quot;&gt;Post-Deployment:&lt;/font&gt;&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px;&quot; color=&quot;#1b5e20&quot;&gt;• Intent Verification&lt;br&gt;• Compliance&lt;br&gt;• Drift Detection&lt;/font&gt;" style="rounded=6;whiteSpace=wrap;html=1;fillColor=#c8e6c9;strokeColor=#2e7d32;strokeWidth=1;align=left;verticalAlign=top;spacingLeft=8;" vertex="1" parent="1">
+      <mxGeometry x="1123" y="1148" width="220" height="95" as="geometry" /></mxCell>
+    <mxCell id="VAL_OUT" value="&lt;font style=&quot;font-size:9px;&quot; color=&quot;#1b5e20&quot;&gt;Output:  Pass / Fail  ·  Compliance Status  ·  Drift Findings  →  Nautobot&lt;/font&gt;" style="rounded=4;whiteSpace=wrap;html=1;fillColor=#a5d6a7;strokeColor=#2e7d32;strokeWidth=1;align=center;verticalAlign=middle;" vertex="1" parent="1">
+      <mxGeometry x="893" y="1252" width="450" height="25" as="geometry" />
+    </mxCell>
+    <mxCell id="VAL_DRIFT_HDR" value="&lt;b&gt;&lt;font style=&quot;font-size:10px;&quot; color=&quot;#1b5e20&quot;&gt;Drift Detection Engine: Catfish + pyATS — Desired State vs Actual State&lt;/font&gt;&lt;/b&gt;" style="rounded=4;whiteSpace=wrap;html=1;fillColor=#81c784;strokeColor=#388e3c;strokeWidth=1;align=center;verticalAlign=middle;" vertex="1" parent="1">
+      <mxGeometry x="893" y="1285" width="450" height="25" as="geometry" />
+    </mxCell>
+
+    <!-- ====== INFRASTRUCTURE DOMAINS ====== -->
+    <mxCell id="INFRA_shadow" value="" style="rounded=14;fillColor=#b71c1c;strokeColor=#b71c1c;strokeWidth=6;opacity=15;" vertex="1" parent="1">
+      <mxGeometry x="346" y="1698" width="1029" height="218" as="geometry" />
+    </mxCell>
+    <mxCell id="INFRA_bg" value="" style="rounded=12;whiteSpace=wrap;html=1;fillColor=#fbe9e7;strokeColor=#b71c1c;strokeWidth=3;" vertex="1" parent="1">
+      <mxGeometry x="355" y="1704" width="1010" height="205" as="geometry" />
+    </mxCell>
+    <mxCell id="INFRA_banner" value="" style="rounded=8;whiteSpace=wrap;html=1;fillColor=#b71c1c;strokeColor=none;" vertex="1" parent="1">
+      <mxGeometry x="355" y="1704" width="1010" height="32" as="geometry" />
+    </mxCell>
+    <mxCell id="INFRA_title" value="&lt;b&gt;&lt;font color=&quot;#ffffff&quot; style=&quot;font-size:14px;&quot;&gt;⚡  Infrastructure Domains  (Runtime Targets)&lt;/font&gt;&lt;/b&gt;" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;" vertex="1" parent="1">
+      <mxGeometry x="355" y="1704" width="1010" height="32" as="geometry" />
+    </mxCell>
+    <mxCell id="INFRA_ACI" value="&lt;b&gt;&lt;font style=&quot;font-size:12px;&quot; color=&quot;#ffffff&quot;&gt;Cisco ACI&lt;/font&gt;&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px;&quot; color=&quot;#ffcdd2&quot;&gt;APIC · Tenants · VRFs&lt;br&gt;BDs · EPGs · Contracts&lt;br&gt;L3Outs · Policies&lt;/font&gt;" style="rounded=10;whiteSpace=wrap;html=1;fillColor=#c62828;strokeColor=#ff1744;strokeWidth=2;align=center;verticalAlign=middle;" vertex="1" parent="1">
+      <mxGeometry x="373" y="1745" width="230" height="140" as="geometry" />
+    </mxCell>
+    <mxCell id="INFRA_PRIM" value="&lt;b&gt;&lt;font style=&quot;font-size:9px;&quot; color=&quot;#c62828&quot;&gt;★ PRIMARY TARGET&lt;/font&gt;&lt;/b&gt;" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;" vertex="1" parent="1">
+      <mxGeometry x="373" y="1885" width="230" height="18" as="geometry" />
+    </mxCell>
+    <mxCell id="INFRA_NX" value="&lt;b&gt;&lt;font style=&quot;font-size:12px;&quot;&gt;Nexus VXLAN EVPN&lt;/font&gt;&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px;&quot;&gt;NX-OS · BGP EVPN&lt;br&gt;VTEPs · VNIs&lt;/font&gt;" style="rounded=10;whiteSpace=wrap;html=1;fillColor=#e53935;strokeColor=none;fontColor=#ffffff;align=center;verticalAlign=middle;" vertex="1" parent="1">
+      <mxGeometry x="618" y="1745" width="220" height="100" as="geometry" />
+    </mxCell>
+    <mxCell id="INFRA_AZ" value="&lt;b&gt;&lt;font style=&quot;font-size:12px;&quot;&gt;Azure Networking&lt;/font&gt;&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px;&quot;&gt;VNets · NSGs&lt;br&gt;ExpressRoute&lt;/font&gt;" style="rounded=10;whiteSpace=wrap;html=1;fillColor=#e53935;strokeColor=none;fontColor=#ffffff;align=center;verticalAlign=middle;" vertex="1" parent="1">
+      <mxGeometry x="853" y="1745" width="220" height="100" as="geometry" />
+    </mxCell>
+    <mxCell id="INFRA_FU" value="&lt;b&gt;&lt;font style=&quot;font-size:11px;&quot;&gt;Future Platforms&lt;/font&gt;&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px;&quot;&gt;Extensible Design&lt;/font&gt;" style="rounded=10;whiteSpace=wrap;html=1;fillColor=#e57373;strokeColor=none;fontColor=#ffffff;align=center;verticalAlign=middle;dashed=1;" vertex="1" parent="1">
+      <mxGeometry x="1088" y="1745" width="215" height="100" as="geometry" />
+    </mxCell>
+    <mxCell id="INFRA_NOTE" value="&lt;font style=&quot;font-size:9px;&quot; color=&quot;#c62828&quot;&gt;&lt;b&gt;⚠ APIC is the implementation target — NOT the Source of Truth.  All state owned by Terraform.&lt;/b&gt;&lt;/font&gt;" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;" vertex="1" parent="1">
+      <mxGeometry x="618" y="1848" width="687" height="50" as="geometry" />
+    </mxCell>
+
+    <!-- ====== FEEDBACK BAR ====== -->
+    <mxCell id="FBK_bg" value="&lt;b&gt;&lt;font style=&quot;font-size:12px;&quot; color=&quot;#ffffff&quot;&gt;♻  Closed-Loop Feedback  —  Validation + Drift + Operations + Observability continuously reconcile state back into Nautobot&lt;/font&gt;&lt;/b&gt;" style="rounded=10;whiteSpace=wrap;html=1;fillColor=#263238;strokeColor=#78909c;strokeWidth=2;align=center;verticalAlign=middle;" vertex="1" parent="1">
+      <mxGeometry x="355" y="1927" width="1010" height="52" as="geometry" />
+    </mxCell>
+
+    <!-- ====== ARROWS: Main Top-Down Flow ====== -->
+    <mxCell id="A_USR_ORCH" value="&lt;font style=&quot;font-size:9px;&quot; color=&quot;#37474f&quot;&gt;Requests&lt;/font&gt;" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#37474f;strokeWidth=2;endArrow=open;endFill=0;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="USR_bg" target="ORCH_bg">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="A_ORCH_EVT" value="&lt;font style=&quot;font-size:9px;&quot; color=&quot;#37474f&quot;&gt;Events&lt;/font&gt;" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#37474f;strokeWidth=2;endArrow=open;endFill=0;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="ORCH_bg" target="EVT_bg">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="A_EVT_NB" value="&lt;font style=&quot;font-size:9px;&quot; color=&quot;#0d47a1&quot;&gt;API Calls&lt;/font&gt;" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#0d47a1;strokeWidth=2.5;endArrow=open;endFill=0;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="EVT_bg" target="NB_bg">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+
+    <!-- Nautobot → Intent Generation (left pipeline start) -->
+    <mxCell id="A_NB_INTENT" value="&lt;font style=&quot;font-size:9px;&quot; color=&quot;#e65100&quot;&gt;Data Export&lt;/font&gt;" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#e65100;strokeWidth=2;endArrow=open;endFill=0;exitX=0.2;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="NB_bg" target="INTENT_bg">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+
+    <!-- Nautobot → Ansible (right parallel start) -->
+    <mxCell id="A_NB_ANS" value="&lt;font style=&quot;font-size:9px;&quot; color=&quot;#e65100&quot;&gt;Ops Trigger&lt;/font&gt;" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#e65100;strokeWidth=2;endArrow=open;endFill=0;exitX=0.78;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="NB_bg" target="ANS_bg">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+
+    <!-- Deployment Pipeline Chain -->
+    <mxCell id="A_INTENT_VCS" value="&lt;font style=&quot;font-size:9px;&quot; color=&quot;#37474f&quot;&gt;Commit Artifacts&lt;/font&gt;" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#37474f;strokeWidth=2;endArrow=open;endFill=0;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="INTENT_bg" target="VCS_bg">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="A_VCS_POL" value="&lt;font style=&quot;font-size:9px;&quot; color=&quot;#37474f&quot;&gt;Policy Check&lt;/font&gt;" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#37474f;strokeWidth=2;endArrow=open;endFill=0;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="VCS_bg" target="POL_bg">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="A_POL_CICD" value="&lt;font style=&quot;font-size:9px;&quot; color=&quot;#37474f&quot;&gt;Trigger Pipeline&lt;/font&gt;" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#37474f;strokeWidth=2;endArrow=open;endFill=0;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="POL_bg" target="CICD_bg">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="A_CICD_TF" value="&lt;font style=&quot;font-size:9px;&quot; color=&quot;#37474f&quot;&gt;Execute&lt;/font&gt;" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#37474f;strokeWidth=2;endArrow=open;endFill=0;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="CICD_bg" target="TF_bg">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="A_TF_INFRA" value="&lt;font style=&quot;font-size:9px;&quot; color=&quot;#37474f&quot;&gt;API Provisioning&lt;/font&gt;" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#37474f;strokeWidth=2;endArrow=open;endFill=0;exitX=0.5;exitY=1;entryX=0.25;entryY=0;" edge="1" parent="1" source="TF_bg" target="INFRA_bg">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+
+    <!-- Validation → Infrastructure (post-deploy check) -->
+    <mxCell id="A_VAL_INFRA" value="&lt;font style=&quot;font-size:9px;&quot; color=&quot;#2e7d32&quot;&gt;Validate Against&lt;/font&gt;" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#2e7d32;strokeWidth=1.5;endArrow=open;endFill=0;exitX=0.5;exitY=1;entryX=0.75;entryY=0;dashed=1;" edge="1" parent="1" source="VAL_bg" target="INFRA_bg">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+
+    <!-- ====== ARROWS: Feedback Loop (Closed Loop) ====== -->
+    <!-- Validation → Nautobot (left side) -->
+    <mxCell id="A_VAL_NB" value="&lt;b&gt;&lt;font style=&quot;font-size:9px;&quot; color=&quot;#1b5e20&quot;&gt;Validation Results&lt;/font&gt;&lt;/b&gt;" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#2e7d32;strokeWidth=2.5;endArrow=open;endFill=0;exitX=0;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="VAL_bg" target="NB_bg">
+      <mxGeometry relative="1" as="geometry">
+        <Array as="points">
+          <mxPoint x="335" y="1205" />
+          <mxPoint x="335" y="690" />
+        </Array>
+      </mxGeometry>
+    </mxCell>
+
+    <!-- Ansible → Nautobot (left side) -->
+    <mxCell id="A_ANS_NB" value="&lt;b&gt;&lt;font style=&quot;font-size:9px;&quot; color=&quot;#e65100&quot;&gt;Operational Data&lt;/font&gt;&lt;/b&gt;" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#e65100;strokeWidth=2.5;endArrow=open;endFill=0;exitX=0;exitY=0.5;entryX=0;entryY=0.7;" edge="1" parent="1" source="ANS_bg" target="NB_bg">
+      <mxGeometry relative="1" as="geometry">
+        <Array as="points">
+          <mxPoint x="340" y="935" />
+          <mxPoint x="340" y="740" />
+        </Array>
+      </mxGeometry>
+    </mxCell>
+
+    <!-- Observability → Nautobot (right side, direct horizontal) -->
+    <mxCell id="A_OBS_NB" value="&lt;b&gt;&lt;font style=&quot;font-size:9px;&quot; color=&quot;#283593&quot;&gt;Metrics &amp;amp; Alerts&lt;/font&gt;&lt;/b&gt;" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#3949ab;strokeWidth=2.5;endArrow=open;endFill=0;exitX=0;exitY=0.3;entryX=1;entryY=0.35;" edge="1" parent="1" source="OBS_bg" target="NB_bg">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+
+    <!-- Infrastructure → Feedback bar → Nautobot (right side) -->
+    <mxCell id="A_INFRA_FBK" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#455a64;strokeWidth=2;endArrow=open;endFill=0;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="INFRA_bg" target="FBK_bg">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="A_FBK_NB" value="&lt;b&gt;&lt;font style=&quot;font-size:9px;&quot; color=&quot;#546e7a&quot;&gt;Closed Loop Feedback&lt;/font&gt;&lt;/b&gt;" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#546e7a;strokeWidth=3;endArrow=open;endFill=0;exitX=0;exitY=0.5;entryX=0;entryY=1;" edge="1" parent="1" source="FBK_bg" target="NB_bg">
+      <mxGeometry relative="1" as="geometry">
+        <Array as="points">
+          <mxPoint x="330" y="1953" />
+          <mxPoint x="330" y="810" />
+        </Array>
+      </mxGeometry>
+    </mxCell>
+
+    <!-- ====== ARROWS: Shared Service Connections (dashed) ====== -->
+    <!-- Knowledge → Orchestration -->
+    <mxCell id="A_KNOW_ORCH" value="&lt;font style=&quot;font-size:9px;&quot; color=&quot;#00695c&quot;&gt;AI Context&lt;/font&gt;" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#00897b;strokeWidth=1.5;endArrow=open;endFill=0;exitX=1;exitY=0.5;entryX=0;entryY=0.5;dashed=1;" edge="1" parent="1" source="KNOW_bg" target="ORCH_bg">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+
+    <!-- Secrets → CI/CD (dashed service) -->
+    <mxCell id="A_SEC_CICD" value="&lt;font style=&quot;font-size:9px;&quot; color=&quot;#546e7a&quot;&gt;Credentials&lt;/font&gt;" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#546e7a;strokeWidth=1.5;endArrow=open;endFill=0;exitX=1;exitY=0.5;entryX=0;entryY=0.5;dashed=1;" edge="1" parent="1" source="SEC_bg" target="CICD_bg">
+      <mxGeometry relative="1" as="geometry">
+        <Array as="points">
+          <mxPoint x="345" y="612" />
+          <mxPoint x="345" y="1392" />
+        </Array>
+      </mxGeometry>
+    </mxCell>
+
+    <!-- Secrets → Terraform (dashed service) -->
+    <mxCell id="A_SEC_TF" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#546e7a;strokeWidth=1.5;endArrow=open;endFill=0;exitX=1;exitY=0.7;entryX=0;entryY=0.5;dashed=1;" edge="1" parent="1" source="SEC_bg" target="TF_bg">
+      <mxGeometry relative="1" as="geometry">
+        <Array as="points">
+          <mxPoint x="346" y="668" />
+          <mxPoint x="346" y="1587" />
+        </Array>
+      </mxGeometry>
+    </mxCell>
+
+    <!-- ====== RIGHT PANELS ====== -->
+
+    <!-- Platform Ownership -->
+    <mxCell id="OWN_bg" value="" style="rounded=12;whiteSpace=wrap;html=1;fillColor=#263238;strokeColor=#37474f;strokeWidth=2;" vertex="1" parent="1">
+      <mxGeometry x="1855" y="90" width="285" height="715" as="geometry" />
+    </mxCell>
+    <mxCell id="OWN_title" value="&lt;b&gt;&lt;font style=&quot;font-size:14px;&quot; color=&quot;#ffffff&quot;&gt;Platform Ownership&lt;/font&gt;&lt;/b&gt;" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;" vertex="1" parent="1">
+      <mxGeometry x="1855" y="96" width="285" height="28" as="geometry" />
+    </mxCell>
+    <mxCell id="OW_1h" value="&lt;b&gt;&lt;font color=&quot;#90caf9&quot; style=&quot;font-size:10px;&quot;&gt;Nautobot&lt;/font&gt;&lt;/b&gt;" style="text;html=1;strokeColor=none;fillColor=#1565c0;align=left;verticalAlign=middle;spacingLeft=8;rounded=6;" vertex="1" parent="1"><mxGeometry x="1867" y="132" width="261" height="22" as="geometry" /></mxCell>
+    <mxCell id="OW_1d" value="&lt;font color=&quot;#b0bec5&quot; style=&quot;font-size:9px;&quot;&gt;Source of Truth · Intent Model · Relationships&lt;/font&gt;" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=10;" vertex="1" parent="1"><mxGeometry x="1867" y="156" width="261" height="28" as="geometry" /></mxCell>
+    <mxCell id="OW_2h" value="&lt;b&gt;&lt;font color=&quot;#80cbc4&quot; style=&quot;font-size:10px;&quot;&gt;Terraform&lt;/font&gt;&lt;/b&gt;" style="text;html=1;strokeColor=none;fillColor=#004d40;align=left;verticalAlign=middle;spacingLeft=8;rounded=6;" vertex="1" parent="1"><mxGeometry x="1867" y="190" width="261" height="22" as="geometry" /></mxCell>
+    <mxCell id="OW_2d" value="&lt;font color=&quot;#b0bec5&quot; style=&quot;font-size:9px;&quot;&gt;Desired State · State Management · Drift Reconciliation&lt;/font&gt;" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=10;" vertex="1" parent="1"><mxGeometry x="1867" y="214" width="261" height="28" as="geometry" /></mxCell>
+    <mxCell id="OW_3h" value="&lt;b&gt;&lt;font color=&quot;#ffe082&quot; style=&quot;font-size:10px;&quot;&gt;Ansible&lt;/font&gt;&lt;/b&gt;" style="text;html=1;strokeColor=none;fillColor=#f57f17;align=left;verticalAlign=middle;spacingLeft=8;rounded=6;" vertex="1" parent="1"><mxGeometry x="1867" y="248" width="261" height="22" as="geometry" /></mxCell>
+    <mxCell id="OW_3d" value="&lt;font color=&quot;#b0bec5&quot; style=&quot;font-size:9px;&quot;&gt;Operations · Health · Reporting · Backups&lt;/font&gt;" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=10;" vertex="1" parent="1"><mxGeometry x="1867" y="272" width="261" height="28" as="geometry" /></mxCell>
+    <mxCell id="OW_4h" value="&lt;b&gt;&lt;font color=&quot;#a5d6a7&quot; style=&quot;font-size:10px;&quot;&gt;pyATS / Catfish&lt;/font&gt;&lt;/b&gt;" style="text;html=1;strokeColor=none;fillColor=#1b5e20;align=left;verticalAlign=middle;spacingLeft=8;rounded=6;" vertex="1" parent="1"><mxGeometry x="1867" y="306" width="261" height="22" as="geometry" /></mxCell>
+    <mxCell id="OW_4d" value="&lt;font color=&quot;#b0bec5&quot; style=&quot;font-size:9px;&quot;&gt;Validation · Compliance · Drift Detection&lt;/font&gt;" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=10;" vertex="1" parent="1"><mxGeometry x="1867" y="330" width="261" height="28" as="geometry" /></mxCell>
+    <mxCell id="OW_5h" value="&lt;b&gt;&lt;font color=&quot;#ef9a9a&quot; style=&quot;font-size:10px;&quot;&gt;OPA&lt;/font&gt;&lt;/b&gt;" style="text;html=1;strokeColor=none;fillColor=#c62828;align=left;verticalAlign=middle;spacingLeft=8;rounded=6;" vertex="1" parent="1"><mxGeometry x="1867" y="364" width="261" height="22" as="geometry" /></mxCell>
+    <mxCell id="OW_5d" value="&lt;font color=&quot;#b0bec5&quot; style=&quot;font-size:9px;&quot;&gt;Governance · Naming · Security · Approvals&lt;/font&gt;" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=10;" vertex="1" parent="1"><mxGeometry x="1867" y="388" width="261" height="28" as="geometry" /></mxCell>
+    <mxCell id="OW_6h" value="&lt;b&gt;&lt;font color=&quot;#ce93d8&quot; style=&quot;font-size:10px;&quot;&gt;Git&lt;/font&gt;&lt;/b&gt;" style="text;html=1;strokeColor=none;fillColor=#6a1b9a;align=left;verticalAlign=middle;spacingLeft=8;rounded=6;" vertex="1" parent="1"><mxGeometry x="1867" y="422" width="261" height="22" as="geometry" /></mxCell>
+    <mxCell id="OW_6d" value="&lt;font color=&quot;#b0bec5&quot; style=&quot;font-size:9px;&quot;&gt;Version Control · Audit Trail · Rollback&lt;/font&gt;" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=10;" vertex="1" parent="1"><mxGeometry x="1867" y="446" width="261" height="28" as="geometry" /></mxCell>
+    <mxCell id="OW_7h" value="&lt;b&gt;&lt;font color=&quot;#b0bec5&quot; style=&quot;font-size:10px;&quot;&gt;Vault&lt;/font&gt;&lt;/b&gt;" style="text;html=1;strokeColor=none;fillColor=#37474f;align=left;verticalAlign=middle;spacingLeft=8;rounded=6;" vertex="1" parent="1"><mxGeometry x="1867" y="480" width="261" height="22" as="geometry" /></mxCell>
+    <mxCell id="OW_7d" value="&lt;font color=&quot;#b0bec5&quot; style=&quot;font-size:9px;&quot;&gt;Secrets · Credentials · Dynamic Tokens&lt;/font&gt;" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=10;" vertex="1" parent="1"><mxGeometry x="1867" y="504" width="261" height="28" as="geometry" /></mxCell>
+    <mxCell id="OW_8h" value="&lt;b&gt;&lt;font color=&quot;#f48fb1&quot; style=&quot;font-size:10px;&quot;&gt;AI Agents&lt;/font&gt;&lt;/b&gt;" style="text;html=1;strokeColor=none;fillColor=#880e4f;align=left;verticalAlign=middle;spacingLeft=8;rounded=6;" vertex="1" parent="1"><mxGeometry x="1867" y="538" width="261" height="22" as="geometry" /></mxCell>
+    <mxCell id="OW_8d" value="&lt;font color=&quot;#b0bec5&quot; style=&quot;font-size:9px;&quot;&gt;Orchestration · Self-Service · RCA · ChatOps&lt;/font&gt;" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=10;" vertex="1" parent="1"><mxGeometry x="1867" y="562" width="261" height="28" as="geometry" /></mxCell>
+    <mxCell id="OW_9h" value="&lt;b&gt;&lt;font color=&quot;#9fa8da&quot; style=&quot;font-size:10px;&quot;&gt;Observability&lt;/font&gt;&lt;/b&gt;" style="text;html=1;strokeColor=none;fillColor=#283593;align=left;verticalAlign=middle;spacingLeft=8;rounded=6;" vertex="1" parent="1"><mxGeometry x="1867" y="596" width="261" height="22" as="geometry" /></mxCell>
+    <mxCell id="OW_9d" value="&lt;font color=&quot;#b0bec5&quot; style=&quot;font-size:9px;&quot;&gt;Metrics · Logs · Alerts · SLOs · Dashboards&lt;/font&gt;" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=10;" vertex="1" parent="1"><mxGeometry x="1867" y="620" width="261" height="28" as="geometry" /></mxCell>
+    <mxCell id="OW_note" value="&lt;font style=&quot;font-size:9px;&quot; color=&quot;#f48fb1&quot;&gt;&lt;i&gt;AI Agents interact with every layer&lt;br&gt;through Nautobot APIs and ChatOps&lt;/i&gt;&lt;/font&gt;" style="rounded=6;whiteSpace=wrap;html=1;fillColor=#1a0015;strokeColor=#880e4f;strokeWidth=1;align=center;verticalAlign=middle;" vertex="1" parent="1">
+      <mxGeometry x="1867" y="658" width="261" height="40" as="geometry" />
+    </mxCell>
+    <mxCell id="OW_princ" value="&lt;font style=&quot;font-size:9px;&quot; color=&quot;#78909c&quot;&gt;&lt;b&gt;Principles:&lt;/b&gt; Closed-loop · Intent-driven&lt;br&gt;Git audit trail · Terraform owns state&lt;/font&gt;" style="rounded=6;whiteSpace=wrap;html=1;fillColor=#1c313a;strokeColor=#546e7a;strokeWidth=1;align=center;verticalAlign=middle;" vertex="1" parent="1">
+      <mxGeometry x="1867" y="706" width="261" height="50" as="geometry" />
+    </mxCell>
+
+    <!-- Governance Principle -->
+    <mxCell id="GOV_bg" value="" style="rounded=12;whiteSpace=wrap;html=1;fillColor=#b71c1c;strokeColor=#ff1744;strokeWidth=2;" vertex="1" parent="1">
+      <mxGeometry x="1855" y="822" width="285" height="320" as="geometry" />
+    </mxCell>
+    <mxCell id="GOV_title" value="&lt;b&gt;&lt;font color=&quot;#ffcdd2&quot; style=&quot;font-size:12px;&quot;&gt;⚠ Governance Principle&lt;/font&gt;&lt;/b&gt;" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;" vertex="1" parent="1">
+      <mxGeometry x="1855" y="828" width="285" height="26" as="geometry" />
+    </mxCell>
+    <mxCell id="GOV_content" value="&lt;font style=&quot;font-size:10px;&quot; color=&quot;#ffcdd2&quot;&gt;Terraform-owned objects must&lt;br&gt;NOT be modified directly in APIC.&lt;br&gt;&lt;br&gt;All changes flow through:&lt;br&gt;&lt;b&gt;Nautobot&lt;/b&gt;&lt;br&gt;→ Intent Generation&lt;br&gt;→ Git&lt;br&gt;→ Policy Checks (OPA)&lt;br&gt;→ CI/CD&lt;br&gt;→ Terraform&lt;br&gt;→ Infrastructure&lt;br&gt;&lt;br&gt;Validation and Drift Detection&lt;br&gt;continuously reconcile actual state&lt;br&gt;back into Nautobot.&lt;/font&gt;" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=top;spacingTop=8;" vertex="1" parent="1">
+      <mxGeometry x="1857" y="856" width="281" height="280" as="geometry" />
+    </mxCell>
+
+    <!-- Environment Strategy -->
+    <mxCell id="ENV_bg" value="" style="rounded=12;whiteSpace=wrap;html=1;fillColor=#1c313a;strokeColor=#546e7a;strokeWidth=2;" vertex="1" parent="1">
+      <mxGeometry x="1855" y="1160" width="285" height="340" as="geometry" />
+    </mxCell>
+    <mxCell id="ENV_title" value="&lt;b&gt;&lt;font color=&quot;#b0bec5&quot; style=&quot;font-size:12px;&quot;&gt;Environment Strategy&lt;/font&gt;&lt;/b&gt;" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;" vertex="1" parent="1">
+      <mxGeometry x="1855" y="1166" width="285" height="26" as="geometry" />
+    </mxCell>
+    <mxCell id="ENV_DEV" value="&lt;b&gt;&lt;font style=&quot;font-size:11px;&quot; color=&quot;#4caf50&quot;&gt;DEV&lt;/font&gt;&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px;&quot; color=&quot;#78909c&quot;&gt;Branch: dev/* · Workspace: dev&lt;br&gt;Target: Dev ACI/Nexus&lt;/font&gt;" style="rounded=6;whiteSpace=wrap;html=1;fillColor=#1b5e20;strokeColor=none;align=left;verticalAlign=middle;spacingLeft=8;" vertex="1" parent="1">
+      <mxGeometry x="1869" y="1200" width="257" height="70" as="geometry" />
+    </mxCell>
+    <mxCell id="ENV_UAT" value="&lt;b&gt;&lt;font style=&quot;font-size:11px;&quot; color=&quot;#ffb74d&quot;&gt;UAT&lt;/font&gt;&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px;&quot; color=&quot;#78909c&quot;&gt;Branch: uat/* · Workspace: uat&lt;br&gt;Target: UAT Fabric&lt;/font&gt;" style="rounded=6;whiteSpace=wrap;html=1;fillColor=#e65100;strokeColor=none;align=left;verticalAlign=middle;spacingLeft=8;" vertex="1" parent="1">
+      <mxGeometry x="1869" y="1280" width="257" height="70" as="geometry" />
+    </mxCell>
+    <mxCell id="ENV_PROD" value="&lt;b&gt;&lt;font style=&quot;font-size:11px;&quot; color=&quot;#ef9a9a&quot;&gt;PROD&lt;/font&gt;&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px;&quot; color=&quot;#78909c&quot;&gt;Branch: main · Workspace: prod&lt;br&gt;Target: Production ACI / Nexus / Azure&lt;/font&gt;" style="rounded=6;whiteSpace=wrap;html=1;fillColor=#c62828;strokeColor=none;align=left;verticalAlign=middle;spacingLeft=8;" vertex="1" parent="1">
+      <mxGeometry x="1869" y="1360" width="257" height="70" as="geometry" />
+    </mxCell>
+    <mxCell id="ENV_note" value="&lt;font style=&quot;font-size:9px;&quot; color=&quot;#78909c&quot;&gt;Git Branches → Terraform Workspaces&lt;br&gt;→ Infrastructure Targets&lt;/font&gt;" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;" vertex="1" parent="1">
+      <mxGeometry x="1855" y="1440" width="285" height="50" as="geometry" />
+    </mxCell>
+
+  </root>
+</mxGraphModel>
