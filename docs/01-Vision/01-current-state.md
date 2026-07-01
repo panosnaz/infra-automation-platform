@@ -76,9 +76,28 @@ All tenant names carry an `ACI:` namespace prefix added by the SSoT plugin (e.g.
 
 The ACI simulator is a Cisco APIC development appliance. It represents the target infrastructure for the vertical slice.
 
----
+## HashiCorp Vault (Secrets Management)
 
-# Platform Implementation State
+| Property | Value |
+|---|
+| Status | **Running** |
+| URL | `http://localhost:8200` |
+| UI | `http://localhost:8200/ui` |
+| Version | 1.17.6 |
+| Deployment | Docker Compose — `lab/docker/nautobot/environments/docker-compose.vault.yml` |
+| Storage | File backend — Docker volume `infra-automation-lab_vault_data` |
+| Mode | Single-node, file storage, TLS disabled (lab only) |
+| Root token | See `lab/docker/nautobot/environments/vault/state/vault-keys.txt` (gitignored) |
+
+Vault is fully integrated into the existing Nautobot Docker Compose stack. On first start the entrypoint script auto-initialises, unseals, and populates all lab credentials into the KV v2 engine at `secret/`.
+
+### Stored secrets
+
+| Vault path | Keys | Purpose |
+|---|---|---|
+| `secret/lab/nautobot` | `db_password`, `redis_password`, `secret_key`, `superuser_password`, `superuser_api_token` | Nautobot service credentials |
+| `secret/lab/aci` | `username`, `password`, `url`, `insecure` | ACI simulator credentials |
+| `secret/lab/platform` | `nautobot_url`, `nautobot_api_token`, `aci_url`, `aci_username`, `aci_password` | Combined credentials for platform tooling (Terraform, generator, Ansible, pyATS) |
 
 ## Phase 1 — Repository scaffold ✅ Complete
 
@@ -114,6 +133,7 @@ A working Python generator translates Nautobot ACI objects into NetAsCode-compat
 - Falls back to a sanitised CIDR string as BD name when no description is present.
 - Excludes ACI system tenants (`common`, `infra`, `mgmt`) by default; include with `--include-system-tenants`.
 - Writes `platform/netascode/aci/tenants.yaml` (gitignored — generated artifact).
+- Optionally reads the Nautobot API token from Vault (`--vault-addr` + `--vault-token` or `VAULT_ADDR` / `VAULT_TOKEN` env vars).
 
 ### Sample output (dry-run, 2026-07-01)
 
@@ -161,6 +181,14 @@ python platform/python/generate_aci.py \
 # Dry-run — print YAML without writing files
 python platform/python/generate_aci.py \
   --token 0123456789abcdef0123456789abcdef01234567 \
+  --dry-run
+
+# Read token from Vault (lab stack — no --token required)
+python platform/python/generate_aci.py \
+  --vault-addr http://localhost:8200 \
+  --vault-token $(grep "^Initial Root Token:" \
+      lab/docker/nautobot/environments/vault/state/vault-keys.txt | awk '{print $NF}') \
+  --include-system-tenants \
   --dry-run
 ```
 
@@ -246,7 +274,7 @@ No ADRs are superseded or deprecated.
 | CI/CD Pipeline | GitHub Actions | ❌ Not implemented |
 | Platform API | FastAPI | ❌ Not implemented |
 | Workflow Orchestration | n8n | ❌ Not implemented |
-| Secrets Management | HashiCorp Vault | ❌ Not implemented |
+| Secrets Management | HashiCorp Vault | ✅ Running — lab stack, file storage, KV v2 populated |
 | Observability | Prometheus + Grafana + Loki | ❌ Not implemented |
 | Knowledge Layer | Obsidian + Git | ❌ Not implemented |
 | AI Assistance | LangGraph | ❌ Not implemented |
@@ -392,7 +420,7 @@ After Phases 3b, 5, and 6 are complete:
 | 10 | `tests/unit/` directory creation | 6 | 🟡 Medium | Unit test phase |
 | 11 | Platform API (FastAPI) | Future | 🔵 Future | — |
 | 12 | Workflow Orchestration (n8n) | Future | 🔵 Future | — |
-| 13 | Secrets Management (HashiCorp Vault) | Future | 🔵 Future | — |
+| 13 | Secrets Management (HashiCorp Vault) | ✅ Done | ✅ Complete | Vault running in lab stack; KV v2 populated with all lab credentials |
 | 14 | Observability stack (Prometheus, Grafana, Loki) | Future | 🔵 Future | — |
 | 15 | Knowledge Layer (Obsidian + Git) | Future | 🔵 Future | — |
 | 16 | AI Assistance (LangGraph) | Future | 🔵 Future | — |

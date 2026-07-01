@@ -18,13 +18,20 @@ Usage
 
     # Include ACI system tenants (common/infra/mgmt) — useful in lab:
     python platform/python/generate_aci.py --token <TOKEN> --include-system-tenants
+
+    # Read credentials from HashiCorp Vault (lab stack at http://localhost:8200):
+    python platform/python/generate_aci.py \
+        --vault-addr http://localhost:8200 \
+        --vault-token <ROOT_TOKEN>
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
+import urllib.request
 from pathlib import Path
 
 import yaml
@@ -41,24 +48,49 @@ _DEFAULT_URL = "http://localhost:8080"
 _DEFAULT_OUTPUT = _HERE.parent / "netascode" / "aci"
 
 
+def _vault_read_secret(vault_addr: str, vault_token: str, path: str) -> dict[str, str]:
+    """Read a KV v2 secret from Vault using stdlib HTTP (no hvac required)."""
+    url = f"{vault_addr.rstrip('/')}/v1/secret/data/{path}"
+    req = urllib.request.Request(url, headers={"X-Vault-Token": vault_token})
+    try:
+        with urllib.request.urlopen(req) as resp:  # noqa: S310
+            return json.loads(resp.read())["data"]["data"]
+    except Exception as exc:
+        raise RuntimeError(f"Vault: failed to read '{path}' from {vault_addr}: {exc}") from exc
+
+
 def main() -> None:
     args = _parse_args()
 
+    vault_addr = args.vault_addr or os.environ.get("VAULT_ADDR", "")
+    vault_token = args.vault_token or os.environ.get("VAULT_TOKEN", "")
+
     token = args.token or os.environ.get("NAUTOBOT_TOKEN", "")
+    nautobot_url = args.url
+
+    if vault_addr and vault_token and not token:
+        print(f"[generator] Reading Nautobot token from Vault at {vault_addr}")
+        try:
+            platform_secret = _vault_read_secret(vault_addr, vault_token, "lab/platform")
+            token = token or platform_secret.get("nautobot_api_token", "")
+        except RuntimeError as exc:
+            print(f"WARNING: {exc}", file=sys.stderr)
+
     if not token:
         print(
-            "ERROR: Nautobot API token required. Use --token or set NAUTOBOT_TOKEN.",
+            "ERROR: Nautobot API token required. Use --token, set NAUTOBOT_TOKEN, "
+            "or provide --vault-addr + --vault-token.",
             file=sys.stderr,
         )
         sys.exit(1)
 
     client = NautobotClient(
-        url=args.url,
+        url=nautobot_url,
         token=token,
         verify_ssl=not args.no_verify,
     )
 
-    print(f"[generator] Querying Nautobot at {args.url}")
+    print(f"[generator] Querying Nautobot at {nautobot_url}")
     tenants = client.get_tenants()
     prefixes = client.get_prefixes()
     print(f"[generator]   tenants={len(tenants)}  prefixes={len(prefixes)}")
@@ -128,6 +160,19 @@ def _parse_args() -> argparse.Namespace:
         "--dry-run",
         action="store_true",
         help="Print YAML to stdout without writing files",
+    )
+    parser.add_argument(
+        "--vault-addr",
+        default="",
+        metavar="URL",
+        help="Vault address (e.g. http://localhost:8200). Reads credentials from secret/lab/platform "
+             "when --token is not set. Also accepts VAULT_ADDR env var.",
+    )
+    parser.add_argument(
+        "--vault-token",
+        default="",
+        metavar="TOKEN",
+        help="Vault token (or set VAULT_TOKEN env var).",
     )
     return parser.parse_args()
 
