@@ -1,33 +1,42 @@
-network-platform-engineering/
+nautobot-infra-automation/
 │
 ├── README.md
-├── START-HERE.md
 ├── CLAUDE.md
 ├── .gitignore
-├── LICENSE
+├── nautobot-infra-automation.code-workspace
 │
 ├── docs/
 │   │
-│   ├── vision/
-│   │   ├── 00-Project-Charter.md
-│   │   ├── 01-Current-State.md
-│   │   └── 02-Target-Architecture.md
+│   ├── START-HERE.md
+│   ├── ARCHITECTURE-AT-A-GLANCE.md
+│   ├── folder structure              ← this file
 │   │
-│   ├── architecture/
-│   │   ├── Platform-Principles.md
-│   │   ├── Reference-Architecture.md
-│   │   ├── Technology-Stack.md
-│   │   ├── Repository-Structure.md
-│   │   └── Platform-Glossary.md
+│   ├── Nautobot_ACI_NaC_Architecture.md
+│   ├── Nautobot_ACI_SSoT_Manual_Setup.md
 │   │
-│   ├── decisions/
+│   ├── 01-Vision/
+│   │   ├── 00 – Project Charter.md
+│   │   ├── 01-current-state.md
+│   │   ├── 02-1-Platform-Component-Architecture.md
+│   │   ├── 02-2-Data-Flow-Operational-Workflows.md
+│   │   ├── 02-3-Technology-Selection-Rationale.md
+│   │   └── 02-target-architecture.md
+│   │
+│   ├── 02-Architecture/
+│   │   ├── 03-Platform-Principles.md
+│   │   ├── 03a-Platform-Glossary.md
+│   │   ├── 03b-Reference-Architecture.md
+│   │   ├── 04-Technology Architecture.md
+│   │   └── 05-Engineering-Repository-Structure.md
+│   │
+│   ├── 03-Decisions/
 │   │   ├── ADR-001-Nautobot-Source-of-Truth.md
 │   │   ├── ADR-002-Terraform-Desired-State.md
 │   │   ├── ADR-003-Ansible-Day2.md
 │   │   ├── ADR-004-Platform-API.md
 │   │   ├── ADR-005-Workflow-Orchestration.md
 │   │   ├── ADR-006-Platform-Control-Plane.md
-│   │   ├── ADR-007-Canonical-Engineering-Model.md
+│   │   ├── ADR-007-Cisco-NetAsCode.md
 │   │   ├── ADR-008-Validation.md
 │   │   ├── ADR-009-Knowledge-Layer.md
 │   │   ├── ADR-010-AI-Engineering-Assistant.md
@@ -35,75 +44,74 @@ network-platform-engineering/
 │   │   ├── ADR-012-Secrets-Management.md
 │   │   └── ADR-013-Observability.md
 │   │
-│   ├── validation/
+│   ├── 04-Validation/
 │   │   ├── README.md
 │   │   ├── 01-Schema-Validation.md
 │   │   ├── 02-Infrastructure-Validation.md
 │   │   ├── 03-Service-Validation.md
-│   │   └── 04-Continuous-Compliance.md
+│   │   ├── 04-Continuous-Compliance.md
+│   │   └── 05-Continuous-Validation-Strategy.md
 │   │
-│   ├── operations/
-│   │   ├── Deployment-Workflow.md
-│   │   ├── Day2-Operations.md
-│   │   ├── Lifecycle-Management.md
-│   │   └── Roadmap.md
+│   ├── 05-Operations/
+│   │   ├── 06-Engineering-Deployment-Workflow.md
+│   │   ├── 07-Day2-Operations.md
+│   │   ├── 12-Roadmap.md
+│   │   └── 13-Lifecycle-Management.md
 │   │
-│   ├── security/
-│   │   └── Security-Architecture.md
+│   ├── 06-Security/
+│   │   └── 10-Platform-Security-Architecture.md
 │   │
-│   ├── observability/
+│   ├── 07-Observability/
 │   │   └── Observability-Architecture.md
 │   │
-│   ├── ai/
-│   │   └── AI-Architecture.md
+│   ├── 08-AI/
+│   │   └── 09-AI-Architecture.md
 │   │
-│   ├── knowledge/
+│   ├── 09-Knowledge/
 │   │   └── Knowledge-Layer.md
 │   │
-│   └── diagrams/
+│   └── 10-Diagrams/
 │       ├── ACI_IaC_Platform_Architecture.drawio
-│       ├── High-Level-Platform-Architecture.md
-│       ├── Closed-Loop-Engineering.md
-│       ├── Engineering-Control-Plane.md
-│       └── Domain-Expansion-Model.md
+│       ├── v4.png
+│       ├── 01-High-Level-Platform-Architecture.md
+│       ├── 02-Closed-Loop-Engineering.md
+│       ├── 03-Engineering-Control-Plane.md
+│       └── 04-Domain-Expansion-Model.md
 │
 ├── lab/
 │   │
 │   ├── README.md
 │   │
-│   ├── docker/
-│   │   └── nautobot/
-│   │       ├── docker-compose.yml
-│   │       ├── config/
-│   │       ├── environments/
-│   │       ├── plugins/
-│   │       ├── docs/
-│   │       └── ...
-│   │
-│   ├── cml/
-│   │
-│   ├── aci/
-│   │
-│   ├── vxlan/
-│   │
-│   └── demo-data/
+│   └── docker/
+│       └── nautobot/          ← nested git repo; not tracked by this repo
 │
 ├── platform/
 │   │
 │   ├── terraform/
+│   │   └── aci/               ← Phase 3: Terraform ACI module
 │   │
 │   ├── ansible/
+│   │   └── aci/               ← Phase 4: Ansible Day-2 playbooks
 │   │
 │   ├── python/
+│   │   ├── generate_aci.py    ← generator entry point
+│   │   ├── requirements.txt
+│   │   └── generator/
+│   │       ├── __init__.py
+│   │       ├── client.py      ← Nautobot GraphQL client
+│   │       └── transformer.py ← Nautobot → NetAsCode transformer
 │   │
 │   ├── netascode/
+│   │   └── aci/               ← generated YAML output (gitignored)
 │   │
-│   ├── platform-api/
+│   ├── platform-api/          ← future: FastAPI
 │   │
-│   └── workflows/
+│   └── workflows/             ← future: n8n
 │
 ├── tests/
 │   ├── pyats/
+│   │   └── aci/               ← Phase 5: pyATS validation tests
+│   ├── unit/                  ← Phase 6: generator unit tests
 │   ├── integration/
 │   └── compliance/
 │
@@ -112,6 +120,4 @@ network-platform-engineering/
 ├── assets/
 │   └── images/
 │
-├── .github/
-│
-└── .vscode/
+└── .github/                   ← future: GitHub Actions CI workflows

@@ -1,5 +1,3 @@
-# README-ARCHITECTURE.md
-
 # Network Platform Engineering Platform
 
 > **Architecture at a Glance**

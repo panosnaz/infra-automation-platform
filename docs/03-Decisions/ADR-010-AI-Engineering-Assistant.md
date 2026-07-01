@@ -1,4 +1,4 @@
-# ADR-009 — AI as an Engineering Assistant
+# ADR-010 — AI as an Engineering Assistant
 
 **Status:** Accepted
 

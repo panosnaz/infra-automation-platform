@@ -1,4 +1,4 @@
-# ADR-005 — Workflow Orchestration
+# ADR-006 — Platform Control Plane as the Single Orchestration Layer
 
 **Status:** Accepted
 
@@ -8,89 +8,117 @@
 
 **Related ADRs:**
 
-- ADR-001 — Nautobot as the Source of Truth
-- ADR-002 — Terraform Owns Desired State Provisioning
-- ADR-003 — Ansible Owns Day-2 Operations
-- ADR-004 — Platform API as the Unified Platform Interface
+* ADR-001 — Nautobot as the Source of Truth
+* ADR-002 — Terraform Owns Desired State Provisioning
+* ADR-003 — Ansible Owns Day-2 Operations
 
 ---
 
 # Context
 
-The Network Platform Engineering Platform consists of multiple independent services responsible for engineering intent, infrastructure provisioning, operational automation, validation, observability, knowledge management and AI assistance.
+The Network Platform Engineering Platform integrates multiple technologies to automate infrastructure provisioning, operations, validation and lifecycle management.
 
-Executing engineering activities requires coordinating these services in a predictable, auditable and repeatable manner.
+Core platform components include:
 
-Examples include:
+* Nautobot
+* Cisco NetAsCode
+* Terraform
+* Ansible
+* Validation Frameworks
+* Observability Platform
+* Secret Management
+* AI Engineering Assistants
 
-- Provisioning a new Cisco ACI tenant
-- Deploying a VXLAN EVPN fabric
-- Creating Azure networking resources
-- Running compliance validation
-- Performing Day-2 maintenance
-- Responding to operational events
+Without a common orchestration layer, every component would require direct integrations with multiple other components.
 
-Each workflow may involve multiple platform components and execution engines.
+For example:
 
-Without centralized workflow orchestration, execution logic becomes fragmented across scripts, pipelines and automation tools, resulting in inconsistent behavior and duplicated logic.
+```text
+Terraform
+   ├── Nautobot
+   ├── Vault
+   ├── Validation
+   ├── Grafana
+   ├── AI
+   └── Notification Services
+
+Ansible
+   ├── Nautobot
+   ├── Vault
+   ├── Validation
+   ├── Grafana
+   ├── AI
+   └── Notification Services
+```
+
+As the platform grows, the number of integrations increases rapidly, leading to:
+
+* Tight coupling
+* Duplicate logic
+* Inconsistent security
+* Difficult maintenance
+* Limited scalability
+* Increased testing complexity
+
+A central orchestration capability is therefore required.
 
 ---
 
 # Problem Statement
 
-How should complex engineering workflows be coordinated across multiple platform capabilities?
+How should independent platform capabilities collaborate without becoming tightly coupled?
 
-Should individual tools orchestrate one another directly, or should workflow execution be managed by a dedicated orchestration capability?
+Should automation components communicate directly with one another, or should all execution be coordinated through a common orchestration layer?
 
 ---
 
 # Decision
 
-The platform shall implement a centralized Workflow Orchestration capability.
+The platform shall implement a single Platform Control Plane responsible for coordinating all infrastructure execution.
 
-All engineering workflows shall be coordinated through the Platform Control Plane using a workflow engine.
+No automation component shall directly orchestrate another component outside the Control Plane.
 
-The workflow engine is responsible for coordinating execution.
+All execution workflows pass through the Platform Control Plane.
 
-Individual automation tools remain responsible only for performing their assigned tasks.
+The Platform Control Plane becomes the authoritative execution coordinator for the platform.
 
 ---
 
 # Responsibilities
 
-The Workflow Orchestration capability owns:
+The Platform Control Plane owns orchestration, not infrastructure.
 
-- Workflow execution
-- Task sequencing
-- Dependency resolution
-- Conditional execution
-- Parallel execution
-- Retry logic
-- Timeout handling
-- Scheduling
-- Event processing
-- Notifications
-- Human approval steps
-- Workflow state tracking
+Its responsibilities include:
 
-The workflow engine does not own:
+* Workflow orchestration
+* API mediation
+* Authentication
+* Authorization
+* RBAC enforcement
+* Approval workflows
+* Secret retrieval
+* Event routing
+* Audit logging
+* Job scheduling
+* Retry logic
+* Notifications
+* Workflow state management
+* Execution coordination
 
-- Infrastructure intent
-- Infrastructure provisioning
-- Device configuration
-- Validation logic
-- Monitoring
-
-These remain the responsibility of dedicated platform components.
+The Control Plane deliberately avoids infrastructure-specific logic.
 
 ---
 
 # Architectural Position
 
-The workflow engine operates inside the Platform Control Plane.
+The Platform Control Plane sits between Engineering Intent and infrastructure execution.
 
 ```text
-Users
+Engineers
+     │
+     ▼
+Nautobot
+(Source of Truth)
      │
      ▼
 Platform API
@@ -99,282 +127,305 @@ Platform API
 Platform Control Plane
      │
      ▼
-Workflow Engine
-     │
-     ├──────────────┐
-     ▼              ▼
-Terraform      Ansible
-     │              │
-     ├──────────────┤
-     ▼              ▼
-Validation    Observability
+Cisco NetAsCode
      │
      ▼
-Knowledge Layer
+Terraform / Ansible
+     │
+     ▼
+Infrastructure
+     │
+     ▼
+Validation
+     │
+     ▼
+Observability
 ```
 
-The workflow engine coordinates execution but does not perform infrastructure changes itself.
+Every infrastructure action passes through this architectural path.
 
 ---
 
-# Standard Workflow Lifecycle
+# Why Direct Integrations Are Prohibited
 
-Every workflow follows the same lifecycle.
+Direct communication between automation components introduces unnecessary coupling.
+
+For example:
+
+```text
+Terraform
+     │
+     ├────► Vault
+     ├────► pyATS
+     ├────► Grafana
+     ├────► AI
+     └────► Notification Service
+
+Ansible
+     │
+     ├────► Vault
+     ├────► pyATS
+     ├────► Grafana
+     ├────► AI
+     └────► Notification Service
+```
+
+This architecture results in:
+
+* Repeated authentication logic
+* Duplicate error handling
+* Multiple audit implementations
+* Inconsistent approval mechanisms
+* Divergent operational workflows
+
+Instead, all coordination occurs through the Control Plane.
+
+---
+
+# Standard Execution Pattern
+
+Every platform workflow follows the same execution model.
 
 ```text
 Request
-   │
-   ▼
+    │
+    ▼
+Platform API
+    │
+    ▼
+Platform Control Plane
+    │
+    ▼
+Execution Engine
+    │
+    ▼
 Validation
-   │
-   ▼
-Approval (if required)
-   │
-   ▼
-Execution
-   │
-   ▼
-Validation
-   │
-   ▼
+    │
+    ▼
 Observability
-   │
-   ▼
+    │
+    ▼
 Knowledge Capture
-   │
-   ▼
-Workflow Complete
 ```
 
-This lifecycle provides consistency across all automation domains.
+This pattern applies consistently across all platform capabilities.
 
 ---
 
-# Workflow Categories
+# Workflow Orchestration
 
-The platform supports several workflow types.
+The Platform Control Plane coordinates all execution activities.
 
-## Provisioning
+Examples include:
 
-Examples:
+* Infrastructure provisioning
+* Day-2 operations
+* Validation pipelines
+* Compliance checks
+* Drift remediation
+* Secret retrieval
+* Maintenance windows
+* Scheduled automation
+* Event-driven workflows
+* AI-approved engineering tasks
 
-- New tenant
-- New VRF
-- Azure Landing Zone
-- VXLAN Fabric Deployment
-
-Primary execution engine:
-
-Terraform
-
----
-
-## Operational
-
-Examples:
-
-- Maintenance
-- BFD updates
-- Interface changes
-- Configuration backup
-
-Primary execution engine:
-
-Ansible
+The workflow engine determines execution order and dependency management.
 
 ---
 
-## Validation
+# Event Processing
 
-Examples:
-
-- pyATS validation
-- Catfish verification
-- Compliance checks
-- Connectivity testing
-
-Primary execution engine:
-
-Validation Frameworks
-
----
-
-## Event-Driven
-
-Examples:
-
-- Monitoring alerts
-- Drift detection
-- Secret rotation
-- Incident response
-
-Primary execution engine:
-
-Workflow Engine coordinating one or more automation tools.
-
----
-
-# Human-in-the-Loop
-
-Not every workflow should execute automatically.
-
-The orchestration layer supports:
-
-- CAB approval
-- Manual approval
-- Emergency override
-- Change window enforcement
-- Peer review
-- Operational checkpoints
-
-Automation enhances engineering judgement rather than replacing it.
-
----
-
-# Event-Driven Execution
-
-The workflow engine responds to platform events.
+The Control Plane is responsible for processing platform events.
 
 Typical events include:
 
-- Engineering request submitted
-- Pull request approved
-- Terraform completed
-- Ansible playbook finished
-- Validation failed
-- Compliance violation detected
-- Infrastructure drift detected
-- Monitoring alert received
-- Secret rotated
-- Scheduled maintenance window
+* Service request submitted
+* Deployment approved
+* Deployment completed
+* Validation failed
+* Drift detected
+* Monitoring alert
+* Secret rotated
+* Change window opened
+* AI recommendation approved
 
-Events initiate workflows without requiring manual intervention.
-
----
-
-# Error Handling
-
-The orchestration layer standardizes workflow error handling.
-
-Capabilities include:
-
-- Automatic retries
-- Rollback initiation
-- Failure notifications
-- Escalation
-- Audit logging
-- Workflow suspension
-- Manual intervention
-
-This behavior remains consistent regardless of the execution engine.
+Each event may trigger one or more workflows.
 
 ---
 
-# Technology Independence
+# Governance
 
-Workflow orchestration is an architectural capability.
+All execution inherits governance from the Platform Control Plane.
 
-Current implementation:
+Governance capabilities include:
 
-- n8n
+* RBAC
+* Approval workflows
+* Audit logging
+* Change tracking
+* Policy enforcement
+* Execution history
+* Workflow traceability
 
-Future implementations could include:
-
-- Temporal
-- Camunda
-- Kestra
-- StackStorm
-- Apache Airflow
-- Custom Python services
-
-Changing the implementation must not alter the architecture.
+Individual automation tools should not implement independent governance mechanisms.
 
 ---
 
 # Integration with Platform Components
 
-| Component | Interaction |
-|------------|-------------|
-| Platform API | Receives requests |
-| Nautobot | Supplies engineering intent |
-| Cisco NetAsCode | Generates canonical models |
-| Terraform | Executes provisioning tasks |
-| Ansible | Executes operational tasks |
-| Validation Framework | Performs independent verification |
-| Observability Platform | Supplies telemetry |
-| Knowledge Layer | Stores workflow outcomes |
-| AI Layer | Provides recommendations |
+## Nautobot
 
-The workflow engine coordinates these interactions without duplicating their responsibilities.
+Provides Engineering Intent.
+
+Never executes infrastructure.
+
+---
+
+## Cisco NetAsCode
+
+Provides the Canonical Engineering Model.
+
+Never orchestrates workflows.
+
+---
+
+## Terraform
+
+Executes declarative provisioning.
+
+Never coordinates external workflows.
+
+---
+
+## Ansible
+
+Executes procedural operational automation.
+
+Never owns orchestration.
+
+---
+
+## Validation Framework
+
+Verifies infrastructure independently.
+
+Never initiates deployments.
+
+---
+
+## Observability Platform
+
+Provides telemetry and operational visibility.
+
+Never controls execution.
+
+---
+
+## AI Engineering Layer
+
+Provides recommendations, analysis and engineering assistance.
+
+Never executes infrastructure directly.
+
+All AI-initiated actions require approval through the Platform Control Plane.
+
+---
+
+# Technology Independence
+
+The Platform Control Plane represents an architectural capability rather than a specific product.
+
+The current implementation may include:
+
+* Platform API
+* n8n
+* Python services
+* Event bus
+* Secret management integration
+
+Future implementations may replace individual technologies without changing the architecture.
+
+The Control Plane remains a stable architectural concept regardless of implementation.
 
 ---
 
 # Benefits
 
-Centralized workflow orchestration provides:
+Implementing a central Control Plane provides:
 
-- Consistent execution
-- Reduced coupling
-- Reusable workflows
-- Standardized governance
-- Better auditability
-- Improved error handling
-- Event-driven automation
-- Easier platform evolution
-- Clear separation of responsibilities
+* Loose coupling
+* Consistent governance
+* Reusable workflows
+* Centralised security
+* Standardised integrations
+* Simplified testing
+* Improved observability
+* Easier platform evolution
+* Better AI integration
+* Reduced operational complexity
 
 ---
 
 # Trade-Offs
 
-The workflow engine introduces:
+Introducing a Platform Control Plane also introduces additional responsibilities.
 
-- Additional platform infrastructure
-- Workflow lifecycle management
-- Operational monitoring requirements
-- Workflow version management
+These include:
 
-These trade-offs are justified by the significant gains in consistency, governance and maintainability.
+* Workflow management
+* Platform availability
+* API lifecycle management
+* Event processing
+* Operational monitoring
+
+These responsibilities are acceptable because they centralise complexity rather than distributing it across every platform component.
 
 ---
 
 # Alignment with Platform Principles
 
-This decision supports:
+This decision directly supports:
 
-- Platform Before Tools
-- Separation of Responsibilities
-- Event-Driven Automation
-- Closed-Loop Engineering
-- API-First Architecture
-- Security by Design
-- Technology Independence
-- Human Governance
-- Modularity
+* Single Responsibility
+* Platform Before Tools
+* API-First Architecture
+* Separation of Responsibilities
+* Event-Driven Automation
+* Closed-Loop Engineering
+* Security by Design
+* Human Governance
+* Technology Independence
+* Modularity
 
 ---
 
 # Future Considerations
 
-Future enhancements may include:
+The Platform Control Plane is expected to evolve as the platform grows.
 
-- AI-generated workflows
-- Dynamic workflow composition
-- Multi-site orchestration
-- Multi-cloud orchestration
-- Workflow simulation
-- Policy-as-Code integration
-- Workflow analytics
-- Self-healing automation
+Future capabilities may include:
 
-These enhancements build upon the orchestration capability without changing its architectural role.
+* Policy-as-Code
+* Event streaming
+* Self-service portals
+* Service catalog integration
+* AI-assisted workflow generation
+* Multi-site orchestration
+* Multi-cloud orchestration
+* Dynamic approval policies
+* Advanced scheduling
+* Workflow analytics
+
+These enhancements extend the Control Plane without altering its architectural role.
 
 ---
 
 # Summary
 
-The Workflow Orchestration capability coordinates all engineering workflows within the Network Platform Engineering Platform.
+The Platform Control Plane is the central orchestration capability of the Network Platform Engineering Platform.
 
-It provides a consistent execution model across provisioning, operations, validation and event-driven automation while maintaining clear separation between orchestration and execution.
+It separates engineering intent from execution, enforces governance, coordinates workflows and provides a consistent execution model across all supported infrastructure domains.
 
-By centralizing workflow coordination within the Platform Control Plane, the platform achieves greater consistency, governance, scalability and maintainability while remaining independent of any specific orchestration technology.
+By preventing direct orchestration between platform components, this decision creates a modular, scalable and maintainable architecture that can evolve over time while preserving a consistent operating model.
+
+The Platform Control Plane is therefore the architectural backbone of the platform and the primary mechanism through which all infrastructure automation is executed.
