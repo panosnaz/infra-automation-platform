@@ -1,6 +1,10 @@
 # Nested git repo — handle as submodule or separate decision
 lab/docker/nautobot/
 
+# Vault unseal keys — never commit
+lab/docker/vault/state/*.txt
+lab/docker/vault/state/*.json
+
 # Terraform
 **/.terraform/
 *.tfstate

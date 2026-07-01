@@ -1,0 +1,32 @@
+---
+services:
+  vault:
+    labels:
+      com.unisystems.lab.name: "infra-automation-lab"
+      com.unisystems.lab.scope: "nautobot-infra-automation"
+      com.unisystems.lab.role: "vault"
+    image: "hashicorp/vault:1.17"
+    container_name: "infra-automation-lab-vault"
+    ports:
+      - "8200:8200"
+    cap_add:
+      - IPC_LOCK
+    environment:
+      VAULT_ADDR: "http://127.0.0.1:8200"
+    volumes:
+      - "vault_data:/vault/data"
+      - "./config:/vault/config:ro"
+      - "./init:/vault/init:ro"
+      - "./state:/vault/state"
+    entrypoint: ["sh", "/vault/init/entrypoint.sh"]
+    healthcheck:
+      test: ["CMD", "vault", "status"]
+      interval: "10s"
+      timeout: "5s"
+      start_period: "90s"
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  vault_data:
+    name: "infra-automation-lab_vault_data"
