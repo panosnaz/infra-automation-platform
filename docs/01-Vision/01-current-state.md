@@ -84,12 +84,12 @@ The ACI simulator is a Cisco APIC development appliance. It represents the targe
 | URL | `http://localhost:8200` |
 | UI | `http://localhost:8200/ui` |
 | Version | 1.17.6 |
-| Deployment | Docker Compose — `lab/docker/nautobot/environments/docker-compose.vault.yml` |
+| Deployment | Docker Compose — `lab/docker/vault/docker-compose.yml` (standalone stack) |
 | Storage | File backend — Docker volume `infra-automation-lab_vault_data` |
 | Mode | Single-node, file storage, TLS disabled (lab only) |
-| Root token | See `lab/docker/nautobot/environments/vault/state/vault-keys.txt` (gitignored) |
+| Root token | See `lab/docker/vault/state/vault-keys.txt` (gitignored) |
 
-Vault is fully integrated into the existing Nautobot Docker Compose stack. On first start the entrypoint script auto-initialises, unseals, and populates all lab credentials into the KV v2 engine at `secret/`.
+Vault runs as a standalone Docker Compose stack independent of Nautobot (`cd lab/docker/vault && docker compose up -d`). On first start the entrypoint script auto-initialises, unseals, and populates all lab credentials into the KV v2 engine at `secret/`.
 
 ### Stored secrets
 
