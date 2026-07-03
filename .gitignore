@@ -31,3 +31,7 @@ dist/
 
 # Generator output — produced by generate_aci.py, not source
 platform/netascode/aci/tenants.yaml
+
+# Terraform variable files with real credentials
+terraform.tfvars
+*.auto.tfvars
