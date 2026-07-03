@@ -69,73 +69,86 @@ The platform provides:
 
 ```text
 ┌──────────────────────────────────────────────────────────────────────┐
-│                        USERS & CONSUMERS                             │
-│                                                                      │
-│  Network Engineers • Cloud Engineers • Operations • AI Assistants    │
+│                  ENTRY POINTS                                       │
+│                                                                     │
+│  Portal • CLI • Jira • ServiceNow • Git • AI Agents • REST API   │
 └──────────────────────────────────────────────────────────────────────┘
                                 │
                                 ▼
 ┌──────────────────────────────────────────────────────────────────────┐
-│                    ENGINEERING INTENT LAYER                          │
-│                                                                      │
+│                     PLATFORM API                                     │
+│                 INTENT TRANSLATION LAYER                             │
+│                                                                     │
+│ Auth • Authz • Request Validation • Intent Normalisation             │
+│ Policy Enforcement • Canonical Intent Generation • Event Publishing   │
+└──────────────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+┌──────────────────────────────────────────────────────────────────────┐
+│               EVENT BUS  (asynchronous backbone)                    │
+└──────────────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+┌──────────────────────────────────────────────────────────────────────┐
+│                  ENGINEERING INTENT LAYER                            │
+│                                                                     │
 │                     Nautobot (Source of Truth)                       │
-│                                                                      │
+│                                                                     │
 │ Inventory • Services • Relationships • Desired Intent               │
 └──────────────────────────────────────────────────────────────────────┘
                                 │
                                 ▼
 ┌──────────────────────────────────────────────────────────────────────┐
 │                     PLATFORM CONTROL PLANE                           │
-│                                                                      │
-│ Platform API                                                         │
-│ Workflow Engine (n8n)                                                 │
-│ Governance                                                            │
-│ RBAC                                                                  │
-│ Approval Workflows                                                    │
-│ Secret Management Integration                                         │
+│                                                                     │
+│ Workflow Engine (n8n) • Orchestration Only • No Business Logic        │
+│ Governance • RBAC • Approval Workflows • Secret Management           │
 └──────────────────────────────────────────────────────────────────────┘
                                 │
                                 ▼
 ┌──────────────────────────────────────────────────────────────────────┐
 │                 CANONICAL ENGINEERING MODEL                          │
-│                                                                      │
+│                                                                     │
 │                Cisco NetAsCode (Canonical Model)                     │
 └──────────────────────────────────────────────────────────────────────┘
                                 │
                     ┌───────────┴───────────┐
                     ▼                       ▼
-┌─────────────────────────┐     ┌──────────────────────────┐
+┌─────────────────────────┐     ┌─────────────────────────┐
 │ Terraform               │     │ Ansible                 │
 │ Declarative Deployment  │     │ Day-2 Operations        │
-└─────────────────────────┘     └──────────────────────────┘
+└─────────────────────────┘     └─────────────────────────┘
                     │                       │
                     └───────────┬───────────┘
                                 ▼
 ┌──────────────────────────────────────────────────────────────────────┐
 │                  MANAGED INFRASTRUCTURE                              │
-│                                                                      │
-│ Cisco ACI • Nexus VXLAN EVPN • Azure                                │
+│                                                                     │
+│ Cisco ACI • Nexus VXLAN EVPN • Azure                               │
 └──────────────────────────────────────────────────────────────────────┘
                                 │
                                 ▼
 ┌──────────────────────────────────────────────────────────────────────┐
-│                  CONTINUOUS VALIDATION                               │
-│                                                                      │
+│               CONTINUOUS VALIDATION  (event-driven)                 │
+│                                                                     │
 │ pyATS • Catfish • Custom Validation Pipelines                        │
+│ Subscribes to DeploymentCompleted • Publishes ValidationPassed/Failed │
 └──────────────────────────────────────────────────────────────────────┘
                                 │
                                 ▼
 ┌──────────────────────────────────────────────────────────────────────┐
-│                     OBSERVABILITY LAYER                              │
-│                                                                      │
+│              OBSERVABILITY  (continuous • cross-cutting)             │
+│                                                                     │
 │ Prometheus • Grafana • Loki • Alertmanager                           │
+│ Spans API • Workflow • Execution • Infrastructure • Validation       │
 └──────────────────────────────────────────────────────────────────────┘
                                 │
                                 ▼
 ┌──────────────────────────────────────────────────────────────────────┐
-│                    KNOWLEDGE & AI LAYER                              │
-│                                                                      │
+│              KNOWLEDGE & AI LAYER  (Engineering Memory)             │
+│                                                                     │
 │ Obsidian • MCP • Vector DB • Claude • ChatGPT                        │
+│ Receives from Deployment • Validation • Observability • Runbooks     │
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -143,16 +156,19 @@ The platform provides:
 
 # Core Architectural Concepts
 
-The architecture is built around six core concepts.
+The architecture is built around eight core concepts.
 
-| Concept                | Purpose                                         |
-| ---------------------- | ----------------------------------------------- |
-| Engineering Intent     | Define what the business requires               |
-| Canonical Model        | Represent intent in a technology-neutral format |
-| Platform Control Plane | Coordinate all platform execution               |
-| Execution Engines      | Deploy and operate infrastructure               |
-| Validation             | Independently verify correctness                |
-| Observability          | Continuously monitor operational reality        |
+| Concept                  | Purpose                                                   |
+| ------------------------ | --------------------------------------------------------- |
+| Entry Points             | Multiple channels into the platform (Portal, CLI, AI ...) |
+| Intent Translation       | Normalise all inputs into a Canonical Intent Model        |
+| Canonical Intent         | The internal language of the platform                     |
+| Engineering Intent       | Define what the business requires (Nautobot)              |
+| Canonical Model          | Represent intent in a technology-neutral format           |
+| Platform Control Plane   | Coordinate all platform execution                         |
+| Execution Engines        | Deploy and operate infrastructure                         |
+| Validation               | Independently verify correctness                          |
+| Observability            | Continuously monitor operational reality (cross-cutting)  |
 
 Each concept is independent.
 
@@ -167,19 +183,27 @@ The platform is divided into logical layers.
 Each layer communicates only with adjacent layers through well-defined interfaces.
 
 ```text
-Users
+Entry Points
+(Portal • CLI • Jira • Git • AI • REST)
+      │
+      ▼
+Intent Translation
+(Platform API)
+      │
+      ▼
+Canonical Intent
       │
       ▼
 Engineering Intent
-      │
-      ▼
-Platform Control Plane
+(Nautobot)
       │
       ▼
 Canonical Model
+(NetAsCode)
       │
       ▼
 Execution
+(Terraform / Ansible)
       │
       ▼
 Infrastructure
@@ -188,13 +212,99 @@ Infrastructure
 Validation
       │
       ▼
-Observability
+Observability (continuous • cross-cutting)
       │
       ▼
 Knowledge & AI
 ```
 
 This layered approach minimises coupling and simplifies long-term evolution.
+
+---
+
+# Platform Control Plane vs Execution Plane
+
+The platform separates two distinct planes of operation.
+
+This separation is a fundamental architectural principle.
+
+## Platform Control Plane
+
+Owns business logic.
+
+| Component | Responsibility |
+|---|---|
+| Platform API | Authentication, Authorisation, Intent Translation |
+| Platform API | Request Validation, Policy Enforcement |
+| Platform API | Canonical Intent Generation, Event Publishing |
+| Nautobot | Engineering Intent Storage |
+| NetAsCode Generator | Canonical Model Generation |
+| Event Bus | Asynchronous event backbone |
+| Workflow Engine (n8n) | Orchestration only — reacts to events, no business logic |
+
+## Execution Plane
+
+Owns delivery.
+
+| Component | Responsibility |
+|---|---|
+| Terraform | Infrastructure provisioning (desired state) |
+| Ansible | Day-2 operations |
+| pyATS / Catfish | Independent validation |
+| HashiCorp Vault | Secret retrieval |
+| Notification Services | Engineers and stakeholders |
+
+The Control Plane decides **what** happens.
+
+The Execution Plane decides **how** it happens.
+
+---
+
+# Many Entry Points, One Execution Path
+
+A defining architectural principle is that the execution path is always identical regardless of the request origin.
+
+Entry points include:
+
+* Self-service Portal
+* CLI
+* Jira ticket transitions
+* Git commits / Pull Requests
+* AI Engineering Assistants
+* REST API
+* ServiceNow
+* CI/CD pipelines
+
+Every request passes through the same canonical execution path:
+
+```text
+Entry Point (any)
+     │
+     ▼
+Platform API (Intent Translation)
+     │
+     ▼
+Canonical Intent ──► Event Published (IntentReceived)
+     │
+     ▼
+Nautobot ──► Event Published (IntentStored)
+     │
+     ▼
+Workflow Engine ──► Event Subscription
+     │
+     ▼
+Execution (Terraform / Ansible) ──► Event Published (DeploymentCompleted)
+     │
+     ▼
+Validation ──► Event Published (ValidationPassed / Failed)
+     │
+     ▼
+Knowledge Layer ──► Engineering Memory Updated
+```
+
+No consumer bypasses the Platform API.
+
+No consumer receives special treatment.
 
 ---
 

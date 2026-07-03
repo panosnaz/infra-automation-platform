@@ -34,6 +34,33 @@ AI should never directly provision, modify or delete infrastructure.
 
 Instead, AI produces recommendations, documentation, plans and engineering artifacts that are executed through the Platform Control Plane.
 
+AI is a **platform client**.
+
+It interacts with the platform through the Platform API — the same entry point used by a self-service portal, a CLI, a Jira ticket or a Git commit.
+
+AI receives no privileged or direct access to execution engines.
+
+```text
+Portal     CLI     Jira     Git     AI Agent    REST
+   │         │        │       │         │          │
+   └─────────┴────────┴───────┴─────────┴──────────┘
+                              │
+                              ▼
+                       Platform API
+                  (Intent Translation Layer)
+                              │
+                              ▼
+                       Canonical Intent
+                              │
+                              ▼
+                    Platform Control Plane
+                              │
+                              ▼
+                         Execution
+```
+
+Many entry points.  One canonical execution path.
+
 ---
 
 # Platform Control Plane

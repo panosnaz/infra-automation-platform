@@ -29,37 +29,53 @@ No infrastructure changes should bypass this workflow unless performed under an 
 
 # Engineering Lifecycle
 
-Every infrastructure change follows the same high-level lifecycle.
+Every infrastructure change follows the same canonical lifecycle regardless of the entry point.
 
 ```text
-Business Request
+Entry Point (Portal • CLI • Jira • Git • AI • REST • ServiceNow)
         │
         ▼
-Engineering Intent
+Platform API (Intent Translation Layer)
+   • Authentication + Authorisation
+   • Request Validation + Normalisation
+   • Policy Enforcement
+   • Canonical Intent Generation
+        │
+        ▼ Event: IntentReceived
+Nautobot (Source of Truth)
+   • Engineering Intent stored
+        │
+        ▼ Event: IntentStored
+Approval (if required)
         │
         ▼
-Approval
+NetAsCode Generator
+   • Canonical Model (YAML) generated
+        │
+        ▼ Event: DeploymentRequested → DeploymentStarted
+Workflow Engine (Orchestration)
         │
         ▼
-Generation
+Execution (Terraform / Ansible)
+        │
+        ▼ Event: DeploymentCompleted
+Validation  ──────► Event: ValidationPassed / ValidationFailed
         │
         ▼
-Validation
+Observability (continuous • cross-cutting)
         │
         ▼
-Deployment
-        │
-        ▼
-Verification
-        │
-        ▼
-Observability
+Knowledge Layer (Engineering Memory updated)
         │
         ▼
 Continuous Operations
 ```
 
 This lifecycle applies equally to Cisco ACI, Cisco Nexus VXLAN EVPN, Azure Networking and future supported domains.
+
+No consumer bypasses the Platform API.
+
+No consumer receives special treatment regardless of entry point.
 
 ---
 

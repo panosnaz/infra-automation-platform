@@ -73,27 +73,64 @@ The Platform API is responsible for exposing platform capabilities—not infrast
 
 # Responsibilities
 
-The Platform API owns the external interface of the platform.
+The Platform API owns the external interface and the business logic of the platform.
 
 Responsibilities include:
 
+**Interface**
+
 - REST API endpoints
 - API versioning
-- Request validation
-- Authentication
-- Authorization integration
 - API documentation
 - Webhook endpoints
 - SDK support
 - CLI integration
+- Standardised error handling
+
+**Intent Translation Layer**
+
+- Receive requests from any entry point (Portal, CLI, Jira, Git, AI, ServiceNow, REST)
+- Authenticate and authorise every request
+- Validate and sanitise input schemas
+- Normalise diverse input formats into a Canonical Intent Model
+- Enforce platform policy against the Canonical Intent
+- Generate a fully validated Canonical Intent record
+- Publish the `IntentReceived` event to the Event Bus
+- Route the Canonical Intent to the Source of Truth
+
+**Business Logic**
+
+- Request validation
+- Authentication
+- Authorization integration
+- Intent normalisation
+- Policy enforcement
+- Canonical Intent generation
+- Event publication
 - Service abstraction
 - Request routing
-- Standardised error handling
-- Input schema validation
 
 The Platform API does not execute infrastructure changes directly.
 
-Execution is delegated to the Platform Control Plane.
+Execution is delegated to the Platform Control Plane after the Canonical Intent has been produced and stored.
+
+## What the Workflow Engine Does Not Own
+
+Business logic must not leak into the Workflow Engine.
+
+The Workflow Engine (n8n) is an orchestrator.
+
+It reacts to events and sequences execution tasks.
+
+It does not:
+
+- Validate business intent
+- Enforce policy
+- Normalise input formats
+- Generate Canonical Intent
+- Make business decisions
+
+All business logic is the exclusive responsibility of the Platform API.
 
 ---
 
@@ -153,25 +190,39 @@ The Platform API provides a stable abstraction layer.
 Every platform request follows the same lifecycle.
 
 ```text
-Consumer
+Consumer (any entry point)
      │
      ▼
 Platform API
      │
      ▼
-Authentication
+Authentication + Authorisation
      │
      ▼
-Request Validation
+Request Validation + Normalisation
      │
      ▼
-Platform Control Plane
+Policy Enforcement
      │
      ▼
-Execution
+Canonical Intent Generation  ──► Event: IntentReceived
+     │
+     ▼
+Nautobot (Source of Truth)  ──► Event: IntentStored
+     │
+     ▼
+Workflow Engine (Orchestration)
+     │
+     ▼
+Execution  ──► Event: DeploymentCompleted
+     │
+     ▼
+Validation  ──► Event: ValidationPassed / ValidationFailed
 ```
 
 This pattern applies consistently across all platform services.
+
+Many entry points.  One canonical execution path.
 
 ---
 

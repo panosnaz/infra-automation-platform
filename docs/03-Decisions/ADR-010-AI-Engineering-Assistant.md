@@ -53,31 +53,43 @@ The guiding principle is:
 
 > **AI Recommends. Humans Approve. The Platform Executes.**
 
+Critically, AI is a **platform client**.
+
+It interacts with the platform in exactly the same way as a self-service portal, a CLI or a Jira ticket.
+
+AI never receives privileged or direct access to execution engines.
+
 ---
 
 # Architectural Position
 
-The AI Engineering Layer operates alongside the platform rather than inside the execution path.
+The AI Engineering Layer is a consumer of the Platform API, not a privileged internal component.
 
 ```text
-Engineer
-     │
-     ▼
-AI Engineering Assistant
-     │
-     ▼
-Platform API
-     │
-     ▼
-Platform Control Plane
-     │
-     ▼
-Terraform / Ansible
-     │
-     ▼
-Infrastructure
+Portal     CLI     Jira     Git     AI Agent    REST
+   │         │        │       │         │          │
+   └─────────┴────────┴───────┴─────────┴──────────┘
+                              │
+                              ▼
+                       Platform API
+                  (Intent Translation Layer)
+                              │
+                              ▼
+                       Canonical Intent
+                              │
+                              ▼
+                    Platform Control Plane
+                              │
+                              ▼
+                      Terraform / Ansible
+                              │
+                              ▼
+                         Infrastructure
 ```
 
+AI never bypasses the Platform API.
+
+AI never executes infrastructure changes directly.
 AI never bypasses the Platform API or Platform Control Plane.
 
 ---

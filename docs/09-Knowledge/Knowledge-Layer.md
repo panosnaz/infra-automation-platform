@@ -41,33 +41,46 @@ Instead, engineering knowledge becomes a managed platform asset.
 
 # Architectural Position
 
-The Knowledge Layer receives information from every major platform capability.
+The Knowledge Layer is the **Engineering Memory** of the platform.
+
+It receives continuously from every major platform event and capability, not just at the end of a workflow.
 
 ```text
-                    Engineers
-                        │
-                        ▼
-                Platform API
-                        │
-                        ▼
-                Workflow Engine
-                        │
-        ┌───────────────┼───────────────┐
-        ▼               ▼               ▼
-   Terraform       Ansible       Validation
-        │               │               │
-        └───────────────┼───────────────┘
-                        ▼
-               Knowledge Layer
-                        │
-        ┌───────────────┼───────────────┐
-        ▼               ▼               ▼
- Documentation   AI Assistant   Observability
+Platform API ──────────────────────────────────────────────► Knowledge Layer
+                (IntentReceived events, request metadata)        ▲   │
+                                                                 │   │
+Nautobot ────────────────────────────────────────────────────────┤   │
+           (intent changes, inventory updates)                   │   │
+                                                                 │   │
+Workflow Engine ────────────────────────────────────────────────┤   │
+               (workflow outcomes, execution timings)            │   │
+                                                                 │   │
+Terraform / Ansible ───────────────────────────────────────────┤   │
+               (DeploymentCompleted / DeploymentFailed events)   │   │
+                                                                 │   │
+Validation ────────────────────────────────────────────────────┤   │
+           (ValidationPassed / ValidationFailed events)          │   │
+                                                                 │   │
+Observability ─────────────────────────────────────────────────┤   │
+              (metrics, logs, traces, alerts)                    │   │
+                                                                 │   │
+Git ────────────────────────────────────────────────────────────┤   │
+    (runbooks, ADRs, design documents, commit history)           │   │
+                                                                 │   │
+Incidents / Post-mortems ──────────────────────────────────────┘   │
+                                                                     │
+                                                                     ▼
+                                                       AI Engineering Assistant
+                                                                     │
+                                                                     ▼
+                                                       Improved Engineering Intent
 ```
 
 The Knowledge Layer does not control the platform.
 
-It provides context to the platform.
+It is continuously enriched by the platform and continuously improves future intent.
+
+Knowledge and Observability together close the engineering loop.
 
 ---
 

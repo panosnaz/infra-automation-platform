@@ -58,6 +58,43 @@ Infrastructure reflects the desired state.
 
 Validation confirms operational correctness.
 
+## Mandatory Sequence
+
+The following sequence is mandatory and must never be violated.
+
+```text
+Business Request (any entry point)
+        │
+        ▼
+Platform API (Intent Translation)
+        │
+        ▼
+Canonical Intent
+        │
+        ▼
+Nautobot (Source of Truth)  ◄── engineering intent is written here
+        │
+        ▼
+NetAsCode Generator
+        │
+        ▼
+Canonical Model (YAML)
+        │
+        ▼
+Terraform / Ansible
+        │
+        ▼
+Infrastructure
+```
+
+The reverse path — Terraform modifying or reading back into Nautobot as a source of truth — is explicitly prohibited.
+
+Terraform provisions infrastructure.
+
+Nautobot owns intent.
+
+These responsibilities must never merge.
+
 ---
 
 # Decision Drivers

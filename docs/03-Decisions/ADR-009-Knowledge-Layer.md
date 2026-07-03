@@ -71,23 +71,37 @@ It continuously captures engineering knowledge from platform workflows and makes
 
 # Architectural Position
 
-The Knowledge Layer sits after validation and before AI-assisted reasoning.
+The Knowledge Layer is the Engineering Memory of the platform.
+
+It receives continuously from every major platform event and capability.
 
 ```text
-Engineering Intent
-        │
-        ▼
-Execution
-        │
-        ▼
-Validation
-        │
-        ▼
+Platform API ──────────────────────────────────────────► Knowledge Layer
+                                                               ▲
+Nautobot (intent changes) ─────────────────────────────────────┤
+                                                               │
+Terraform / Ansible (deployment outcomes) ──────────────────────┤
+                                                               │
+Validation (test results, compliance reports) ────────────────┤
+                                                               │
+Observability (metrics, logs, traces) ────────────────────────┤
+                                                               │
+Git (runbooks, ADRs, design documents) ───────────────────────┤
+                                                               │
+Incidents / Post-mortems ─────────────────────────────────────┘
+
 Knowledge Layer
         │
         ▼
 AI Engineering Assistant
+        │
+        ▼
+Improved Engineering Intent
 ```
+
+The Knowledge Layer does not control the platform.
+
+It is continuously enriched by the platform and continuously improves future intent.
 
 Knowledge is continuously enriched throughout the engineering lifecycle.
 

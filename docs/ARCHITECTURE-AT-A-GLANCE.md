@@ -70,41 +70,61 @@ The platform follows these architectural principles.
 
 ✔ Domain Independence
 
+✔ Canonical Intent
+
+✔ Many Entry Points — One Execution Path
+
+✔ Event-Driven Backbone
+
 ---
 
 # High-Level Architecture
 
 ```text
-                     Engineers
-                          │
-                          ▼
-                 Nautobot (Source of Truth)
-                          │
-                          ▼
-               Platform Control Plane
-                          │
-        ┌─────────────────┼────────────────┐
-        ▼                 ▼                ▼
-   Terraform         Ansible          Workflow Engine
-                          │
-                          ▼
-             Managed Infrastructure
-                          │
-                          ▼
-             Continuous Validation
-                          │
-                          ▼
-               Platform Observability
-                          │
-                          ▼
-                 AI Reasoning Plane
-                          │
-                          ▼
-            Knowledge & Recommendations
-                          │
-                          ▼
-              Updated Engineering Intent
+┌─────────────────────────────────────────────────────────────────┐
+│                        ENTRY POINTS                             │
+│                                                                 │
+│  Portal  •  CLI  •  Jira  •  Git  •  AI Agents  •  REST API    │
+└─────────────────────────────────────────────────────────────────┘
+                               │
+                               ▼
+               Platform API  (Intent Translation)
+               Auth • Authz • Validation • Normalization
+               Policy Enforcement • Canonical Intent
+                               │
+                               ▼
+                    ┌──────────────────┐
+                    │  Event Bus       │  ◄── platform backbone
+                    └──────────────────┘
+                               │
+                    ┌──────────┴──────────┐
+                    ▼                     ▼
+           Nautobot (SoT)          Workflow Engine
+           Engineering Intent      Orchestration
+                    │                     │
+                    ▼                     ▼
+             Canonical Model     ┌────────┴────────┐
+             (NetAsCode)         ▼                 ▼
+                    │         Terraform         Ansible
+                    └────────►  │                 │
+                               └────────┬────────┘
+                                        ▼
+                             Managed Infrastructure
+                                        │
+                                        ▼
+                             Continuous Validation
+                                        │
+                                        ▼
+                              Platform Observability
+                                        │
+                                        ▼
+                              Knowledge & AI Layer
+                                        │
+                                        ▼
+                           Improved Engineering Intent
 ```
+
+Many entry points.  One canonical execution path.
 
 This creates a closed engineering feedback loop.
 
@@ -139,6 +159,12 @@ Intent
 Platform Control Plane
 
 Platform API
+
+Intent Translation
+
+Canonical Intent Model
+
+Event Bus
 
 Workflow Engine
 
@@ -233,28 +259,78 @@ Engineering Documentation
 # Engineering Flow
 
 ```text
-Intent
+Entry Point (Portal • CLI • Jira • Git • AI • REST)
    │
    ▼
-Source of Truth
+Intent Translation (Platform API)
    │
    ▼
-Execution
+Canonical Intent  ─────────────► Event: IntentReceived
    │
    ▼
-Validation
+Nautobot (Source of Truth)  ───► Event: IntentStored
    │
    ▼
-Observability
+Canonical Model (NetAsCode)
    │
    ▼
-AI Analysis
+Execution (Terraform / Ansible)  ──► Event: DeploymentStarted
    │
    ▼
-Engineering Improvements
+Infrastructure  ────────────────────► Event: DeploymentCompleted
+   │
+   ▼
+Validation  ─────────────────────────► Event: ValidationPassed / Failed
+   │
+   ▼
+Observability  ──────────────────────► Continuous Telemetry
+   │
+   ▼
+Knowledge Layer  ────────────────────► Engineering Memory Updated
+   │
+   ▼
+AI Analysis  ────────────────────────► Recommendations
+   │
+   ▼
+Improved Engineering Intent
 ```
 
 Everything eventually feeds back into the Source of Truth.
+
+---
+
+# Many Entry Points, One Execution Path
+
+A defining architectural principle of the platform is that the execution path is always the same, regardless of the entry point.
+
+Requests may originate from:
+
+- A self-service portal
+- A CLI command
+- A Jira ticket
+- A Git commit
+- An AI engineering assistant
+- A REST API call
+- A ServiceNow request
+- A CI/CD pipeline
+
+Regardless of origin, every request is:
+
+1. Received by the Platform API
+2. Authenticated and authorised
+3. Translated into Canonical Intent
+4. Validated against platform policy
+5. Stored in the Source of Truth
+6. Published as a platform event
+7. Executed through the same Platform Control Plane
+8. Validated independently
+9. Captured in the Knowledge Layer
+
+No consumer receives special treatment.
+
+No consumer bypasses the Platform API.
+
+This guarantees governance, auditability and operational consistency regardless of how a request originates.
 
 ---
 
@@ -354,30 +430,38 @@ The platform performs execution.
 Engineering Intent
         │
         ▼
-Source of Truth
+Intent Translation  ──────────────► Canonical Intent
         │
         ▼
-Automation
+Source of Truth (Nautobot)
+        │
+        ▼
+Execution  ──────────────────────► Event Published
         │
         ▼
 Infrastructure
         │
         ▼
-Validation
+Validation  ─────────────────────► Event Published
         │
         ▼
-Observability
+Observability  ──────────────────► Continuous Telemetry
         │
         ▼
-AI Reasoning
+Knowledge Layer  ────────────────► Engineering Memory
+        │
+        ▼
+AI Reasoning  ───────────────────► Recommendations
         │
         ▼
 Engineering Improvements
         │
-        └──────────────────────► Source of Truth
+        └──────────────────────────────► Source of Truth
 ```
 
-This closed loop enables continuous improvement.
+Intent → Model → Provision → Operate → Validate → Observe → Learn → Improve → Repeat.
+
+Knowledge and Observability continuously improve future intent.
 
 ---
 
@@ -422,9 +506,13 @@ The architecture is intentionally modular so that new domains reuse existing pla
 
 ---
 
-# Key Architectural Principle
+# Key Architectural Principles
+
+> **Many entry points. One execution path.**
 
 > **Engineering Intent lives in Nautobot.**
+
+> **The Platform API translates every request into Canonical Intent.**
 
 > **The Platform Control Plane executes changes.**
 
@@ -432,6 +520,8 @@ The architecture is intentionally modular so that new domains reuse existing pla
 
 > **Observability measures operational state.**
 
-> **AI augments engineering decisions.**
+> **AI is a platform client, not an execution engine.**
+
+> **Knowledge and Observability continuously improve future intent.**
 
 Together, these capabilities form a governed, closed-loop Platform Engineering ecosystem for modern network infrastructure.

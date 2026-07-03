@@ -58,7 +58,9 @@ Infrastructure deployment is not considered successful until validation confirms
 
 # Architectural Position
 
-Validation sits after infrastructure execution and before operational acceptance.
+Validation is event-driven.
+
+It subscribes to deployment events and publishes validation events back to the Event Bus.
 
 ```text
 Engineering Intent
@@ -67,22 +69,26 @@ Engineering Intent
 Canonical Engineering Model
         │
         ▼
-Terraform / Ansible
-        │
-        ▼
-Infrastructure
-        │
-        ▼
-Validation
-        │
-        ▼
-Observability
-        │
-        ▼
-Knowledge Layer
+Terraform / Ansible  ──────► Event: DeploymentCompleted
+        │                                │
+        ▼                                ▼
+Infrastructure               Validation (subscribes)
+        │                                │
+        │                                ▼
+        │                    Validate against intent
+        │                                │
+        │                                ▼
+        │                    Event: ValidationPassed / ValidationFailed
+        │                                │
+        ▼                                ▼
+Observability ◄─────────────── Knowledge Layer
 ```
 
 Validation provides the bridge between deployment and operational confidence.
+
+Validation does not require direct orchestration calls.
+
+It reacts to events and publishes results as events.
 
 ---
 

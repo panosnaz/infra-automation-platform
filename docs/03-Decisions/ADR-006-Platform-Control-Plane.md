@@ -212,6 +212,46 @@ This pattern applies consistently across all platform capabilities.
 
 ---
 
+# Control Plane vs Execution Plane
+
+The platform distinguishes two planes of operation.
+
+This boundary is a fundamental architectural principle.
+
+## Platform Control Plane
+
+Owns business logic and coordination.
+
+| Component | Primary Responsibility |
+|---|---|
+| Platform API | Authentication, Authorisation, Intent Translation |
+| Platform API | Request Validation, Policy Enforcement |
+| Platform API | Canonical Intent Generation, Event Publishing |
+| Nautobot | Engineering Intent Storage |
+| NetAsCode Generator | Canonical Model Generation |
+| Event Bus | Asynchronous event backbone |
+| Workflow Engine (n8n) | Orchestration — reacts to events, no business logic |
+
+The Control Plane decides **what** happens and ensures it is governed.
+
+## Execution Plane
+
+Owns delivery.
+
+| Component | Primary Responsibility |
+|---|---|
+| Terraform | Infrastructure provisioning (desired state) |
+| Ansible | Day-2 operations |
+| pyATS / Catfish | Independent validation |
+| HashiCorp Vault | Secret retrieval |
+| Notification Services | Engineers and stakeholders |
+
+The Execution Plane delivers **how** it happens.
+
+The Execution Plane contains no business logic.
+
+---
+
 # Workflow Orchestration
 
 The Platform Control Plane coordinates all execution activities.

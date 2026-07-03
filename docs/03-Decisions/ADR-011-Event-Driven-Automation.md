@@ -58,6 +58,37 @@ Automation is initiated by platform events rather than direct component-to-compo
 
 ---
 
+# Event Bus as Platform Backbone
+
+The Event Bus is the asynchronous backbone of the platform.
+
+Every major platform state change is represented as a named event.
+
+Event publishers do not know or care who is listening.
+
+Event subscribers declare their interest and react independently.
+
+This complete decoupling is the source of platform extensibility — a new subscriber can be added without modifying any publisher.
+
+## Named Platform Events
+
+| Event | Published By | Subscribed By |
+|---|---|---|
+| `IntentReceived` | Platform API | Audit, Knowledge |
+| `DeploymentRequested` | Platform API | Workflow Engine |
+| `DeploymentPlanned` | Workflow Engine | Approval Service |
+| `DeploymentStarted` | Workflow Engine | Observability |
+| `DeploymentCompleted` | Workflow Engine / Terraform | Validation, Knowledge, Observability |
+| `DeploymentFailed` | Workflow Engine / Terraform | Notification, Knowledge, Observability |
+| `ValidationPassed` | Validation | Knowledge, Observability, Notification |
+| `ValidationFailed` | Validation | Knowledge, Observability, Notification, Remediation |
+| `DriftDetected` | Validation | Workflow Engine, Observability, Notification |
+| `SecretRotated` | Vault | Workflow Engine |
+| `KnowledgeUpdated` | Knowledge Layer | AI, Observability |
+| `AIRecommendationPublished` | AI Layer | Platform API (as a new entry point) |
+
+---
+
 # Architectural Principles
 
 Event-driven automation shall follow these principles:

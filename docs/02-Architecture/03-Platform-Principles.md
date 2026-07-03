@@ -177,10 +177,28 @@ This model represents the platform's implementation language.
 
 For Cisco ACI, the canonical model is Cisco NetAsCode.
 
+## Canonical Intent
+
+Before engineering intent reaches the Source of Truth, it passes through the Intent Translation Layer.
+
+Diverse input formats — natural language, Jira tickets, REST payloads, Git commits, portal forms — are normalised into a **Canonical Intent Model**.
+
+The Canonical Intent Model is the internal language of the platform.
+
+It is technology-neutral, fully validated and policy-compliant before it reaches Nautobot.
+
 The engineering pipeline therefore becomes:
 
 ```text
-Business Intent
+Business Intent (any format)
+        │
+        ▼
+Intent Translation
+(Platform API)
+        │
+        ▼
+Canonical Intent
+(validated • normalised • policy-checked)
         │
         ▼
 Engineering Intent
@@ -417,25 +435,38 @@ Every validation produces feedback.
 
 Every operational event produces feedback.
 
+Knowledge and Observability continuously improve future intent.
+
 This feedback continuously improves the engineering lifecycle.
 
 ```text
 Intent
    │
    ▼
-Execution
+Model (Canonical Intent → Nautobot → NetAsCode)
    │
    ▼
-Validation
+Provision (Terraform / Ansible)  ──► Event Published
    │
    ▼
-Observation
+Operate (Infrastructure)
    │
    ▼
-Engineering Feedback
+Validate  ────────────────────► Event Published
    │
-   └──────────────► Updated Intent
+   ▼
+Observe (Continuous Telemetry)  ───► Knowledge Layer
+   │
+   ▼
+Learn (Knowledge • AI Analysis)
+   │
+   ▼
+Improve
+   │
+   └───────────────────► Updated Intent
 ```
+
+Intent → Model → Provision → Operate → Validate → Observe → Learn → Improve → Repeat.
 
 The platform continuously evolves based on observed operational behaviour.
 
@@ -453,19 +484,30 @@ Automation should react to engineering events whenever practical.
 
 The platform should avoid relying solely on scheduled execution.
 
+The Event Bus is the asynchronous backbone of the platform.
+
+It decouples producers from consumers, enabling loosely coupled, independently scalable automation.
+
 Examples of platform events include:
 
-* Infrastructure deployment completed
-* Validation succeeded
-* Validation failed
-* Drift detected
-* New service request
-* Incident created
-* Change approved
-* Maintenance window started
-* Monitoring alert received
+* IntentReceived
+* DeploymentRequested
+* DeploymentPlanned
+* DeploymentStarted
+* DeploymentCompleted
+* DeploymentFailed
+* ValidationPassed
+* ValidationFailed
+* DriftDetected
+* SecretRotated
+* KnowledgeUpdated
+* AIRecommendationPublished
 
 Each event should trigger an appropriate workflow through the Platform Control Plane.
+
+Event publishers do not know or care who is listening.
+
+Event subscribers declare their interest and react independently.
 
 ## Rationale
 
@@ -688,6 +730,54 @@ Together they ensure that:
 
 These principles transform the platform from a collection of automation tools into a long-lived engineering product.
 
+# Many Entry Points, One Execution Path
+
+One of the most important Platform Engineering principles is that the execution path is always identical, regardless of where the request originates.
+
+The platform accepts requests from:
+
+* A self-service portal
+* A CLI command
+* A Jira ticket transition
+* A Git commit or Pull Request
+* An AI engineering assistant
+* A REST API call
+* A ServiceNow request
+* A CI/CD pipeline trigger
+
+Regardless of origin, every request follows the same path:
+
+```text
+Entry Point (any)
+     │
+     ▼
+Platform API
+(Authentication • Authorisation • Intent Translation)
+(Validation • Normalisation • Policy Enforcement)
+(Canonical Intent Generation • Event Publishing)
+     │
+     ▼
+Nautobot (Source of Truth)
+     │
+     ▼
+Workflow Engine (Orchestration)
+     │
+     ▼
+Execution (Terraform / Ansible)
+     │
+     ▼
+Validation
+     │
+     ▼
+Knowledge & Observability
+```
+
+No consumer receives special treatment.
+
+No consumer bypasses the Platform API.
+
+This guarantees governance, auditability and operational consistency regardless of how a request originates.
+
 # Operational Principles
 
 The following principles define how the platform is operated, secured, governed and continuously improved throughout its lifecycle.
@@ -835,6 +925,16 @@ Artificial Intelligence is an engineering capability.
 
 Artificial Intelligence is **not** an infrastructure execution engine.
 
+AI is a platform client.
+
+Like a portal, a CLI or a Jira ticket, AI interacts with the platform exclusively through the Platform API.
+
+AI may propose, generate and recommend.
+
+The Platform API translates AI intent into a Canonical Intent Model.
+
+The Platform Control Plane executes.
+
 AI should support engineers by providing:
 
 * Architectural recommendations
@@ -849,13 +949,14 @@ AI should support engineers by providing:
 Infrastructure execution remains the responsibility of the Platform Control Plane.
 
 ```text
-Engineer
-     │
-     ▼
-AI Recommendation
+AI Engineering Assistant
      │
      ▼
 Platform API
+(same entry point as Portal • CLI • Jira • Git)
+     │
+     ▼
+Canonical Intent
      │
      ▼
 Workflow Engine

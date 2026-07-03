@@ -50,34 +50,29 @@ Observability transforms platform operation into measurable engineering knowledg
 
 # Architectural Position
 
-The Observability capability spans every major platform component.
+Observability is a **continuous, cross-cutting** capability.
+
+It spans every major platform component from the moment a request arrives at the Platform API through to the Knowledge Layer.
 
 ```text
                            Engineers
                                ▲
                                │
-                               │
-                     Observability Layer
+                     Observability Layer  (continuous • cross-cutting)
                                ▲
                                │
-      ┌──────────────┬──────────┼──────────┬──────────────┐
-      │              │          │          │              │
-      ▼              ▼          ▼          ▼              ▼
- Platform API   Workflow   Terraform   Ansible   Validation
-                    │
-                    ▼
-            Platform Control Plane
-                    │
-                    ▼
-            Managed Infrastructure
-                    │
-                    ▼
-             Knowledge Layer
+  ┌──────────┬──────────┬───────┴──────┬──────────┬──────────┬──────────────┐
+  │          │          │              │          │          │              │
+  ▼          ▼          ▼              ▼          ▼          ▼              ▼
+Entry     Platform   Nautobot      Workflow  Terraform  Validation    Knowledge
+Points    API                      Engine    / Ansible               Layer
+(all)  (Intent                   (Orchestr)               (event-   (Engineering
+        Trans)                                            driven)    Memory)
 ```
 
-Observability is not attached to a single component.
+Observability does not control the platform.
 
-It is a platform-wide capability.
+It is enriched continuously by every platform event, and its telemetry continuously improves the Knowledge Layer and future engineering decisions.
 
 ---
 

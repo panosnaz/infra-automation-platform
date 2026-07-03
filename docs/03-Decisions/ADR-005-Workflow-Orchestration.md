@@ -80,6 +80,16 @@ The workflow engine does not own:
 - Device configuration
 - Validation logic
 - Monitoring
+- **Business logic**
+- **Policy enforcement**
+- **Intent translation or normalisation**
+- **Canonical Intent generation**
+
+Business logic is the exclusive responsibility of the Platform API.
+
+The workflow engine receives a Canonical Intent from the Event Bus and orchestrates execution.
+
+It does not decide what the intent means or whether it is valid.
 
 These remain the responsibility of dedicated platform components.
 
