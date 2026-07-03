@@ -1,0 +1,25 @@
+---
+# ACI simulator connection variables — sourced from HashiCorp Vault at runtime
+# via the community.hashi_vault lookup plugin. No credentials are hardcoded.
+#
+# Requires VAULT_ADDR and VAULT_TOKEN to be exported before running any
+# playbook in this collection, e.g.:
+#   export VAULT_ADDR=http://localhost:8200
+#   export VAULT_TOKEN=<token>
+#   ansible-playbook -i inventory/hosts.yml playbooks/verify-tenants.yml
+#
+# This mirrors the pattern already used by
+# platform/terraform/aci/scripts/load-vault-creds.sh for Terraform.
+
+aci_vault_secret: >-
+  {{ lookup('community.hashi_vault.vault_kv2_get', 'lab/platform', engine_mount_point='secret').secret }}
+
+aci_host: "{{ aci_vault_secret.aci_url | urlsplit('hostname') }}"
+aci_username: "{{ aci_vault_secret.aci_username }}"
+aci_password: "{{ aci_vault_secret.aci_password }}"
+
+# ACI Simulator uses a self-signed certificate — lab only.
+aci_validate_certs: false
+aci_use_ssl: true
+aci_use_proxy: false
+aci_timeout: 30

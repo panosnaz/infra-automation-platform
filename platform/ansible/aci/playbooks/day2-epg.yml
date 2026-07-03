@@ -1,0 +1,54 @@
+---
+# Day-2 example: create an Application Profile + Endpoint Group (EPG) inside
+# the existing web-bd bridge domain, and bind the EPG to that bridge domain.
+#
+# EPGs, Application Profiles, and their bindings are intentionally NOT part
+# of Terraform's desired-state config (see ADR-002 vs ADR-003 boundary) —
+# tenants/VRFs/bridge domains/subnets are Terraform's job (Phase 3, already
+# provisioned); Ansible owns this kind of Day-2 operational change on top of
+# that base state.
+
+- name: Day-2 — create an EPG in web-bd (web-tenant)
+  hosts: aci
+  gather_facts: false
+  vars:
+    epg_tenant: "web-tenant"
+    epg_ap: "web-ap"
+    epg_name: "web-epg"
+    epg_bd: "web-bd"
+
+  tasks:
+    - name: Ensure the Application Profile exists
+      cisco.aci.aci_ap:
+        host: "{{ aci_host }}"
+        username: "{{ aci_username }}"
+        password: "{{ aci_password }}"
+        validate_certs: "{{ aci_validate_certs }}"
+        use_ssl: "{{ aci_use_ssl }}"
+        use_proxy: "{{ aci_use_proxy }}"
+        timeout: "{{ aci_timeout }}"
+        tenant: "{{ epg_tenant }}"
+        ap: "{{ epg_ap }}"
+        state: present
+
+    - name: Ensure the EPG exists and is bound to the bridge domain
+      cisco.aci.aci_epg:
+        host: "{{ aci_host }}"
+        username: "{{ aci_username }}"
+        password: "{{ aci_password }}"
+        validate_certs: "{{ aci_validate_certs }}"
+        use_ssl: "{{ aci_use_ssl }}"
+        use_proxy: "{{ aci_use_proxy }}"
+        timeout: "{{ aci_timeout }}"
+        tenant: "{{ epg_tenant }}"
+        ap: "{{ epg_ap }}"
+        epg: "{{ epg_name }}"
+        bd: "{{ epg_bd }}"
+        state: present
+      register: epg_result
+
+    - name: Report result
+      ansible.builtin.debug:
+        msg: >-
+          EPG '{{ epg_name }}' present in AP '{{ epg_ap }}',
+          tenant '{{ epg_tenant }}', bound to BD '{{ epg_bd }}'

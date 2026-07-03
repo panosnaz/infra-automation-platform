@@ -1,0 +1,50 @@
+---
+# Read-only validation: assert that every tenant in the generated NetAsCode
+# YAML (platform/netascode/aci/tenants.yaml) exists in ACI. This is a Day-2
+# health check, not a provisioning task — every cisco.aci task here uses
+# state: query and never creates, modifies, or deletes anything in ACI.
+
+- name: Verify ACI tenants match Nautobot/NetAsCode intent
+  hosts: aci
+  gather_facts: false
+  vars:
+    netascode_yaml_file: "{{ playbook_dir }}/../../../netascode/aci/tenants.yaml"
+
+  tasks:
+    - name: Load NetAsCode YAML (generator output)
+      ansible.builtin.set_fact:
+        netascode: "{{ lookup('file', netascode_yaml_file) | from_yaml }}"
+
+    - name: Extract expected tenant names
+      ansible.builtin.set_fact:
+        expected_tenants: "{{ netascode.apic.tenants | map(attribute='name') | list }}"
+
+    - name: Query all tenants from ACI
+      cisco.aci.aci_tenant:
+        host: "{{ aci_host }}"
+        username: "{{ aci_username }}"
+        password: "{{ aci_password }}"
+        validate_certs: "{{ aci_validate_certs }}"
+        use_ssl: "{{ aci_use_ssl }}"
+        use_proxy: "{{ aci_use_proxy }}"
+        timeout: "{{ aci_timeout }}"
+        state: query
+      register: aci_tenants_result
+
+    - name: Extract actual tenant names from ACI
+      ansible.builtin.set_fact:
+        actual_tenants: "{{ aci_tenants_result.current | map(attribute='fvTenant.attributes.name') | list }}"
+
+    - name: Assert every expected tenant exists in ACI
+      ansible.builtin.assert:
+        that:
+          - item in actual_tenants
+        fail_msg: "Tenant '{{ item }}' from NetAsCode YAML was not found in ACI"
+        success_msg: "Tenant '{{ item }}' confirmed present in ACI"
+      loop: "{{ expected_tenants }}"
+
+    - name: Report validation result
+      ansible.builtin.debug:
+        msg: >-
+          All {{ expected_tenants | length }} expected tenant(s) verified
+          present in ACI: {{ expected_tenants }}
