@@ -1,5 +1,12 @@
-# Copy this file to terraform.tfvars and fill in your values.
-# Never commit terraform.tfvars — it is gitignored.
+# PREFERRED: Load credentials from Vault instead of a static tfvars file.
+#   export VAULT_ADDR=http://localhost:8200
+#   export VAULT_TOKEN=<token>
+#   source scripts/load-vault-creds.sh
+#   terraform plan
+#
+# This file is a fallback for environments without Vault access. Copy it to
+# terraform.tfvars and fill in your values. Never commit terraform.tfvars —
+# it is gitignored.
 
 aci_url             = "https://172.30.46.103"
 aci_username        = "admin"
