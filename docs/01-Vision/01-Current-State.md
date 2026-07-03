@@ -107,6 +107,44 @@ Vault runs as a standalone Docker Compose stack independent of Nautobot (`cd lab
 
 The Vault container was found `Exited (2)` — a stale Docker Desktop/WSL2 bind-mount reference left over from a prior Docker Desktop restart (the host files existed, but the container's mounted path pointer was broken, so the entrypoint script's `wait` on the vault server process ended and the container exited). Fixed with `docker compose down && docker compose up -d` in `lab/docker/vault/`, which recreates the container with fresh mounts. No data was lost (file-backed KV v2 volume was untouched). All three secret paths were verified readable afterward.
 
+### 2026-07-03 cleanup — stale duplicate Vault container removed
+
+A second, unrelated Vault container (`infra-automation-lab-vault-1`) was found stopped (`Exited (2)`, created 2026-07-01). It predated the standalone-stack refactor (commit `d2a6365`): Vault was originally wired directly into the main `infra-automation-lab` Compose project via a `docker-compose.vault.yml` inside `lab/docker/nautobot/environments/`, which was later deleted from disk when Vault was moved to its own standalone stack — but the container it had created was never cleaned up. It shared the same `infra-automation-lab_vault_data` volume as the current Vault container (so no data was at risk) plus two now-orphaned anonymous volumes (old `/vault/logs` and `/vault/file` data, not important). Removed with `docker rm infra-automation-lab-vault-1`. Confirmed via `docker compose ls -a` that the `infra-automation-lab` project's config file list no longer references the deleted `docker-compose.vault.yml`.
+
+## Platform API (Skeleton)
+
+| Property | Value |
+|---|---|
+| Status | **Running** |
+| URL | `http://localhost:8000` |
+| Docs | `http://localhost:8000/docs` (Swagger UI) |
+| Deployment | Docker Compose — `lab/docker/platform-api/docker-compose.yml` (standalone stack, same pattern as Vault) |
+| Image | `infra-automation-lab/platform-api:local` (custom built from `platform/platform-api/Dockerfile`) |
+
+Per ADR-004 (Platform API as the Unified Platform Interface), this is a **Phase-0 skeleton** exposing interface/meta endpoints only — no authentication, RBAC, Canonical Intent handling, policy enforcement, or Event Bus publication yet. Those depend on capabilities that don't exist in the lab yet (Event Bus, n8n, a richer Canonical Intent Model), so implementing them now would be premature.
+
+### Endpoints
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /health` | Liveness probe — always 200 if the process is up, no external dependencies |
+| `GET /readiness` | Checks Vault (`/v1/sys/health`) and Nautobot reachability; 200 if both reachable, 503 otherwise |
+| `GET /version` | Reports service identity and implementation phase |
+
+The container reaches the Vault and Nautobot stacks via `host.docker.internal` (works out of the box on Docker Desktop; an `extra_hosts: host-gateway` entry is included for portability to plain Linux Docker Engine).
+
+### Compose project layout — three separate, independent stacks
+
+The lab now runs **three separate Docker Compose projects**, all under the `infra-automation-lab-*` container naming convention but managed independently:
+
+| Project | Compose file(s) | Managed via |
+|---|---|---|
+| `infra-automation-lab` | `lab/docker/nautobot/environments/docker-compose.{base,postgres,local}.yml` | `invoke` tasks inside the nested `lab/docker/nautobot/` repo |
+| `vault` | `lab/docker/vault/docker-compose.yml` | plain `docker compose` in `lab/docker/vault/` |
+| `platform-api` | `lab/docker/platform-api/docker-compose.yml` | plain `docker compose` in `lab/docker/platform-api/` |
+
+This is a deliberate choice, not an oversight: Nautobot's compose files live inside a nested git repository (`lab/docker/nautobot/`) that this repo's own conventions treat as independently managed and excluded from tracking, so new lab services are added as their own standalone stacks (the same pattern already established for Vault) rather than by editing files inside that nested repo. Merging all three into one Compose project via multiple `-f` flags was considered and rejected — each stack's relative paths (bind mounts, build contexts) are written assuming invocation from their own directory, so merging risks silently breaking them for a purely cosmetic single-project view.
+
 ## Phase 1 — Repository scaffold ✅ Complete
 
 The repository structure follows the canonical layout defined in [`docs/folder structure`](../folder%20structure).
@@ -270,12 +308,14 @@ No unit tests exist for `platform/python/generator/`. The generator has been man
 | Property | Value |
 |---|---|
 | Branch | `master` |
-| Commits | 13 |
+| Commits | 15 |
 | Working tree | Clean |
 | Python | 3.12.3 |
 
 | Commit | Description |
 |---|---|
+| `6143592` | feat(platform-api): add Platform API skeleton container to the lab stack |
+| `58d7592` | docs(vision): update current-state for Phase 3 completion and Vault fixes |
 | `4fa2e6d` | fix(terraform/aci): close Terraform -> Vault credentials gap |
 | `05dc803` | fix(terraform+generator): end-to-end vertical slice corrections |
 | `8fbbac7` | feat(terraform/aci): add Terraform ACI module for NetAsCode YAML provisioning — Phase 3 |
@@ -326,7 +366,7 @@ No ADRs are superseded or deprecated.
 | Day-2 Operations | Ansible `cisco.aci` | ❌ Not implemented |
 | Validation | pyATS + Catfish | ❌ Not implemented |
 | CI/CD Pipeline | GitHub Actions | ❌ Not implemented |
-| Platform API | FastAPI | ❌ Not implemented |
+| Platform API | FastAPI | 🟡 Partial — skeleton container running (`/health`, `/readiness`, `/version`); no auth, RBAC, Canonical Intent, or policy enforcement yet |
 | Workflow Orchestration | n8n | ❌ Not implemented |
 | Secrets Management | HashiCorp Vault | ✅ Running — lab stack, KV v2 populated, Terraform now reads credentials from Vault at runtime (no static tfvars) |
 | Observability | Prometheus + Grafana + Loki | ❌ Not implemented |
@@ -334,7 +374,7 @@ No ADRs are superseded or deprecated.
 | AI Assistance | LangGraph | ❌ Not implemented |
 | Policy Validation | Open Policy Agent | ❌ Not implemented |
 
-The immediate priority is completing the **first end-to-end vertical slice**: Nautobot → NetAsCode YAML → Terraform → Ansible → pyATS. Terraform is now done and proven end-to-end; Ansible (Phase 4) is next. Everything else is future scope.
+The immediate priority is completing the **first end-to-end vertical slice**: Nautobot → NetAsCode YAML → Terraform → Ansible → pyATS. Terraform is now done and proven end-to-end; Ansible (Phase 4) is next. The Platform API skeleton runs in parallel as lab infrastructure but is not yet part of the vertical slice's critical path. Everything else is future scope.
 
 ---
 
@@ -428,7 +468,7 @@ After Phases 3b, 5, and 6 are complete:
 | 8 | ACI system tenant handling in Terraform | 3 | ✅ Done | Resolved via filtering (`_system_tenants` local excludes `common`/`infra`/`mgmt` from all `for_each` maps) rather than importing them into state |
 | 9 | `platform/netascode/aci/example-tenants.yaml` (committed) | 3 | 🟡 Medium | Static Terraform development |
 | 10 | `tests/unit/` directory creation | 6 | 🟡 Medium | Unit test phase |
-| 11 | Platform API (FastAPI) | Future | 🔵 Future | — |
+| 11 | Platform API (FastAPI) | Skeleton | 🟡 Partial | Skeleton container running (`/health`, `/readiness`, `/version`); auth, RBAC, Canonical Intent, and policy enforcement remain future scope |
 | 12 | Workflow Orchestration (n8n) | Future | 🔵 Future | — |
 | 13 | Secrets Management (HashiCorp Vault) | ✅ Done | ✅ Complete | Vault running in lab stack; KV v2 populated; Terraform reads credentials from Vault at runtime via `scripts/load-vault-creds.sh` (no static tfvars) |
 | 14 | Observability stack (Prometheus, Grafana, Loki) | Future | 🔵 Future | — |
@@ -437,6 +477,7 @@ After Phases 3b, 5, and 6 are complete:
 | 17 | Policy Validation (OPA) | Future | 🔵 Future | — |
 | 18 | Multi-domain expansion (VXLAN EVPN, Azure) | Future | 🔵 Future | — |
 | 19 | Terraform → Vault credential loader (`scripts/load-vault-creds.sh`) | 3 | ✅ Done | — (closed 2026-07-03; replaced hand-typed `terraform.tfvars`) |
+| 20 | Stale duplicate Vault container (`infra-automation-lab-vault-1`) removed | — | ✅ Done | — (closed 2026-07-03; leftover from pre-refactor merged stack, shared no unique data) |
 
 ---
 
