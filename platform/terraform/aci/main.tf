@@ -62,7 +62,7 @@ resource "aci_tenant" "this" {
 resource "aci_vrf" "this" {
   for_each  = local.vrfs
 
-  tenant_dn = aci_tenant.this[each.value.tenant_name].id
+  parent_dn = aci_tenant.this[each.value.tenant_name].id
   name      = each.value.vrf_name
 }
 
@@ -72,9 +72,12 @@ resource "aci_vrf" "this" {
 resource "aci_bridge_domain" "this" {
   for_each = local.bridge_domains
 
-  tenant_dn         = aci_tenant.this[each.value.tenant_name].id
-  name              = each.value.name
-  unicast_routing   = lookup(each.value, "unicast_routing", true) ? "yes" : "no"
+  parent_dn       = aci_tenant.this[each.value.tenant_name].id
+  name            = each.value.name
+  unicast_routing = lookup(each.value, "unicast_routing", true) ? "yes" : "no"
+
+  # relation_fv_rs_ctx links the BD to its VRF; the provider alias relation_to_vrf
+  # uses a different schema (object with tn_fv_ctx_name) that varies by version.
   relation_fv_rs_ctx = aci_vrf.this["${each.value.tenant_name}/${each.value.vrf}"].id
 }
 

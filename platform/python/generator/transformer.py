@@ -22,6 +22,7 @@ Output schema (netascode/aci Terraform provider):
 
 from __future__ import annotations
 
+import ipaddress
 import re
 from collections import defaultdict
 from typing import Any
@@ -123,7 +124,7 @@ def _build_bridge_domains(prefixes: list[dict[str, Any]]) -> list[dict[str, Any]
             "unicast_routing": True,
             "subnets": [
                 {
-                    "ip": network,
+                    "ip": _to_gateway_ip(network),
                     "public": False,
                     "private": True,
                     "shared": False,
@@ -148,3 +149,22 @@ def _parse_bd_name(description: str) -> str | None:
 def _sanitise_prefix_as_bd_name(prefix: str) -> str:
     """Convert a CIDR string to a safe ACI BD name, e.g. '10.0.0.0/27' → 'BD_10-0-0-0_27'."""
     return "BD_" + prefix.replace(".", "-").replace("/", "_")
+
+
+def _to_gateway_ip(prefix: str) -> str:
+    """Return the first-host address of a prefix as the ACI BD gateway IP.
+
+    ACI Bridge Domain subnets require a host address (gateway IP), not a
+    network address.  Nautobot always normalises prefixes to network addresses,
+    so this function converts e.g. '10.10.10.0/24' → '10.10.10.1/24'.
+    If the prefix is already a host address it is returned unchanged.
+    """
+    try:
+        net = ipaddress.ip_network(prefix, strict=False)
+        hosts = list(net.hosts())
+        if not hosts:
+            return prefix  # e.g. /31 or /32 edge cases — pass through
+        host = hosts[0]
+        return f"{host}/{net.prefixlen}"
+    except ValueError:
+        return prefix  # unparseable — pass through unchanged
