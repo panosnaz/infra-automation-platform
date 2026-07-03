@@ -119,7 +119,7 @@ A second, unrelated Vault container (`infra-automation-lab-vault-1`) was found s
 | URL | `http://localhost:8000` |
 | Docs | `http://localhost:8000/docs` (Swagger UI) |
 | Deployment | Docker Compose — `lab/docker/platform-api/docker-compose.yml` (standalone stack, same pattern as Vault) |
-| Image | `infra-automation-lab/platform-api:local` (custom built from `platform/platform-api/Dockerfile`) |
+| Image | `infra-automation-lab/platform-api:local` (custom built from `lab/docker/platform-api/Dockerfile`) |
 
 Per ADR-004 (Platform API as the Unified Platform Interface), this is a **Phase-0 skeleton** exposing interface/meta endpoints only — no authentication, RBAC, Canonical Intent handling, policy enforcement, or Event Bus publication yet. Those depend on capabilities that don't exist in the lab yet (Event Bus, n8n, a richer Canonical Intent Model), so implementing them now would be premature.
 

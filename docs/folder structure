@@ -83,7 +83,9 @@ nautobot-infra-automation/
 │   ├── README.md
 │   │
 │   └── docker/
-│       └── nautobot/          ← nested git repo; not tracked by this repo
+│       ├── nautobot/          ← nested git repo; not tracked by this repo
+│       ├── vault/              ← standalone Vault stack (Docker Compose + init scripts)
+│       └── platform-api/       ← Platform API skeleton: Dockerfile, app source, Compose
 │
 ├── platform/
 │   │
@@ -104,8 +106,6 @@ nautobot-infra-automation/
 │   ├── netascode/
 │   │   └── aci/               ← generated YAML output (gitignored)
 │   │
-│   ├── platform-api/          ← future: FastAPI
-│   │
 │   └── workflows/             ← future: n8n
 │
 ├── tests/
@@ -121,3 +121,11 @@ nautobot-infra-automation/
 │   └── images/
 │
 └── .github/                   ← future: GitHub Actions CI workflows
+
+---
+
+## Convention — `lab/docker/` vs `platform/`
+
+- `lab/docker/<name>/` gathers **every container definition** used to run this prototype locally: Dockerfile (if custom-built), app source that only exists to be containerized, Docker Compose files, init/bootstrap scripts, and env/creds files. This is the single place to look for "what containers does this lab run and how." Nautobot, Vault, and Platform API all follow this pattern.
+- `platform/<capability>/` holds engineering capability source that is portable and not tied to how/where it runs — Terraform modules, Ansible playbooks, the Python generator. Nothing container-specific lives here.
+- A capability that is *itself* a container service (e.g. Platform API) still keeps its Dockerfile and app code under `lab/docker/<name>/`, not split across both trees.

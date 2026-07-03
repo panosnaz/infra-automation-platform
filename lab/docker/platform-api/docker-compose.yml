@@ -6,7 +6,7 @@ services:
       com.unisystems.lab.scope: "nautobot-infra-automation"
       com.unisystems.lab.role: "platform-api"
     build:
-      context: "../../../platform/platform-api"
+      context: "."
       dockerfile: "Dockerfile"
     image: "infra-automation-lab/platform-api:local"
     container_name: "infra-automation-lab-platform-api"
