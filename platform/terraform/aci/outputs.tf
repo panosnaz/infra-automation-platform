@@ -12,3 +12,8 @@ output "bridge_domain_ids" {
   description = "Map of Bridge Domain keys (tenant/bd) to their ACI distinguished names."
   value       = { for k, v in aci_bridge_domain.this : k => v.id }
 }
+
+output "subnet_ids" {
+  description = "Map of subnet keys (tenant/bd/ip) to their ACI distinguished names."
+  value       = { for k, v in aci_subnet.this : k => v.id }
+}

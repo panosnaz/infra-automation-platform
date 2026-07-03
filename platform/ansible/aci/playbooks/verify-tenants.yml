@@ -10,6 +10,18 @@
   vars:
     netascode_yaml_file: "{{ playbook_dir }}/../../../netascode/aci/tenants.yaml"
 
+  # Applies host/username/password/validate_certs/use_ssl/use_proxy/timeout to
+  # every cisco.aci.* task below, instead of repeating them on each task.
+  module_defaults:
+    group/cisco.aci.all:
+      host: "{{ aci_host }}"
+      username: "{{ aci_username }}"
+      password: "{{ aci_password }}"
+      validate_certs: "{{ aci_validate_certs }}"
+      use_ssl: "{{ aci_use_ssl }}"
+      use_proxy: "{{ aci_use_proxy }}"
+      timeout: "{{ aci_timeout }}"
+
   tasks:
     - name: Load NetAsCode YAML (generator output)
       ansible.builtin.set_fact:
@@ -21,13 +33,6 @@
 
     - name: Query all tenants from ACI
       cisco.aci.aci_tenant:
-        host: "{{ aci_host }}"
-        username: "{{ aci_username }}"
-        password: "{{ aci_password }}"
-        validate_certs: "{{ aci_validate_certs }}"
-        use_ssl: "{{ aci_use_ssl }}"
-        use_proxy: "{{ aci_use_proxy }}"
-        timeout: "{{ aci_timeout }}"
         state: query
       register: aci_tenants_result
 

@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import ipaddress
 import re
+import sys
 from collections import defaultdict
 from typing import Any
 
@@ -119,12 +120,25 @@ def _build_bridge_domains(prefixes: list[dict[str, Any]]) -> list[dict[str, Any]
         vrf_list: list[dict[str, Any]] = prefix.get("vrfs") or []
         vrf_name = vrf_list[0]["name"] if vrf_list else None
 
+        gateway_ip = _to_gateway_ip(network)
+        if gateway_ip != network:
+            # Nautobot has no explicit "this is the gateway" concept for a prefix —
+            # it only stores the network address. We assume the first host is the
+            # intended ACI BD gateway, which is a common convention but not
+            # guaranteed. Surface this clearly rather than guessing silently.
+            print(
+                f"WARNING: [generator] BD '{bd_name}': prefix {network} has no explicit "
+                f"gateway in Nautobot; assuming first host {gateway_ip} as the ACI BD "
+                "gateway IP. Verify this matches the intended gateway.",
+                file=sys.stderr,
+            )
+
         entry: dict[str, Any] = {
             "name": bd_name,
             "unicast_routing": True,
             "subnets": [
                 {
-                    "ip": _to_gateway_ip(network),
+                    "ip": gateway_ip,
                     "public": False,
                     "private": True,
                     "shared": False,

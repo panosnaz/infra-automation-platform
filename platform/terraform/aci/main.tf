@@ -50,7 +50,7 @@ locals {
 # Tenants
 # ---------------------------------------------------------------------------
 resource "aci_tenant" "this" {
-  for_each    = local.tenants
+  for_each = local.tenants
 
   name        = each.value.name
   description = lookup(each.value, "description", null)
@@ -60,7 +60,7 @@ resource "aci_tenant" "this" {
 # VRFs
 # ---------------------------------------------------------------------------
 resource "aci_vrf" "this" {
-  for_each  = local.vrfs
+  for_each = local.vrfs
 
   parent_dn = aci_tenant.this[each.value.tenant_name].id
   name      = each.value.vrf_name
@@ -76,16 +76,20 @@ resource "aci_bridge_domain" "this" {
   name            = each.value.name
   unicast_routing = lookup(each.value, "unicast_routing", true) ? "yes" : "no"
 
-  # relation_fv_rs_ctx links the BD to its VRF; the provider alias relation_to_vrf
-  # uses a different schema (object with tn_fv_ctx_name) that varies by version.
-  relation_fv_rs_ctx = aci_vrf.this["${each.value.tenant_name}/${each.value.vrf}"].id
+  # relation_to_vrf is a nested attribute (not a block) expecting the VRF's
+  # name, not its DN. Referencing aci_vrf.this[...].name (rather than the raw
+  # YAML string) also creates the implicit dependency edge so Terraform
+  # always creates the VRF before setting this relation.
+  relation_to_vrf = {
+    vrf_name = aci_vrf.this["${each.value.tenant_name}/${each.value.vrf}"].name
+  }
 }
 
 # ---------------------------------------------------------------------------
 # Subnets (BD gateway IPs)
 # ---------------------------------------------------------------------------
 resource "aci_subnet" "this" {
-  for_each  = local.subnets
+  for_each = local.subnets
 
   parent_dn = aci_bridge_domain.this["${each.value.tenant_name}/${each.value.bd_name}"].id
   ip        = each.value.ip
