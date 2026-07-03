@@ -4,7 +4,7 @@
 
 **Document Type:** Current State Assessment
 
-**Status:** Live — updated 2026-07-01
+**Status:** Live — updated 2026-07-03
 
 **Owner:** Platform Engineering Team
 
@@ -55,13 +55,13 @@ The Nautobot ACI SSoT plugin has been configured and the initial sync from the A
 
 | Object type | Count | Notes |
 |---|---|---|
-| Tenants | 3 | `ACI:common`, `ACI:infra`, `ACI:mgmt` |
-| VRFs | 6 | `copy`, `default` (common); `ave-ctrl`, `overlay-1` (infra); `inb`, `oob` (mgmt) |
-| Prefixes | 2 | `10.0.0.0/27` (BD: default, VRF: overlay-1, tenant: infra); `172.30.46.0/24` (VRF: oob, tenant: mgmt) |
+| Tenants | 4 | `ACI:common`, `ACI:infra`, `ACI:mgmt` (system); `ACI:web-tenant` (user-defined, Phase 3 vertical slice) |
+| VRFs | 7 | `copy`, `default` (common); `ave-ctrl`, `overlay-1` (infra); `inb`, `oob` (mgmt); `web-vrf` (web-tenant) |
+| Prefixes | 3 | `10.0.0.0/27` (BD: default, VRF: overlay-1, tenant: infra); `172.30.46.0/24` (VRF: oob, tenant: mgmt); `10.10.10.1/24` (BD: web-bd, VRF: web-vrf, tenant: web-tenant) |
 | Devices | 1 | `apic1` — ACI APIC controller |
-| Total objects | ~48 | All from the ACI SSoT sync |
+| Total objects | ~51 | ACI SSoT sync + one manually created user tenant for the Phase 3 vertical slice |
 
-All tenants currently in Nautobot are ACI system tenants (`common`, `infra`, `mgmt`) because the ACI simulator contains only the default fabric objects. User-defined tenants will be added as the lab is extended.
+`ACI:web-tenant` was created directly via the Nautobot REST API (tenant + VRF + prefix, with a `vrf-prefix-assignments` link and an `ACI Bridge Domain: web-bd:web-tenant` description) to prove the full Nautobot → generator → Terraform → ACI chain end to end. All other tenants are ACI system tenants (`common`, `infra`, `mgmt`) present because the simulator only ships the default fabric objects.
 
 All tenant names carry an `ACI:` namespace prefix added by the SSoT plugin (e.g. `ACI:infra`). The generator strips this prefix before writing NetAsCode YAML.
 
@@ -98,6 +98,14 @@ Vault runs as a standalone Docker Compose stack independent of Nautobot (`cd lab
 | `secret/lab/nautobot` | `db_password`, `redis_password`, `secret_key`, `superuser_password`, `superuser_api_token` | Nautobot service credentials |
 | `secret/lab/aci` | `username`, `password`, `url`, `insecure` | ACI simulator credentials |
 | `secret/lab/platform` | `nautobot_url`, `nautobot_api_token`, `aci_url`, `aci_username`, `aci_password` | Combined credentials for platform tooling (Terraform, generator, Ansible, pyATS) |
+
+### Terraform now reads credentials from Vault at runtime
+
+`platform/terraform/aci/scripts/load-vault-creds.sh` reads `secret/lab/platform` and exports `TF_VAR_aci_url` / `TF_VAR_aci_username` / `TF_VAR_aci_password` / `TF_VAR_aci_insecure` for the current shell. There is no static `terraform.tfvars` on disk — `terraform.tfvars.example` remains only as a fallback template for environments without Vault access. This closes a gap where the ACI password had briefly been hand-copied into a local (gitignored) tfvars file during Phase 3 development.
+
+### 2026-07-03 incident — Vault container down
+
+The Vault container was found `Exited (2)` — a stale Docker Desktop/WSL2 bind-mount reference left over from a prior Docker Desktop restart (the host files existed, but the container's mounted path pointer was broken, so the entrypoint script's `wait` on the vault server process ended and the container exited). Fixed with `docker compose down && docker compose up -d` in `lab/docker/vault/`, which recreates the container with fresh mounts. No data was lost (file-backed KV v2 volume was untouched). All three secret paths were verified readable afterward.
 
 ## Phase 1 — Repository scaffold ✅ Complete
 
@@ -192,11 +200,48 @@ python platform/python/generate_aci.py \
   --dry-run
 ```
 
-## Phase 3 — Terraform ACI module ⏳ Pending
+## Phase 3 — Terraform ACI module ✅ Complete
 
-`platform/terraform/aci/` is an empty scaffold. No Terraform code exists yet.
+`platform/terraform/aci/` provisions ACI objects from the generated NetAsCode YAML using the `CiscoDevNet/aci ~> 2.0` provider (not `netascode/aci` — switched during implementation for wider version support against APIC 6.2(1g)).
 
-This is the **critical path** item for completing the vertical slice. Nothing downstream (Ansible, pyATS, CI) can be implemented until Terraform can provision ACI objects from the generated YAML.
+| Component | Path | Status |
+|---|---|---|
+| Provider config | `platform/terraform/aci/providers.tf` | ✅ Working |
+| Variables | `platform/terraform/aci/variables.tf` | ✅ Working |
+| Resources | `platform/terraform/aci/main.tf` | ✅ Working — tenants, VRFs, bridge domains, subnets |
+| Outputs | `platform/terraform/aci/outputs.tf` | ✅ Working |
+| Vault credential loader | `platform/terraform/aci/scripts/load-vault-creds.sh` | ✅ Working |
+
+### Behaviour
+
+- Parses the NetAsCode YAML with `yamldecode(file(var.netascode_yaml_file))` and builds flat `for_each` maps for VRFs, bridge domains, and subnets.
+- Filters out ACI system tenants (`common`, `infra`, `mgmt`) via a `_system_tenants` local — Terraform never manages them.
+- Uses `parent_dn` (not the deprecated `tenant_dn`) for VRF and Bridge Domain parenting.
+- Converts Nautobot's network-address prefixes to ACI-compatible gateway IPs in the generator (see Phase 2 update below) since ACI BD subnets require a host address, not a network address.
+
+### End-to-end vertical slice test (2026-07-03)
+
+A user tenant (`ACI:web-tenant`, VRF `web-vrf`, prefix `10.10.10.1/24`) was created in Nautobot, run through the generator, and applied with Terraform — the first full closed-loop validation of the pipeline:
+
+```text
+Nautobot (web-tenant + web-vrf + web-bd prefix)
+  -> generate_aci.py -> tenants.yaml (10.10.10.1/24)
+  -> terraform apply -> ACI APIC 6.2(1g)
+```
+
+Objects created in ACI:
+
+- `uni/tn-web-tenant`
+- `uni/tn-web-tenant/ctx-web-vrf`
+- `uni/tn-web-tenant/BD-web-bd`
+- `uni/tn-web-tenant/BD-web-bd/subnet-[10.10.10.1/24]`
+
+### Bugs found and fixed during the vertical slice
+
+1. **Deprecated `tenant_dn` attribute** — replaced with `parent_dn` on `aci_vrf` and `aci_bridge_domain`.
+2. **Non-ASCII characters rejected by APIC** — the tenant description contained an em-dash (`—`); APIC returned `400 invalid JSON character`. Fixed by using ASCII-only descriptions in Nautobot.
+3. **Network address vs. gateway IP** — ACI requires a host address for BD subnets, not the network address Nautobot normalises prefixes to. Added `_to_gateway_ip()` to `platform/python/generator/transformer.py`, converting e.g. `10.10.10.0/24` → `10.10.10.1/24`.
+4. **Terraform → Vault credentials gap** — Terraform originally read `aci_username`/`aci_password` from a hand-typed `terraform.tfvars`. Replaced with `scripts/load-vault-creds.sh`, which exports `TF_VAR_*` from `secret/lab/platform` at runtime; no static tfvars file remains on disk.
 
 ## Phase 4 — Ansible Day-2 ⏳ Pending
 
@@ -225,12 +270,21 @@ No unit tests exist for `platform/python/generator/`. The generator has been man
 | Property | Value |
 |---|---|
 | Branch | `master` |
-| Commits | 4 |
+| Commits | 13 |
 | Working tree | Clean |
 | Python | 3.12.3 |
 
 | Commit | Description |
 |---|---|
+| `4fa2e6d` | fix(terraform/aci): close Terraform -> Vault credentials gap |
+| `05dc803` | fix(terraform+generator): end-to-end vertical slice corrections |
+| `8fbbac7` | feat(terraform/aci): add Terraform ACI module for NetAsCode YAML provisioning — Phase 3 |
+| `85cb169` | docs: evolve architecture to Platform Engineering model |
+| `aaaacff` | docs(vault): update current-state paths to reflect standalone lab/docker/vault/ |
+| `04de7f1` | refactor(vault): move Vault to standalone lab/docker/vault/ folder |
+| `970144f` | feat(vault): add HashiCorp Vault to lab stack; update generator for Vault credential support |
+| `715fe1e` | docs(vision): add next actions, pending items, open questions, and constraints |
+| `b22799d` | docs(vision): document current platform state as of 2026-07-01 |
 | `2cb7510` | docs: fix all naming inconsistencies, misplaced files, and ADR numbering |
 | `7f9c06a` | feat(generator): Phase 2 — Nautobot GraphQL → NetAsCode ACI YAML generator |
 | `548df21` | refactor(scaffold): align directory structure with canonical platform/ layout |
@@ -268,19 +322,19 @@ No ADRs are superseded or deprecated.
 |---|---|---|
 | Source of Truth | Nautobot | ✅ Running with ACI data |
 | Intent Generation | Python generator | ✅ Working |
-| Desired State Provisioning | Terraform `netascode/aci` | ❌ Not implemented |
+| Desired State Provisioning | Terraform `CiscoDevNet/aci` | ✅ Working — vertical slice applied end-to-end |
 | Day-2 Operations | Ansible `cisco.aci` | ❌ Not implemented |
 | Validation | pyATS + Catfish | ❌ Not implemented |
 | CI/CD Pipeline | GitHub Actions | ❌ Not implemented |
 | Platform API | FastAPI | ❌ Not implemented |
 | Workflow Orchestration | n8n | ❌ Not implemented |
-| Secrets Management | HashiCorp Vault | ✅ Running — lab stack, file storage, KV v2 populated |
+| Secrets Management | HashiCorp Vault | ✅ Running — lab stack, KV v2 populated, Terraform now reads credentials from Vault at runtime (no static tfvars) |
 | Observability | Prometheus + Grafana + Loki | ❌ Not implemented |
 | Knowledge Layer | Obsidian + Git | ❌ Not implemented |
 | AI Assistance | LangGraph | ❌ Not implemented |
 | Policy Validation | Open Policy Agent | ❌ Not implemented |
 
-The immediate priority is completing the **first end-to-end vertical slice**: Nautobot → NetAsCode YAML → Terraform → Ansible → pyATS. Everything else is future scope.
+The immediate priority is completing the **first end-to-end vertical slice**: Nautobot → NetAsCode YAML → Terraform → Ansible → pyATS. Terraform is now done and proven end-to-end; Ansible (Phase 4) is next. Everything else is future scope.
 
 ---
 
@@ -288,66 +342,22 @@ The immediate priority is completing the **first end-to-end vertical slice**: Na
 
 The next actions are ordered by dependency. Each item must be complete before the one that follows it.
 
-## Immediate — Phase 3: Terraform ACI module
+## Phase 3 — Terraform ACI module ✅ Complete
 
-**This is the critical path.** Nothing downstream can proceed until Terraform can consume the generated YAML and apply it to the ACI simulator.
+See the full write-up under "Phase 3 — Terraform ACI module" earlier in this document. Summary: `providers.tf`, `variables.tf`, `main.tf`, `outputs.tf`, and `scripts/load-vault-creds.sh` were created, validated (`terraform init`, `terraform validate`), and proven with a live `terraform apply` against the ACI simulator using a real user tenant (`web-tenant`).
+
+---
+
+## Immediate — Phase 4: Ansible Day-2
+
+**This is now the critical path.** Terraform has established the base provisioned state (tenant, VRF, bridge domain, subnet); Ansible will own Day-2 operations Terraform doesn't manage.
 
 ### Tasks
 
-1. Create `platform/terraform/aci/providers.tf`
-   - Configure `netascode/aci` provider with `url`, `username`, `password`, `insecure` variables
-   - Pin provider version to `~> 0.2`
-
-2. Create `platform/terraform/aci/variables.tf`
-   - `aci_url` (default: `https://172.30.46.103`)
-   - `aci_username` (default: `admin`)
-   - `aci_password` (sensitive)
-   - `aci_insecure` (default: `true` for lab)
-   - `yaml_file` — path to generated `tenants.yaml`
-
-3. Create `platform/terraform/aci/main.tf`
-   - Read NetAsCode YAML with `yamldecode(file(var.yaml_file))`
-   - Iterate tenants → `aci_tenant`
-   - Iterate VRFs → `aci_vrf`
-   - Iterate bridge domains → `aci_bridge_domain`
-   - Iterate subnets → `aci_subnet`
-   - Terraform must **not** recreate system tenants (`common`, `infra`, `mgmt`) — use `lifecycle { prevent_destroy = true }` or import them first
-
-4. Create `platform/terraform/aci/outputs.tf` — tenant IDs and BD names
-5. Create `platform/terraform/aci/terraform.tfvars.example` — placeholder values, no real credentials
-6. Commit a static example YAML to `platform/netascode/aci/example-tenants.yaml` (not gitignored) so Terraform has a stable input for development when Nautobot is not running
-
-### Validation
-
-```bash
-cd platform/terraform/aci
-terraform init
-terraform validate
-terraform plan -var="yaml_file=../../netascode/aci/tenants.yaml"
-terraform apply
-```
-
----
-
-## Phase 3b — End-to-end chain test
-
-Once Terraform applies successfully, run the full Nautobot → YAML → Terraform → ACI chain:
-
-1. `python platform/python/generate_aci.py --token <TOKEN> --include-system-tenants`
-2. `terraform plan` — confirm no unexpected changes
-3. `terraform apply` — confirm objects appear in ACI simulator
-4. Browse ACI simulator at `https://172.30.46.103` and verify tenants, VRFs, and BDs
-
----
-
-## Phase 4 — Ansible Day-2
-
-After Terraform is working:
-
 1. `platform/ansible/aci/inventory/hosts.yml` — ACI simulator as target
-2. `platform/ansible/aci/group_vars/aci.yml` — connection vars (no hardcoded credentials)
+2. `platform/ansible/aci/group_vars/aci.yml` — connection vars sourced from Vault (`secret/lab/platform`), no hardcoded credentials
 3. `platform/ansible/aci/playbooks/verify-tenants.yml` — read-only: query ACI, assert tenants match Nautobot intent
-4. `platform/ansible/aci/playbooks/day2-epg.yml` — Day-2 example: create an EPG in an existing BD
+4. `platform/ansible/aci/playbooks/day2-epg.yml` — Day-2 example: create an EPG in the `web-bd` bridge domain
 5. `platform/ansible/aci/requirements.yml` — `cisco.aci` collection
 
 ```bash
@@ -408,24 +418,25 @@ After Phases 3b, 5, and 6 are complete:
 
 | # | Item | Phase | Priority | Blocks |
 |---|---|---|---|---|
-| 1 | Terraform ACI module (`providers.tf`, `variables.tf`, `main.tf`) | 3 | 🔴 Critical | Everything downstream |
-| 2 | Static example YAML committed to repo | 3 | 🔴 Critical | Terraform development without live Nautobot |
-| 3 | End-to-end chain test (Nautobot → YAML → Terraform → ACI) | 3b | 🔴 Critical | Ansible, pyATS |
+| 1 | Terraform ACI module (`providers.tf`, `variables.tf`, `main.tf`) | 3 | ✅ Done | — |
+| 2 | Static example YAML committed to repo | 3 | 🟡 Medium | Terraform development without live Nautobot (not currently blocking — live Nautobot lab is available) |
+| 3 | End-to-end chain test (Nautobot → YAML → Terraform → ACI) | 3b | ✅ Done | — (completed 2026-07-03 with `web-tenant`) |
 | 4 | Generator unit tests | 6 | 🟠 High | CI |
-| 5 | Ansible Day-2 playbooks (`verify-tenants`, `day2-epg`) | 4 | 🟠 High | pyATS, CI |
+| 5 | Ansible Day-2 playbooks (`verify-tenants`, `day2-epg`) | 4 | 🔴 Critical | pyATS, CI |
 | 6 | pyATS ACI validation tests | 5 | 🟠 High | CI |
 | 7 | GitHub Actions CI workflow | 7 | 🟡 Medium | None (vertical slice cap) |
-| 8 | ACI system tenant import to Terraform state | 3 | 🟡 Medium | Avoid recreating `common`/`infra`/`mgmt` |
+| 8 | ACI system tenant handling in Terraform | 3 | ✅ Done | Resolved via filtering (`_system_tenants` local excludes `common`/`infra`/`mgmt` from all `for_each` maps) rather than importing them into state |
 | 9 | `platform/netascode/aci/example-tenants.yaml` (committed) | 3 | 🟡 Medium | Static Terraform development |
 | 10 | `tests/unit/` directory creation | 6 | 🟡 Medium | Unit test phase |
 | 11 | Platform API (FastAPI) | Future | 🔵 Future | — |
 | 12 | Workflow Orchestration (n8n) | Future | 🔵 Future | — |
-| 13 | Secrets Management (HashiCorp Vault) | ✅ Done | ✅ Complete | Vault running in lab stack; KV v2 populated with all lab credentials |
+| 13 | Secrets Management (HashiCorp Vault) | ✅ Done | ✅ Complete | Vault running in lab stack; KV v2 populated; Terraform reads credentials from Vault at runtime via `scripts/load-vault-creds.sh` (no static tfvars) |
 | 14 | Observability stack (Prometheus, Grafana, Loki) | Future | 🔵 Future | — |
 | 15 | Knowledge Layer (Obsidian + Git) | Future | 🔵 Future | — |
 | 16 | AI Assistance (LangGraph) | Future | 🔵 Future | — |
 | 17 | Policy Validation (OPA) | Future | 🔵 Future | — |
 | 18 | Multi-domain expansion (VXLAN EVPN, Azure) | Future | 🔵 Future | — |
+| 19 | Terraform → Vault credential loader (`scripts/load-vault-creds.sh`) | 3 | ✅ Done | — (closed 2026-07-03; replaced hand-typed `terraform.tfvars`) |
 
 ---
 
@@ -433,11 +444,11 @@ After Phases 3b, 5, and 6 are complete:
 
 | # | Question | Impact |
 |---|---|---|
-| Q1 | Should Terraform import the ACI system tenants into state on first run, or manage them with `lifecycle { prevent_destroy = true }`? | Determines Phase 3 approach for system tenant handling |
-| Q2 | Will the ACI simulator require a specific `netascode/aci` provider version for compatibility? | Affects `providers.tf` version pin |
+| Q1 | ~~Should Terraform import the ACI system tenants into state on first run, or manage them with `lifecycle { prevent_destroy = true }`?~~ **Resolved (2026-07-03):** neither — Terraform filters system tenants out of every `for_each` map via a `_system_tenants` local, so they are never read into state at all. | Phase 3 approach decided |
+| Q2 | ~~Will the ACI simulator require a specific `netascode/aci` provider version for compatibility?~~ **Resolved (2026-07-03):** switched to `CiscoDevNet/aci ~> 2.0` (`v2.20.0` installed), which works against APIC 6.2(1g) with no compatibility issues found. | `providers.tf` version pin decided |
 | Q3 | Should pyATS connect directly to the ACI APIC REST API or use the `pyats.contrib.aci` library? | Determines Phase 5 test design |
 | Q4 | Should the generator output additional NetAsCode object types beyond tenants, VRFs, and BDs (e.g. EPGs, contracts, external networks)? | Scope of Phase 2 extension vs later phases |
-| Q5 | When user-defined tenants are added to the ACI lab, will the generator filter them correctly without `--include-system-tenants`? | Requires lab data extension to verify |
+| Q5 | When user-defined tenants are added to the ACI lab, will the generator filter them correctly without `--include-system-tenants`? **Partially answered:** confirmed working for `web-tenant` in the Phase 3 vertical slice test. | Requires further lab data extension to fully verify |
 
 ---
 
