@@ -281,11 +281,34 @@ Objects created in ACI:
 3. **Network address vs. gateway IP** — ACI requires a host address for BD subnets, not the network address Nautobot normalises prefixes to. Added `_to_gateway_ip()` to `platform/python/generator/transformer.py`, converting e.g. `10.10.10.0/24` → `10.10.10.1/24`.
 4. **Terraform → Vault credentials gap** — Terraform originally read `aci_username`/`aci_password` from a hand-typed `terraform.tfvars`. Replaced with `scripts/load-vault-creds.sh`, which exports `TF_VAR_*` from `secret/lab/platform` at runtime; no static tfvars file remains on disk.
 
-## Phase 4 — Ansible Day-2 ⏳ Pending
+## Phase 4 — Ansible Day-2 ✅ Complete
 
-`platform/ansible/aci/` is an empty scaffold.
+`platform/ansible/aci/` provisions Day-2 operations on top of Terraform's base state (tenant/VRF/BD/subnet), using the `cisco.aci` collection.
 
-Ansible will own Day-2 operations (EPG creation, contract attachment, health verification) after Terraform has established the base provisioned state.
+| Component | Path | Status |
+|---|---|---|
+| Collections pin | `platform/ansible/aci/requirements.yml` | ✅ Working — `cisco.aci >=2.8.0`, `community.hashi_vault >=6.1.0` |
+| Inventory | `platform/ansible/aci/inventory/hosts.yml` | ✅ Working — single `aci` group, local connection (cisco.aci talks REST, not SSH) |
+| Connection vars | `platform/ansible/aci/inventory/group_vars/aci.yml` | ✅ Working — sourced from Vault at runtime via `community.hashi_vault.vault_kv2_get`; no hardcoded credentials |
+| Read-only validation | `platform/ansible/aci/playbooks/verify-tenants.yml` | ✅ Working — asserts every NetAsCode tenant exists in ACI (`state: query` only) |
+| Day-2 example | `platform/ansible/aci/playbooks/day2-epg.yml` | ✅ Working — creates an Application Profile + EPG bound to `web-bd` |
+
+### Verification (2026-07-03)
+
+```bash
+export VAULT_ADDR=http://localhost:8200
+export VAULT_TOKEN=<token>
+cd platform/ansible/aci
+ansible-playbook -i inventory/hosts.yml playbooks/verify-tenants.yml   # ok=6, failed=0 — confirmed 'web-tenant'
+ansible-playbook -i inventory/hosts.yml playbooks/day2-epg.yml         # changed=2 (web-ap, web-epg created)
+ansible-playbook -i inventory/hosts.yml playbooks/day2-epg.yml         # changed=0 — confirmed idempotent
+```
+
+### Notes and gotchas
+
+- `group_vars/` must live **alongside the inventory file** (`inventory/group_vars/aci.yml`), not one level up at the project root — Ansible only auto-loads `group_vars/`/`host_vars/` relative to the inventory file or the playbook directory.
+- `community.hashi_vault` requires the `hvac` Python library, which was not present on the host. Installed with `/usr/bin/python3 -m pip install --user hvac` (targeting the same system Python that `ansible-playbook`'s shebang uses, not the repo's `.venv`) — no `sudo` required.
+- EPGs, Application Profiles, and their bindings are intentionally **not** part of Terraform's desired-state config (ADR-002 vs ADR-003 boundary) — Ansible owns this class of Day-2 change on top of the Terraform-provisioned base state.
 
 ## Phase 5 — pyATS Validation ⏳ Pending
 
@@ -308,12 +331,13 @@ No unit tests exist for `platform/python/generator/`. The generator has been man
 | Property | Value |
 |---|---|
 | Branch | `master` |
-| Commits | 15 |
+| Commits | 16 |
 | Working tree | Clean |
 | Python | 3.12.3 |
 
 | Commit | Description |
 |---|---|
+| `3ed0aaf` | feat(ansible/aci): Phase 4 — Ansible Day-2 operations |
 | `6143592` | feat(platform-api): add Platform API skeleton container to the lab stack |
 | `58d7592` | docs(vision): update current-state for Phase 3 completion and Vault fixes |
 | `4fa2e6d` | fix(terraform/aci): close Terraform -> Vault credentials gap |
@@ -363,7 +387,7 @@ No ADRs are superseded or deprecated.
 | Source of Truth | Nautobot | ✅ Running with ACI data |
 | Intent Generation | Python generator | ✅ Working |
 | Desired State Provisioning | Terraform `CiscoDevNet/aci` | ✅ Working — vertical slice applied end-to-end |
-| Day-2 Operations | Ansible `cisco.aci` | ❌ Not implemented |
+| Day-2 Operations | Ansible `cisco.aci` | ✅ Working — verify-tenants + day2-epg playbooks proven against the live ACI simulator |
 | Validation | pyATS + Catfish | ❌ Not implemented |
 | CI/CD Pipeline | GitHub Actions | ❌ Not implemented |
 | Platform API | FastAPI | 🟡 Partial — skeleton container running (`/health`, `/readiness`, `/version`); no auth, RBAC, Canonical Intent, or policy enforcement yet |
@@ -374,7 +398,7 @@ No ADRs are superseded or deprecated.
 | AI Assistance | LangGraph | ❌ Not implemented |
 | Policy Validation | Open Policy Agent | ❌ Not implemented |
 
-The immediate priority is completing the **first end-to-end vertical slice**: Nautobot → NetAsCode YAML → Terraform → Ansible → pyATS. Terraform is now done and proven end-to-end; Ansible (Phase 4) is next. The Platform API skeleton runs in parallel as lab infrastructure but is not yet part of the vertical slice's critical path. Everything else is future scope.
+The immediate priority is completing the **first end-to-end vertical slice**: Nautobot → NetAsCode YAML → Terraform → Ansible → pyATS. Terraform and Ansible are now done and proven end-to-end; pyATS (Phase 5) is next. The Platform API skeleton runs in parallel as lab infrastructure but is not yet part of the vertical slice's critical path. Everything else is future scope.
 
 ---
 
@@ -388,28 +412,17 @@ See the full write-up under "Phase 3 — Terraform ACI module" earlier in this d
 
 ---
 
-## Immediate — Phase 4: Ansible Day-2
+## Phase 4 — Ansible Day-2 ✅ Complete
 
-**This is now the critical path.** Terraform has established the base provisioned state (tenant, VRF, bridge domain, subnet); Ansible will own Day-2 operations Terraform doesn't manage.
-
-### Tasks
-
-1. `platform/ansible/aci/inventory/hosts.yml` — ACI simulator as target
-2. `platform/ansible/aci/group_vars/aci.yml` — connection vars sourced from Vault (`secret/lab/platform`), no hardcoded credentials
-3. `platform/ansible/aci/playbooks/verify-tenants.yml` — read-only: query ACI, assert tenants match Nautobot intent
-4. `platform/ansible/aci/playbooks/day2-epg.yml` — Day-2 example: create an EPG in the `web-bd` bridge domain
-5. `platform/ansible/aci/requirements.yml` — `cisco.aci` collection
-
-```bash
-ansible-galaxy collection install -r platform/ansible/aci/requirements.yml
-ansible-playbook --check platform/ansible/aci/playbooks/verify-tenants.yml
-```
+See the full write-up under "Phase 4 — Ansible Day-2" earlier in this document. Summary: `requirements.yml`, `inventory/hosts.yml`, `inventory/group_vars/aci.yml`, `playbooks/verify-tenants.yml`, and `playbooks/day2-epg.yml` were created and proven against the live ACI simulator — read-only validation confirmed `web-tenant`, and the Day-2 EPG example created `web-ap`/`web-epg` idempotently.
 
 ---
 
-## Phase 5 — pyATS Validation
+## Immediate — Phase 5: pyATS Validation
 
-After Ansible is working:
+**This is now the critical path.** Ansible has proven Day-2 operations work; pyATS will independently verify that deployed ACI objects match engineering intent from Nautobot, closing the validation loop (ADR-008).
+
+### Tasks
 
 1. `tests/pyats/aci/testbed.yml` — ACI testbed definition (simulator at `172.30.46.103`)
 2. `tests/pyats/aci/test_aci_tenants.py` — connect to ACI, assert every tenant in the NetAsCode YAML exists
@@ -462,8 +475,8 @@ After Phases 3b, 5, and 6 are complete:
 | 2 | Static example YAML committed to repo | 3 | 🟡 Medium | Terraform development without live Nautobot (not currently blocking — live Nautobot lab is available) |
 | 3 | End-to-end chain test (Nautobot → YAML → Terraform → ACI) | 3b | ✅ Done | — (completed 2026-07-03 with `web-tenant`) |
 | 4 | Generator unit tests | 6 | 🟠 High | CI |
-| 5 | Ansible Day-2 playbooks (`verify-tenants`, `day2-epg`) | 4 | 🔴 Critical | pyATS, CI |
-| 6 | pyATS ACI validation tests | 5 | 🟠 High | CI |
+| 5 | Ansible Day-2 playbooks (`verify-tenants`, `day2-epg`) | 4 | ✅ Done | — (completed 2026-07-03, proven against live ACI simulator) |
+| 6 | pyATS ACI validation tests | 5 | 🔴 Critical | CI |
 | 7 | GitHub Actions CI workflow | 7 | 🟡 Medium | None (vertical slice cap) |
 | 8 | ACI system tenant handling in Terraform | 3 | ✅ Done | Resolved via filtering (`_system_tenants` local excludes `common`/`infra`/`mgmt` from all `for_each` maps) rather than importing them into state |
 | 9 | `platform/netascode/aci/example-tenants.yaml` (committed) | 3 | 🟡 Medium | Static Terraform development |
@@ -478,6 +491,7 @@ After Phases 3b, 5, and 6 are complete:
 | 18 | Multi-domain expansion (VXLAN EVPN, Azure) | Future | 🔵 Future | — |
 | 19 | Terraform → Vault credential loader (`scripts/load-vault-creds.sh`) | 3 | ✅ Done | — (closed 2026-07-03; replaced hand-typed `terraform.tfvars`) |
 | 20 | Stale duplicate Vault container (`infra-automation-lab-vault-1`) removed | — | ✅ Done | — (closed 2026-07-03; leftover from pre-refactor merged stack, shared no unique data) |
+| 21 | `hvac` Python library for `community.hashi_vault` Ansible collection | 4 | ✅ Done | — (installed 2026-07-03 via `pip install --user`, no sudo needed) |
 
 ---
 
