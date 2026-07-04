@@ -72,13 +72,16 @@ nautobot-infra-automation/
 │   ├── 09-Knowledge/
 │   │   └── Knowledge-Layer.md
 │   │
-│   └── 10-Diagrams/
-│       ├── ACI_IaC_Platform_Architecture.drawio
-│       ├── v4.png
-│       ├── 01-High-Level-Platform-Architecture.md
-│       ├── 02-Closed-Loop-Engineering.md
-│       ├── 03-Engineering-Control-Plane.md
-│       └── 04-Domain-Expansion-Model.md
+│   ├── 10-Diagrams/
+│   │   ├── ACI_IaC_Platform_Architecture.drawio
+│   │   ├── v4.png
+│   │   ├── 01-High-Level-Platform-Architecture.md
+│   │   ├── 02-Closed-Loop-Engineering.md
+│   │   ├── 03-Engineering-Control-Plane.md
+│   │   └── 04-Domain-Expansion-Model.md
+│   │
+│   └── 11-Specifications/     ← Platform Specifications (contracts, not architecture prose)
+│       └── 01-Canonical-Intent-Specification.md   ← Contract #1
 │
 ├── lab/
 │   │
@@ -107,6 +110,11 @@ nautobot-infra-automation/
 │   │
 │   ├── netascode/
 │   │   └── aci/               ← generated YAML output (gitignored)
+│   │
+│   ├── canonical_intent/      ← Platform Specification Contract #1 (executable Pydantic source of truth)
+│   │   ├── models.py          ← CanonicalIntent, DeploymentContext, ExecutionState
+│   │   ├── example.py
+│   │   └── requirements.txt
 │   │
 │   └── workflows/             ← future: n8n
 │
