@@ -393,14 +393,14 @@ No unit tests exist for `platform/python/generator/`. The generator has been man
 
 # Architecture Decisions
 
-All 13 ADRs have been authored and accepted. They are located in [`docs/03-Decisions/`](../03-Decisions/).
+All 14 ADRs have been authored and accepted. They are located in [`docs/03-Decisions/`](../03-Decisions/).
 
 | ADR | Title | Status |
 |---|---|---|
-| ADR-001 | Nautobot as the Authoritative Source of Truth | Accepted |
+| ADR-001 | Nautobot as the Authoritative Source of Truth (amended 2026-07-04 — Brownfield Onboarding Exception) | Accepted |
 | ADR-002 | Terraform as the Declarative Provisioning Engine | Accepted |
 | ADR-003 | Ansible Owns Day-2 Operations | Accepted |
-| ADR-004 | Platform API as the Unified Platform Interface | Accepted |
+| ADR-004 | Platform API as the Unified Platform Interface (refined 2026-07-04 — Platform Gateway / Intent Translation split) | Accepted |
 | ADR-005 | Workflow Orchestration | Accepted |
 | ADR-006 | Platform Control Plane as the Single Orchestration Layer | Accepted |
 | ADR-007 | Cisco NetAsCode as the Canonical Engineering Model | Accepted |
@@ -410,8 +410,9 @@ All 13 ADRs have been authored and accepted. They are located in [`docs/03-Decis
 | ADR-011 | Event-Driven Automation | Accepted |
 | ADR-012 | Centralized Secrets Management | Accepted |
 | ADR-013 | Observability as a Platform Capability | Accepted |
+| ADR-014 | Policy Enforcement (OPA) | Accepted |
 
-No ADRs are superseded or deprecated.
+No ADRs are superseded or deprecated. ADR-001 and ADR-004 have been amended/refined in place (see dates above) rather than superseded.
 
 ---
 
@@ -431,7 +432,7 @@ No ADRs are superseded or deprecated.
 | Observability | Prometheus + Grafana + Loki | ❌ Not implemented |
 | Knowledge Layer | Obsidian + Git | ❌ Not implemented |
 | AI Assistance | LangGraph | ❌ Not implemented |
-| Policy Validation | Open Policy Agent | ❌ Not implemented |
+| Policy Validation | Open Policy Agent | 🟡 Decided, not implemented — ADR-014 defines the Platform Gateway / Intent Translation / Policy Engine boundary; no OPA instance or Rego policies exist yet |
 
 The immediate priority is completing the **first end-to-end vertical slice**: Nautobot → NetAsCode YAML → Terraform → Ansible → pyATS. All four are now done and proven end-to-end. The Platform API skeleton runs in parallel as lab infrastructure but is not yet part of the vertical slice's critical path. Remaining vertical-slice work is generator unit tests (Phase 6) and CI (Phase 7); everything else is future scope.
 
@@ -541,3 +542,4 @@ After Phases 3b, 5, and 6 are complete:
 - `platform/netascode/aci/tenants.yaml` is **gitignored** (generated artifact). Terraform cannot reference it from CI unless the generator runs first as a pipeline step.
 - The `lab/docker/nautobot/` directory is a **nested git repository** and is excluded from this repo's tracking. It must be managed independently.
 - Nautobot VRFs do not carry a `tenant` field in the REST API response by default. VRF-to-tenant association is retrieved via the `tenants.vrfs` GraphQL relationship.
+- **Tenant data provenance is mixed** in the current lab, per ADR-001's Brownfield Onboarding Exception (added 2026-07-04): `common`, `infra`, and `mgmt` arrived via `nautobot-ssot` ACI sync (brownfield import, APIC → Nautobot) and are **not** platform-managed. Only `web-tenant` was authored forward through the Mandatory Sequence and is platform-managed. Re-running SSoT sync must never be relied upon to "update" `web-tenant` — any future change to it must go through forward intent, not reverse sync.

@@ -97,6 +97,43 @@ These responsibilities must never merge.
 
 ---
 
+# Amendment (2026-07-04) — Brownfield Onboarding Exception
+
+**Context:** the lab's Nautobot instance is populated via the `nautobot-ssot` ACI sync job, which reads *from* the live APIC *into* Nautobot — the reverse of the Mandatory Sequence above. As of 2026-07-04, 3 of the 4 tenants in the lab (`common`, `infra`, `mgmt`) arrived this way; only one (`web-tenant`) was authored forward through the intended pipeline. This amendment resolves the apparent contradiction between that reality and the Mandatory Sequence.
+
+## Brownfield
+
+Existing infrastructure may be discovered and imported into Nautobot using discovery or SSoT synchronization tooling (e.g. `nautobot-ssot` ACI, discovery jobs, import scripts).
+
+The purpose of this path is exclusively to:
+
+- Bootstrap inventory
+- Populate relationships
+- Establish an initial Source of Truth for infrastructure that predates the platform
+
+This process is **exceptional and administrative** — it is an onboarding activity, not an ongoing operating model. It is how infrastructure *enters* platform management, not how it stays synchronized once it is under management.
+
+## Transition to Managed State
+
+Once brownfield objects have been imported, they become managed by the platform. From that point forward, the Mandatory Sequence — Platform API → Canonical Intent → Nautobot → NetAsCode → Terraform → Infrastructure — is the only authoritative direction for those objects.
+
+There is no ambiguity about *when* this transition happens: an object is platform-managed from the moment it is first referenced by a forward-authored Canonical Intent (in the current lab, this is why `web-tenant` is platform-managed and the SSoT-imported system tenants are not).
+
+## Managed State
+
+Once an object is declared platform-managed:
+
+- Reverse synchronization must never overwrite intent for that object.
+- Infrastructure must not become authoritative for that object.
+- Drift on that object is *reported*, never silently *imported* back into Nautobot.
+- Drift is resolved exclusively through forward intent (a new Canonical Intent correcting the divergence), never by re-running SSoT sync over it.
+
+Reverse synchronization may continue to run for visibility into *unmanaged* objects (infrastructure the platform doesn't yet own), but it must not modify any object already under platform management.
+
+This preserves Nautobot as the authoritative Source of Truth for everything the platform manages, while still providing a practical, honest path for onboarding infrastructure that already exists — which every real deployment of this platform will need on day one.
+
+---
+
 # Decision Drivers
 
 The following requirements influenced this decision.

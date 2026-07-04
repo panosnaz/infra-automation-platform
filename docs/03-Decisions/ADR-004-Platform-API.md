@@ -77,29 +77,43 @@ The Platform API owns the external interface and the business logic of the platf
 
 Responsibilities are grouped into two named sub-capabilities. Both may ship inside the same FastAPI codebase, but they are conceptually distinct so that neither grows to absorb the other's concerns as the platform expands.
 
-**Platform Gateway** — connects clients to the platform; owns no business meaning
+**Platform Gateway** — transport and API concerns only; makes no engineering decisions
 
-- REST API endpoints
-- API versioning
-- API documentation
-- Webhook endpoints
-- SDK support
-- CLI integration
-- Standardised error handling
 - Authentication
-- Authorization (RBAC enforcement)
+- Authorization (RBAC)
+- API versioning
 - Rate limiting
-- Request routing to the correct backend capability
+- Audit logging
+- Request parsing
 
-**Intent Translation** — turns a gateway-accepted request into governed engineering intent
+**Intent Translation** — transforms an incoming request into Canonical Intent; answers *"can this request be understood?"*
 
-- Receive requests already authenticated/authorised by the Platform Gateway
-- Validate and sanitise input schemas
-- Normalise diverse input formats into a Canonical Intent Model
-- Enforce platform policy against the Canonical Intent (the Platform API invokes the platform's Policy capability rather than owning policy rules itself — as of 2026-07-04 this capability has no dedicated ADR yet; see `01-Current-State.md` Pending Items)
-- Generate a fully validated Canonical Intent record
-- Publish the `IntentReceived` event to the Event Bus
-- Route the Canonical Intent to the Source of Truth
+- Parse incoming request
+- Normalize data
+- Resolve references
+- Apply defaults
+- Validate schema (Pydantic)
+- Build Canonical Intent
+
+Intent Translation does **not** decide whether a request is *allowed* — that is the Policy Engine's responsibility (see [ADR-014 — Policy Enforcement](ADR-014-Policy-Enforcement.md)).
+
+## Pipeline Sequence
+
+```text
+Platform Gateway
+    ↓
+Intent Translation
+    ↓
+Canonical Intent
+    ↓
+Policy Evaluation (OPA)  ── see ADR-014
+    ↓
+Persist to Nautobot
+    ↓
+Publish Event (IntentReceived)
+```
+
+Persisting to Nautobot and publishing the event happen only after Policy Evaluation returns an allow decision — they are not part of either Platform Gateway's or Intent Translation's responsibility list above; they are the final orchestration steps of the request pipeline as a whole.
 
 The Platform API does not execute infrastructure changes directly.
 
