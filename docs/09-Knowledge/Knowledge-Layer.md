@@ -164,6 +164,14 @@ Where appropriate, summaries of AI-assisted engineering sessions may be captured
 
 The Knowledge Layer stores validated engineering knowledge rather than raw conversations.
 
+**Capture trigger:** an AI-assisted session becomes a candidate for capture when it results in one of: an accepted architecture decision, a diagnosed root cause, a resolved incident, or a reusable troubleshooting procedure. Routine Q&A or in-progress exploration is not captured.
+
+**Capture format:** a short structured record containing — the question/problem, the conclusion reached, the evidence or reasoning that supported it, and links to any artifacts produced (commits, ADRs, validation reports). Not a transcript.
+
+**Who captures it:** the human engineer who reviewed the session, not the AI itself — consistent with ADR-010's principle that AI recommendations are advisory and require human approval before becoming authoritative. This is the same human-in-the-loop gate every other Knowledge source (ADRs, runbooks, incident post-mortems) already goes through in the Knowledge Lifecycle below.
+
+**Where it lives:** as of 2026-07-04, no dedicated storage exists for this — captured summaries live wherever the underlying artifact already lives (e.g. a commit message, an ADR's Context section, `01-Current-State.md`'s "Bugs found and fixed" notes). A dedicated Knowledge Layer store is future scope; see `01-Current-State.md` Pending Items.
+
 ---
 
 # Knowledge Lifecycle

@@ -75,9 +75,9 @@ The Platform API is responsible for exposing platform capabilities—not infrast
 
 The Platform API owns the external interface and the business logic of the platform.
 
-Responsibilities include:
+Responsibilities are grouped into two named sub-capabilities. Both may ship inside the same FastAPI codebase, but they are conceptually distinct so that neither grows to absorb the other's concerns as the platform expands.
 
-**Interface**
+**Platform Gateway** — connects clients to the platform; owns no business meaning
 
 - REST API endpoints
 - API versioning
@@ -86,29 +86,20 @@ Responsibilities include:
 - SDK support
 - CLI integration
 - Standardised error handling
+- Authentication
+- Authorization (RBAC enforcement)
+- Rate limiting
+- Request routing to the correct backend capability
 
-**Intent Translation Layer**
+**Intent Translation** — turns a gateway-accepted request into governed engineering intent
 
-- Receive requests from any entry point (Portal, CLI, Jira, Git, AI, ServiceNow, REST)
-- Authenticate and authorise every request
+- Receive requests already authenticated/authorised by the Platform Gateway
 - Validate and sanitise input schemas
 - Normalise diverse input formats into a Canonical Intent Model
-- Enforce platform policy against the Canonical Intent
+- Enforce platform policy against the Canonical Intent (the Platform API invokes the platform's Policy capability rather than owning policy rules itself — as of 2026-07-04 this capability has no dedicated ADR yet; see `01-Current-State.md` Pending Items)
 - Generate a fully validated Canonical Intent record
 - Publish the `IntentReceived` event to the Event Bus
 - Route the Canonical Intent to the Source of Truth
-
-**Business Logic**
-
-- Request validation
-- Authentication
-- Authorization integration
-- Intent normalisation
-- Policy enforcement
-- Canonical Intent generation
-- Event publication
-- Service abstraction
-- Request routing
 
 The Platform API does not execute infrastructure changes directly.
 

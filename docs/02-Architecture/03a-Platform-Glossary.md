@@ -107,6 +107,27 @@ The Canonical Engineering Model provides a technology-neutral abstraction that c
 
 Within this platform, Cisco NetAsCode fulfils this role for Cisco ACI.
 
+**Not to be confused with Canonical Intent** (below) — these are two distinct tiers of abstraction sitting on opposite sides of the Source of Truth. See **Canonical Intent** for the contrast.
+
+---
+
+## Canonical Intent
+
+The domain-agnostic, fully validated and policy-checked representation of a request produced by the Platform API's Intent Translation Layer, *before* it is written to Nautobot.
+
+Canonical Intent exists to normalise diverse input formats (natural language, Jira tickets, REST payloads, Git commits, portal forms) into one internal shape, regardless of which infrastructure domain (Cisco ACI, VXLAN EVPN, Azure, future domains) the request ultimately targets.
+
+**Contrast with Canonical Engineering Model:**
+
+| | Canonical Intent | Canonical Engineering Model |
+|---|---|---|
+| Position | Before Nautobot (Platform API → Nautobot) | After Nautobot (Nautobot → Terraform/Ansible) |
+| Scope | Domain-agnostic — one shape for every infrastructure domain | Domain-specific — one model per domain (e.g. NetAsCode for Cisco ACI) |
+| Produced by | Platform API (Intent Translation Layer) | The generator (e.g. `platform/python/generate_aci.py`) |
+| Example in this platform | Not yet implemented — no schema exists as of 2026-07-04 | NetAsCode YAML (`platform/netascode/aci/tenants.yaml`) |
+
+Both are "canonical" in the sense of being the single normalized shape at their respective tier — but they normalize different things (any-format-request vs. any-Cisco-ACI-object) at different pipeline stages. A platform serving multiple infrastructure domains needs exactly one Canonical Intent shape and one Canonical Engineering Model per domain — never the reverse.
+
 ---
 
 ## Closed-Loop Engineering

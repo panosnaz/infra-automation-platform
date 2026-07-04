@@ -176,6 +176,8 @@ Each concept is independent.
 
 Each concept has a single responsibility.
 
+**Canonical Intent vs. Canonical Model — these are not the same tier.** Canonical Intent is produced *before* Nautobot and is domain-agnostic (one shape regardless of target infrastructure). Canonical Model (e.g. NetAsCode) is produced *after* Nautobot and is domain-specific (one model per infrastructure domain — ACI, VXLAN EVPN, Azure each need their own). See the **Canonical Intent** glossary entry in [`03a-Platform-Glossary.md`](03a-Platform-Glossary.md) for the full contrast table. As of 2026-07-04, only the domain-specific tier (NetAsCode) has a working implementation; Canonical Intent has no schema yet.
+
 ---
 
 # Architectural Layers
