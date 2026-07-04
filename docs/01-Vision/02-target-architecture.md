@@ -10,6 +10,8 @@
 
 **Last Updated:** June 2026
 
+> **Implementation Status:** This document describes the target (aspirational) architecture. For what is actually built and running today, see [`01-Current-State.md`](01-Current-State.md). As of 2026-07-04, the Platform Control Plane, Event Bus, Workflow Engine (n8n), and Canonical Intent layer described below are **not implemented**. The working vertical slice (Nautobot → generator → Terraform → Ansible → pyATS) operates independently of these layers via direct CLI invocation.
+
 ---
 
 # Executive Summary

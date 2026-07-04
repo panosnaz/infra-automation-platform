@@ -6,6 +6,8 @@
 
 **Decision Makers:** Platform Engineering Team
 
+> **Naming clarification:** "NetAsCode" refers to the canonical engineering model (this ADR's subject) — a YAML schema describing tenants/VRFs/bridge domains, produced by `platform/python/generate_aci.py`. It is unrelated to the `netascode/aci` Terraform provider name. The platform's Terraform implementation ([`ADR-002`](ADR-002-Terraform-Desired-State.md)) uses the `CiscoDevNet/aci` provider, chosen during Phase 3 implementation for broader version compatibility with APIC 6.2(1g). The provider is simply the tool that consumes NetAsCode YAML; it does not itself need to be "the NetAsCode provider."
+
 **Related ADRs:**
 
 - ADR-001 — Nautobot as the Source of Truth

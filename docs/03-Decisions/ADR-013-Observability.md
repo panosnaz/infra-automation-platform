@@ -6,6 +6,8 @@
 
 **Decision Makers:** Platform Engineering Team
 
+> **Implementation Status:** Not yet implemented (0%). No platform component currently emits metrics, structured logs, or traces. See [`01-Current-State.md`](../01-Vision/01-Current-State.md) Gaps table. The generator, Terraform, and Ansible currently only produce plain stdout output.
+
 **Related ADRs:**
 
 - ADR-001 — Nautobot as the Source of Truth

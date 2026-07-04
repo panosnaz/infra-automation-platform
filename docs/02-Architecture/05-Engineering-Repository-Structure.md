@@ -8,6 +8,8 @@
 
 **Owner:** Platform Engineering Team
 
+> **Superseded:** The top-level repository layout in this document (`network-platform/` with `architecture/`, `adr/`, `nautobot/`, `terraform/`, `ansible/`, etc. as top-level directories) does not reflect the actual repository. [`docs/folder structure`](../folder%20structure) is the authoritative, kept-in-sync layout reference. This document's directory-responsibility descriptions (what each capability owns) remain a useful reference; only the top-level tree diagram below is superseded.
+
 ---
 
 # Purpose

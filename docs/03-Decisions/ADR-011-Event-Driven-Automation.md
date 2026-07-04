@@ -70,6 +70,12 @@ Event subscribers declare their interest and react independently.
 
 This complete decoupling is the source of platform extensibility — a new subscriber can be added without modifying any publisher.
 
+## Event Bus Technology Selection: Deferred
+
+This ADR decides that the platform *shall* be event-driven and defines the event contract (named events, publishers, subscribers below). It intentionally does **not** select a transport technology yet.
+
+Kafka, RabbitMQ, and webhooks are all viable candidates and are shown together in `03c-Platform-Control-Plane.md`'s diagram as *options under consideration*, not a decision. The choice is deferred until the Platform API, Canonical Intent, and Workflow Engine exist to generate real event volume and delivery-guarantee requirements to evaluate against — selecting a transport before any producer or consumer exists would be premature technology lock-in. This is unlike every other ADR in this series, which commits to one named technology; readers should not infer a decision has been made here.
+
 ## Named Platform Events
 
 | Event | Published By | Subscribed By |

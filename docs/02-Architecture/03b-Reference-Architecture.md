@@ -10,6 +10,8 @@
 
 **Owner:** Platform Engineering Team
 
+> **Implementation Status:** This document describes the reference (target) architecture. For what is actually built and running today, see [`../01-Vision/01-Current-State.md`](../01-Vision/01-Current-State.md). As of 2026-07-04, the Entry Points/Platform API Intent Translation/Event Bus/Workflow Engine/Knowledge & AI layers below are **not implemented**. Nautobot, the NetAsCode generator, Terraform, Ansible, and pyATS are implemented and proven; they currently run independently of the Platform Control Plane shown here.
+
 ---
 
 # Purpose

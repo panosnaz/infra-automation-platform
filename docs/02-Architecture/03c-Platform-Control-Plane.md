@@ -6,6 +6,8 @@
 
 **Owner:** Platform Engineering
 
+> **Implementation Status:** This document describes the target Platform Control Plane. For what is actually built and running today, see [`../01-Vision/01-Current-State.md`](../01-Vision/01-Current-State.md). As of 2026-07-04, the Intent Translation Layer, Canonical Intent, Event Bus, and Workflow Engine described below are **not implemented** — the working vertical slice bypasses this control plane entirely via direct CLI invocation of Terraform/Ansible/pyATS.
+
 ---
 
 # Purpose
@@ -144,7 +146,7 @@ every request follows exactly the same internal engineering workflow.
                                  EVENT BUS
 ═══════════════════════════════════════════════════════════════════════════════════════
 
-Kafka │ RabbitMQ │ Webhooks
+Candidates under consideration (not yet decided — see ADR-011): Kafka │ RabbitMQ │ Webhooks
 
                                       │
                                       ▼

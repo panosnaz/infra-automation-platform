@@ -1,3 +1,5 @@
+This is the authoritative repository layout reference, kept in sync with the actual repository. `docs/02-Architecture/05-Engineering-Repository-Structure.md` describes an earlier, idealized top-level layout that was superseded by the structure below — its directory-responsibility descriptions (what each capability owns) remain useful, but its tree diagram does not reflect this repository.
+
 nautobot-infra-automation/
 │
 ├── README.md
