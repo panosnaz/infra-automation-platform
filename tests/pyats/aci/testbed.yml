@@ -1,0 +1,20 @@
+testbed:
+  name: aci_lab_testbed
+
+devices:
+  apic:
+    # os must be 'apic' to match the abstraction token declared by
+    # rest/connector/libs/apic/__init__.py — NOT 'aci'. 'aci' is not a
+    # registered abstraction token in this pyATS distribution.
+    os: apic
+    type: controller
+    connections:
+      rest:
+        class: rest.connector.Rest
+        # %ENV{} substitution — populated by scripts/load-vault-env.sh, which
+        # reads secret/lab/platform from Vault. No credentials hardcoded here.
+        ip: "%ENV{ACI_HOST}"
+        credentials:
+          rest:
+            username: "%ENV{ACI_USERNAME}"
+            password: "%ENV{ACI_PASSWORD}"
