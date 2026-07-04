@@ -4,7 +4,7 @@
 
 **Document Type:** Current State Assessment
 
-**Status:** Live — updated 2026-07-03
+**Status:** Live — updated 2026-07-04
 
 **Owner:** Platform Engineering Team
 
@@ -310,11 +310,41 @@ ansible-playbook -i inventory/hosts.yml playbooks/day2-epg.yml         # changed
 - `community.hashi_vault` requires the `hvac` Python library, which was not present on the host. Installed with `/usr/bin/python3 -m pip install --user hvac` (targeting the same system Python that `ansible-playbook`'s shebang uses, not the repo's `.venv`) — no `sudo` required.
 - EPGs, Application Profiles, and their bindings are intentionally **not** part of Terraform's desired-state config (ADR-002 vs ADR-003 boundary) — Ansible owns this class of Day-2 change on top of the Terraform-provisioned base state.
 
-## Phase 5 — pyATS Validation ⏳ Pending
+## Phase 5 — pyATS Validation ✅ Complete
 
-`tests/pyats/aci/` is an empty scaffold.
+`tests/pyats/aci/` independently verifies that deployed ACI objects match Nautobot/NetAsCode intent, closing the validation loop (ADR-008).
 
-pyATS tests will independently verify that deployed ACI objects match engineering intent from Nautobot.
+| Component | Path | Status |
+|---|---|---|
+| Testbed | `tests/pyats/aci/testbed.yml` | ✅ Working — `os: apic` (the abstraction token declared by `rest/connector/libs/apic/__init__.py`, not `aci`) |
+| Vault credential loader | `tests/pyats/aci/scripts/load-vault-env.sh` | ✅ Working — exports `ACI_HOST`/`ACI_USERNAME`/`ACI_PASSWORD` from `secret/lab/platform` for `%ENV{}` substitution |
+| Tenant validation | `tests/pyats/aci/test_aci_tenants.py` | ✅ Working — AEtest script, read-only (`GET api/class/fvTenant.json` only) |
+| VRF validation | `tests/pyats/aci/test_aci_vrfs.py` | ✅ Working — same pattern, parses `(tenant, vrf)` from `fvCtx` distinguished names |
+| Job file | `tests/pyats/aci/job.py` | ✅ Working — runs both test scripts via `pyats run job` |
+
+### Resolved: Q3 (pyATS connector choice)
+
+There is no dedicated `pyats.contrib.aci` library in this pyATS distribution (`pyats[full]` 26.6). The generic `rest.connector` already ships a purpose-built APIC implementation at `rest/connector/libs/apic/`, so the test scripts connect directly to the APIC REST API through that.
+
+### Verification (2026-07-04)
+
+```bash
+export VAULT_ADDR=http://localhost:8200
+export VAULT_TOKEN=<token>
+cd tests/pyats
+source aci/scripts/load-vault-env.sh
+pyats run job aci/job.py --testbed-file aci/testbed.yml --no-mail
+```
+
+- **Positive case:** 100% pass rate (6/6 sections) — connect, load YAML, query ACI, assert tenants/VRFs present, disconnect, for both scripts.
+- **Negative case:** temporarily renamed the expected tenant to a nonexistent name in the generated YAML — both assertions correctly **FAILED** with a clear reason message (`Tenant(s) not found in ACI: ['nonexistent-tenant']`), proving the tests actually validate rather than trivially passing.
+
+### Bugs found and fixed during implementation
+
+1. **Wrong abstraction token** — `os: aci` in `testbed.yml` caused a `LookupError` in `genie.abstract`; fixed to `os: apic`, matching the token `rest/connector/libs/apic/__init__.py` declares.
+2. **Wrong disconnect keyword** — `device.disconnect(via="rest")` raised `TypeError`; `Device.connect()` takes `via=`, but `disconnect()`/`is_connected()` only take `alias=`.
+3. **Cleanup fragility** — `CommonCleanup` now sets the `apic` parameter *before* calling `connect()` (not after) and guards with `is_connected(alias="rest")`, so a setup failure no longer crashes cleanup with `Missing parameters {'apic'}`.
+4. **pyATS install** — not present on the host; installed via `python3 -m pip install --user --break-system-packages "pyats[full]"` (no sudo; PEP 668 externally-managed-environment).
 
 ## Phase 6 — Generator unit tests ⏳ Pending
 
@@ -331,12 +361,17 @@ No unit tests exist for `platform/python/generator/`. The generator has been man
 | Property | Value |
 |---|---|
 | Branch | `master` |
-| Commits | 16 |
+| Commits | 22 |
 | Working tree | Clean |
 | Python | 3.12.3 |
 
 | Commit | Description |
 |---|---|
+| `5425a0b` | feat(pyats): Phase 5 — pyATS Validation |
+| `af65b6f` | fix: closer review round 2 — Vault consistency, error handling, defensive scope |
+| `132da47` | fix(terraform+ansible+generator): code review fixes across Phases 3-4 |
+| `b151d2a` | refactor(platform-api): relocate Dockerfile/app under lab/docker/ for consistency |
+| `106e2be` | docs(vision): update current-state for Phase 4 (Ansible Day-2) completion |
 | `3ed0aaf` | feat(ansible/aci): Phase 4 — Ansible Day-2 operations |
 | `6143592` | feat(platform-api): add Platform API skeleton container to the lab stack |
 | `58d7592` | docs(vision): update current-state for Phase 3 completion and Vault fixes |
@@ -388,7 +423,7 @@ No ADRs are superseded or deprecated.
 | Intent Generation | Python generator | ✅ Working |
 | Desired State Provisioning | Terraform `CiscoDevNet/aci` | ✅ Working — vertical slice applied end-to-end |
 | Day-2 Operations | Ansible `cisco.aci` | ✅ Working — verify-tenants + day2-epg playbooks proven against the live ACI simulator |
-| Validation | pyATS + Catfish | ❌ Not implemented |
+| Validation | pyATS + Catfish | ✅ Working — test_aci_tenants.py + test_aci_vrfs.py proven against the live ACI simulator (positive and negative cases both verified) |
 | CI/CD Pipeline | GitHub Actions | ❌ Not implemented |
 | Platform API | FastAPI | 🟡 Partial — skeleton container running (`/health`, `/readiness`, `/version`); no auth, RBAC, Canonical Intent, or policy enforcement yet |
 | Workflow Orchestration | n8n | ❌ Not implemented |
@@ -398,7 +433,7 @@ No ADRs are superseded or deprecated.
 | AI Assistance | LangGraph | ❌ Not implemented |
 | Policy Validation | Open Policy Agent | ❌ Not implemented |
 
-The immediate priority is completing the **first end-to-end vertical slice**: Nautobot → NetAsCode YAML → Terraform → Ansible → pyATS. Terraform and Ansible are now done and proven end-to-end; pyATS (Phase 5) is next. The Platform API skeleton runs in parallel as lab infrastructure but is not yet part of the vertical slice's critical path. Everything else is future scope.
+The immediate priority is completing the **first end-to-end vertical slice**: Nautobot → NetAsCode YAML → Terraform → Ansible → pyATS. All four are now done and proven end-to-end. The Platform API skeleton runs in parallel as lab infrastructure but is not yet part of the vertical slice's critical path. Remaining vertical-slice work is generator unit tests (Phase 6) and CI (Phase 7); everything else is future scope.
 
 ---
 
@@ -418,33 +453,24 @@ See the full write-up under "Phase 4 — Ansible Day-2" earlier in this document
 
 ---
 
-## Immediate — Phase 5: pyATS Validation
+## Phase 5 — pyATS Validation ✅ Complete
 
-**This is now the critical path.** Ansible has proven Day-2 operations work; pyATS will independently verify that deployed ACI objects match engineering intent from Nautobot, closing the validation loop (ADR-008).
-
-### Tasks
-
-1. `tests/pyats/aci/testbed.yml` — ACI testbed definition (simulator at `172.30.46.103`)
-2. `tests/pyats/aci/test_aci_tenants.py` — connect to ACI, assert every tenant in the NetAsCode YAML exists
-3. `tests/pyats/aci/test_aci_vrfs.py` — same pattern for VRFs
-4. `tests/pyats/requirements.txt` — `pyats`, `pyats.contrib`
-
-```bash
-pip install -r tests/pyats/requirements.txt
-pyats run job tests/pyats/aci/
-```
+See the full write-up under "Phase 5 — pyATS Validation" earlier in this document. Summary: `testbed.yml`, `scripts/load-vault-env.sh`, `test_aci_tenants.py`, `test_aci_vrfs.py`, and `job.py` were created and proven against the live ACI simulator — 100% pass rate, with a negative-test check confirming the assertions actually validate rather than trivially passing.
 
 ---
 
-## Phase 6 — Generator unit tests
+## Immediate — Phase 6: Generator unit tests
 
-Can run in parallel with Phase 3:
+**This is now the critical path** for the remaining vertical-slice work (CI, Phase 7, depends on it).
+
+### Tasks
 
 1. `tests/unit/test_transformer.py` — test `build_netascode_yaml()` with fixture data:
    - System tenant exclusion
    - `ACI:` prefix stripping
    - BD description parsing
    - Missing description fallback to sanitised CIDR name
+   - `_to_gateway_ip()` heuristic (including the stderr warning added 2026-07-03)
 2. `tests/unit/test_client.py` — mock HTTP, test error handling
 3. `platform/python/requirements-dev.txt` — `pytest`, `pytest-mock`, `responses`
 
@@ -474,9 +500,9 @@ After Phases 3b, 5, and 6 are complete:
 | 1 | Terraform ACI module (`providers.tf`, `variables.tf`, `main.tf`) | 3 | ✅ Done | — |
 | 2 | Static example YAML committed to repo | 3 | 🟡 Medium | Terraform development without live Nautobot (not currently blocking — live Nautobot lab is available) |
 | 3 | End-to-end chain test (Nautobot → YAML → Terraform → ACI) | 3b | ✅ Done | — (completed 2026-07-03 with `web-tenant`) |
-| 4 | Generator unit tests | 6 | 🟠 High | CI |
+| 4 | Generator unit tests | 6 | � Critical | CI |
 | 5 | Ansible Day-2 playbooks (`verify-tenants`, `day2-epg`) | 4 | ✅ Done | — (completed 2026-07-03, proven against live ACI simulator) |
-| 6 | pyATS ACI validation tests | 5 | 🔴 Critical | CI |
+| 6 | pyATS ACI validation tests | 5 | ✅ Done | — (completed 2026-07-04, 100% pass rate + negative-test verified) |
 | 7 | GitHub Actions CI workflow | 7 | 🟡 Medium | None (vertical slice cap) |
 | 8 | ACI system tenant handling in Terraform | 3 | ✅ Done | Resolved via filtering (`_system_tenants` local excludes `common`/`infra`/`mgmt` from all `for_each` maps) rather than importing them into state |
 | 9 | `platform/netascode/aci/example-tenants.yaml` (committed) | 3 | 🟡 Medium | Static Terraform development |
@@ -492,6 +518,7 @@ After Phases 3b, 5, and 6 are complete:
 | 19 | Terraform → Vault credential loader (`scripts/load-vault-creds.sh`) | 3 | ✅ Done | — (closed 2026-07-03; replaced hand-typed `terraform.tfvars`) |
 | 20 | Stale duplicate Vault container (`infra-automation-lab-vault-1`) removed | — | ✅ Done | — (closed 2026-07-03; leftover from pre-refactor merged stack, shared no unique data) |
 | 21 | `hvac` Python library for `community.hashi_vault` Ansible collection | 4 | ✅ Done | — (installed 2026-07-03 via `pip install --user`, no sudo needed) |
+| 22 | `pyats[full]` installed for pyATS Phase 5 | 5 | ✅ Done | — (installed 2026-07-04 via `pip install --user --break-system-packages`, no sudo needed) |
 
 ---
 
@@ -501,7 +528,7 @@ After Phases 3b, 5, and 6 are complete:
 |---|---|---|
 | Q1 | ~~Should Terraform import the ACI system tenants into state on first run, or manage them with `lifecycle { prevent_destroy = true }`?~~ **Resolved (2026-07-03):** neither — Terraform filters system tenants out of every `for_each` map via a `_system_tenants` local, so they are never read into state at all. | Phase 3 approach decided |
 | Q2 | ~~Will the ACI simulator require a specific `netascode/aci` provider version for compatibility?~~ **Resolved (2026-07-03):** switched to `CiscoDevNet/aci ~> 2.0` (`v2.20.0` installed), which works against APIC 6.2(1g) with no compatibility issues found. | `providers.tf` version pin decided |
-| Q3 | Should pyATS connect directly to the ACI APIC REST API or use the `pyats.contrib.aci` library? | Determines Phase 5 test design |
+| Q3 | ~~Should pyATS connect directly to the ACI APIC REST API or use the `pyats.contrib.aci` library?~~ **Resolved (2026-07-04):** there is no `pyats.contrib.aci` library in this pyATS distribution (`pyats[full]` 26.6) — the generic `rest.connector` already ships a purpose-built APIC implementation (`rest/connector/libs/apic/`), used directly. | Phase 5 test design decided |
 | Q4 | Should the generator output additional NetAsCode object types beyond tenants, VRFs, and BDs (e.g. EPGs, contracts, external networks)? | Scope of Phase 2 extension vs later phases |
 | Q5 | When user-defined tenants are added to the ACI lab, will the generator filter them correctly without `--include-system-tenants`? **Partially answered:** confirmed working for `web-tenant` in the Phase 3 vertical slice test. | Requires further lab data extension to fully verify |
 
