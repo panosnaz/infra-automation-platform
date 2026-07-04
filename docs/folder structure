@@ -81,7 +81,8 @@ nautobot-infra-automation/
 │   │   └── 04-Domain-Expansion-Model.md
 │   │
 │   └── 11-Specifications/     ← Platform Specifications (contracts, not architecture prose)
-│       └── 01-Canonical-Intent-Specification.md   ← Contract #1
+│       ├── 01-Canonical-Intent-Specification.md   ← Contract #1
+│       └── 02-Platform-API-Specification.md       ← Contract #2
 │
 ├── lab/
 │   │

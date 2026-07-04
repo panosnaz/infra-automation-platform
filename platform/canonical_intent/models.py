@@ -1,8 +1,9 @@
 """Canonical Intent — Platform Specification Contract #1.
 
-See docs/11-Specifications/01-Canonical-Intent-Specification.md for the full
-design rationale. This module is the executable source of truth; the
-Markdown document explains *why* it is shaped this way.
+docs/11-Specifications/01-Canonical-Intent-Specification.md is the
+authoritative specification. This module is a Python/Pydantic reference
+implementation that conforms to it, not the other way around — any future
+implementation in another language must conform to that Markdown document.
 
 Three related, distinct objects:
 

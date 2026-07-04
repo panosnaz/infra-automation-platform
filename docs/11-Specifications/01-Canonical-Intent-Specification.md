@@ -13,7 +13,7 @@ description: "Contract #1 from the Platform Specification Roadmap: the immutable
 
 **Type:** Platform Specification (not an ADR — this is a contract implementing decisions already made in [ADR-004](../03-Decisions/ADR-004-Platform-API.md), [ADR-014](../03-Decisions/ADR-014-Policy-Enforcement.md), and [ADR-001](../03-Decisions/ADR-001-Nautobot-Source-of-Truth.md))
 
-**Implementation:** [`platform/canonical_intent/models.py`](../../platform/canonical_intent/models.py) (Pydantic, executable source of truth for this document)
+**This document is the authoritative specification.** [`platform/canonical_intent/models.py`](../../platform/canonical_intent/models.py) is a Python/Pydantic reference implementation that conforms to it — not the other way around. The specification is the language-agnostic contract; any future implementation (Go, TypeScript, Java) must conform to *this document*, not to the Pydantic code. Generated artifacts (JSON Schema, OpenAPI) derive from the executable model but must remain traceable back to this specification.
 
 ---
 
