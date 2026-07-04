@@ -9,6 +9,8 @@ A reusable engineering control plane that manages network infrastructure through
 
 **Current focus:** Cisco ACI vertical slice — Nautobot → NetAsCode YAML → Terraform → Ansible → pyATS
 
+**Status (2026-07-04):** the vertical slice is complete end-to-end (Phases 1-5). Remaining work is generator unit tests (Phase 6) and CI (Phase 7). See [`docs/01-Vision/01-Current-State.md`](docs/01-Vision/01-Current-State.md) for the full status.
+
 ---
 
 ## Start here
@@ -44,17 +46,20 @@ Continuous validation
 
 ```
 platform/
-  python/        Generator: Nautobot GraphQL → NetAsCode YAML
+  python/        Generator: Nautobot GraphQL → NetAsCode YAML          ✅ Phase 2
   netascode/aci/ NetAsCode YAML (generated, gitignored)
-  terraform/aci/ Terraform ACI module  (Phase 3)
-  ansible/aci/   Ansible Day-2 playbooks (Phase 4)
+  terraform/aci/ Terraform ACI module (CiscoDevNet/aci)                ✅ Phase 3
+  ansible/aci/   Ansible Day-2 playbooks (cisco.aci)                   ✅ Phase 4
 
 tests/
-  pyats/aci/     pyATS validation tests (Phase 5)
-  unit/          Generator unit tests (Phase 6)
+  pyats/aci/     pyATS validation tests                                ✅ Phase 5
+  unit/          Generator unit tests                                  ⏳ Phase 6
 
 docs/            Architecture, ADRs, operations guides
-lab/             Local lab environment (Nautobot Docker stack)
+lab/             Local lab environment
+  docker/nautobot/      Nautobot stack (nested git repo)
+  docker/vault/         HashiCorp Vault — standalone stack, running
+  docker/platform-api/  Platform API skeleton (FastAPI) — standalone stack, running
 ```
 
 Full canonical layout: [`docs/folder structure`](docs/folder%20structure)
@@ -69,28 +74,52 @@ Full canonical layout: [`docs/folder structure`](docs/folder%20structure)
 | API token | `0123456789abcdef0123456789abcdef01234567` |
 | ACI Simulator | `https://172.30.46.103` |
 
-Start the lab:
+Start the lab (three independent Compose stacks — see [`docs/folder structure`](docs/folder%20structure) for why they're kept separate):
 
 ```bash
-cd lab/docker/nautobot
-docker compose up -d
+# Nautobot (nested git repo; managed via its own invoke tasks)
+cd lab/docker/nautobot && invoke start
+
+# HashiCorp Vault (secrets — populates itself on first start)
+cd lab/docker/vault && docker compose up -d
+
+# Platform API skeleton (FastAPI; /health, /readiness, /version)
+cd lab/docker/platform-api && docker compose up -d
 ```
 
 ---
 
-## Quick start — run the generator
+## Quick start — run the full vertical slice
+
+All three tools read credentials from Vault at runtime — no hardcoded secrets.
 
 ```bash
-# Install dependencies
-pip install -r platform/python/requirements.txt
+export VAULT_ADDR=http://localhost:8200
+export VAULT_TOKEN=<token>   # see lab/docker/vault/state/vault-keys.txt (gitignored)
 
-# Generate NetAsCode YAML from Nautobot (includes lab system tenants)
+# 1. Generate NetAsCode YAML from Nautobot
+pip install -r platform/python/requirements.txt
 python platform/python/generate_aci.py \
-  --token 0123456789abcdef0123456789abcdef01234567 \
+  --vault-addr "$VAULT_ADDR" --vault-token "$VAULT_TOKEN" \
   --include-system-tenants
 
-# Dry-run (print YAML, do not write files)
-python platform/python/generate_aci.py --token <TOKEN> --dry-run
+# 2. Provision with Terraform
+cd platform/terraform/aci
+source scripts/load-vault-creds.sh
+terraform init && terraform apply
+cd -
+
+# 3. Day-2 operations with Ansible
+cd platform/ansible/aci
+ansible-playbook -i inventory/hosts.yml playbooks/verify-tenants.yml
+ansible-playbook -i inventory/hosts.yml playbooks/day2-epg.yml
+cd -
+
+# 4. Independent validation with pyATS
+cd tests/pyats
+source aci/scripts/load-vault-env.sh
+pyats run job aci/job.py --testbed-file aci/testbed.yml --no-mail
+cd -
 ```
 
 ---
@@ -111,13 +140,14 @@ All decisions are recorded as ADRs in [`docs/03-Decisions/`](docs/03-Decisions/)
 
 ## Technology stack
 
-| Capability | Technology |
-|---|---|
-| Source of Truth | Nautobot |
-| Desired State | Terraform (`netascode/aci`) |
-| Day-2 Operations | Ansible (`cisco.aci`) |
-| Validation | pyATS + Catfish |
-| Platform API | FastAPI (future) |
-| Orchestration | n8n (future) |
-| Secrets | HashiCorp Vault (future) |
-| CI/CD | GitHub Actions (future) |
+| Capability | Technology | Status |
+|---|---|---|
+| Source of Truth | Nautobot | ✅ Running |
+| Desired State | Terraform (`CiscoDevNet/aci`) | ✅ Working |
+| Day-2 Operations | Ansible (`cisco.aci`) | ✅ Working |
+| Validation | pyATS (`rest.connector`) | ✅ Working |
+| Secrets | HashiCorp Vault | ✅ Running |
+| Platform API | FastAPI | 🟡 Skeleton running (no auth/RBAC/Canonical Intent yet) |
+| Orchestration | n8n | ❌ Future |
+| Observability | Prometheus + Grafana + Loki | ❌ Future |
+| CI/CD | GitHub Actions | ❌ Future |
