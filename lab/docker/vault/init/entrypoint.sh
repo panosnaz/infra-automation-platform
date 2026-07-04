@@ -89,7 +89,8 @@ if ! VAULT_TOKEN="${ROOT_TOKEN}" vault kv get secret/lab/nautobot >/dev/null 2>&
     nautobot_api_token="0123456789abcdef0123456789abcdef01234567" \
     aci_url="https://172.30.46.103" \
     aci_username="admin" \
-    aci_password="Admin123"
+    aci_password="Admin123" \
+    aci_insecure="true"
 
   echo "[vault-init] All secrets written."
   echo "[vault-init] Paths: secret/lab/nautobot | secret/lab/aci | secret/lab/platform"

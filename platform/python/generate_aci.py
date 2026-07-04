@@ -34,6 +34,7 @@ import sys
 import urllib.request
 from pathlib import Path
 
+import requests
 import yaml
 
 # Allow running as a plain script from anywhere in the repo tree
@@ -91,8 +92,17 @@ def main() -> None:
     )
 
     print(f"[generator] Querying Nautobot at {nautobot_url}")
-    tenants = client.get_tenants()
-    prefixes = client.get_prefixes()
+    try:
+        tenants = client.get_tenants()
+        prefixes = client.get_prefixes()
+    except requests.RequestException as exc:
+        print(f"ERROR: Failed to query Nautobot at {nautobot_url}: {exc}", file=sys.stderr)
+        sys.exit(1)
+    except RuntimeError as exc:
+        # Raised by NautobotClient._query() on GraphQL-level errors (HTTP 200
+        # with an "errors" field in the response body).
+        print(f"ERROR: Nautobot GraphQL query failed: {exc}", file=sys.stderr)
+        sys.exit(1)
     print(f"[generator]   tenants={len(tenants)}  prefixes={len(prefixes)}")
 
     data = build_netascode_yaml(

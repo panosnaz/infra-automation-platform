@@ -26,7 +26,7 @@ if [[ -z "${VAULT_TOKEN:-}" ]]; then
   return 1 2>/dev/null || exit 1
 fi
 
-_secret_json="$(curl -sf --header "X-Vault-Token: ${VAULT_TOKEN}" \
+_secret_json="$(curl -sSf --header "X-Vault-Token: ${VAULT_TOKEN}" \
   "${VAULT_ADDR%/}/v1/secret/data/lab/platform")" || {
   echo "ERROR: failed to read secret/lab/platform from Vault at ${VAULT_ADDR}" >&2
   return 1 2>/dev/null || exit 1
@@ -38,10 +38,14 @@ data = json.load(sys.stdin)["data"]["data"]
 aci_url = data["aci_url"]
 aci_username = data["aci_username"]
 aci_password = data["aci_password"]
+# Present since 2026-07-04; fall back to "true" for older secrets written
+# before this field existed (this Vault only ever stores the lab ACI
+# simulator, which always uses a self-signed certificate).
+aci_insecure = data.get("aci_insecure", "true")
 print(f"export TF_VAR_aci_url={json.dumps(aci_url)}")
 print(f"export TF_VAR_aci_username={json.dumps(aci_username)}")
 print(f"export TF_VAR_aci_password={json.dumps(aci_password)}")
-print("export TF_VAR_aci_insecure=true")
+print(f"export TF_VAR_aci_insecure={json.dumps(aci_insecure)}")
 ')"
 
 eval "${_exports}"

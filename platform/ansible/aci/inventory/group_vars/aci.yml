@@ -18,8 +18,10 @@ aci_host: "{{ aci_vault_secret.aci_url | urlsplit('hostname') }}"
 aci_username: "{{ aci_vault_secret.aci_username }}"
 aci_password: "{{ aci_vault_secret.aci_password }}"
 
-# ACI Simulator uses a self-signed certificate — lab only.
-aci_validate_certs: false
+# Present since 2026-07-04; defaults to true for older secrets written before
+# this field existed (this Vault only ever stores the lab ACI simulator,
+# which always uses a self-signed certificate).
+aci_validate_certs: "{{ not (aci_vault_secret.aci_insecure | default('true') | bool) }}"
 aci_use_ssl: true
 aci_use_proxy: false
 aci_timeout: 30

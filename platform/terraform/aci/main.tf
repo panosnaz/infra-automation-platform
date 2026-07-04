@@ -34,13 +34,18 @@ locals {
     }
   ]...)
 
-  # Flat map of all subnets: "tenant/bd/ip" => { ...subnet attrs, tenant_name, bd_name }
+  # Flat map of all subnets: "tenant/bd/ip" => { ...subnet attrs, tenant_name, bd_name, scope_values }
   subnets = merge([
     for bd_key, bd in local.bridge_domains : {
       for sn in lookup(bd, "subnets", []) :
       "${bd_key}/${sn.ip}" => merge(sn, {
         tenant_name = bd.tenant_name
         bd_name     = bd.name
+        scope_values = compact([
+          lookup(sn, "public", false) ? "public" : null,
+          lookup(sn, "private", false) ? "private" : null,
+          lookup(sn, "shared", false) ? "shared" : null,
+        ])
       })
     }
   ]...)
@@ -94,9 +99,7 @@ resource "aci_subnet" "this" {
   parent_dn = aci_bridge_domain.this["${each.value.tenant_name}/${each.value.bd_name}"].id
   ip        = each.value.ip
 
-  scope = compact([
-    lookup(each.value, "public", false) ? "public" : null,
-    lookup(each.value, "private", false) ? "private" : null,
-    lookup(each.value, "shared", false) ? "shared" : null,
-  ])
+  # ACI rejects an empty scope list, so fall back to "private" if the
+  # generator ever emits a subnet with public/private/shared all false.
+  scope = length(each.value.scope_values) > 0 ? each.value.scope_values : ["private"]
 }
