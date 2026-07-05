@@ -61,8 +61,15 @@ class NautobotIntentStore:
     def close(self) -> None:
         self._client.close()
 
-    def save(self, intent: CanonicalIntent) -> None:
-        tenant_id = self._find_tenant_id(intent)
+    def save(self, intent: CanonicalIntent, tenant_name: str) -> None:
+        """Persist intent to the Nautobot Tenant named `tenant_name`.
+
+        `tenant_name` must be the exact Nautobot Tenant.name value (e.g.
+        already carrying any domain-specific namespace prefix) — resolving
+        it from domain_intent is the caller's responsibility, not this
+        store's. This method has no knowledge of domain_intent's shape.
+        """
+        tenant_id = self._find_tenant_id(tenant_name)
         response = self._client.patch(
             f"/api/tenancy/tenants/{tenant_id}/",
             json={"custom_fields": {"canonical_intent": intent.model_dump(mode="json")}},
@@ -97,8 +104,7 @@ class NautobotIntentStore:
             f"No CanonicalIntent found for intent_id={intent_id} engineering_version={engineering_version}"
         )
 
-    def _find_tenant_id(self, intent: CanonicalIntent) -> str:
-        tenant_name = f"{_ACI_TENANT_PREFIX}{_tenant_name(intent)}"
+    def _find_tenant_id(self, tenant_name: str) -> str:
         response = self._client.get("/api/tenancy/tenants/", params={"name": tenant_name})
         if response.status_code != 200:
             raise NautobotStoreError(

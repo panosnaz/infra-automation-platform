@@ -134,6 +134,34 @@ class SubmitIntentRequest(BaseModel):
     tags: dict[str, str] = Field(default_factory=dict)
 
 
+_ACI_TENANT_PREFIX = "ACI:"  # matches platform/python/generator/transformer.py
+
+
+def _aci_tenant_name(domain_intent: dict[str, Any]) -> str:
+    """Resolve the Nautobot Tenant name a cisco_aci domain_intent anchors to.
+
+    Domain-specific knowledge deliberately lives here, at the domain-aware
+    API boundary — not inside NautobotIntentStore, which must stay
+    domain-agnostic per Contract #1's opacity rule for domain_intent (found
+    during the Milestone 1 Architecture Validation Review, 2026-07-05).
+
+    Milestone 1 scope: exactly one domain (cisco_aci), exactly one tenant
+    per CanonicalIntent. CanonicalIntent's own domain_id validation
+    already guarantees this function is only ever called for cisco_aci
+    (KNOWN_DOMAINS); no dispatch-by-domain mechanism exists yet, and one
+    is not introduced speculatively — a second domain is what would
+    justify it.
+    """
+    try:
+        tenants = domain_intent["apic"]["tenants"]
+        return f"{_ACI_TENANT_PREFIX}{tenants[0]['name']}"
+    except (KeyError, IndexError, TypeError) as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Could not extract a tenant name from domain_intent (cisco_aci shape expected): {exc}",
+        ) from exc
+
+
 @app.post("/intents", response_model=CanonicalIntent, status_code=status.HTTP_201_CREATED, tags=["intent"])
 def submit_intent(request: SubmitIntentRequest) -> CanonicalIntent:
     """SubmitIntent (Contract #2 §5) — Milestone 1 scope.
@@ -161,8 +189,9 @@ def submit_intent(request: SubmitIntentRequest) -> CanonicalIntent:
             detail=exc.errors(include_context=False, include_url=False),
         ) from exc
 
+    tenant_name = _aci_tenant_name(intent.domain_intent)
     try:
-        get_intent_store().save(intent)
+        get_intent_store().save(intent, tenant_name=tenant_name)
     except NautobotStoreError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
