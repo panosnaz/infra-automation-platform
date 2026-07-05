@@ -11,6 +11,7 @@ nautobot-infra-automation/
 │   │
 │   ├── START-HERE.md
 │   ├── ARCHITECTURE-AT-A-GLANCE.md
+│   ├── 00-Platform-v1.md              ← Platform Engineering Guide: the mental model, pre-implementation
 │   ├── folder structure              ← this file
 │   │
 │   ├── Nautobot_ACI_NaC_Architecture.md
