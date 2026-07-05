@@ -426,7 +426,7 @@ No ADRs are superseded or deprecated. ADR-001 and ADR-004 have been amended/refi
 | Day-2 Operations | Ansible `cisco.aci` | ✅ Working — verify-tenants + day2-epg playbooks proven against the live ACI simulator |
 | Validation | pyATS + Catfish | ✅ Working — test_aci_tenants.py + test_aci_vrfs.py proven against the live ACI simulator (positive and negative cases both verified) |
 | CI/CD Pipeline | GitHub Actions | ❌ Not implemented |
-| Platform API | FastAPI | 🟡 Partial — skeleton container running (`/health`, `/readiness`, `/version`); no auth, RBAC, Canonical Intent, or policy enforcement yet |
+| Platform API | FastAPI | 🟡 Partial — Milestone 1 complete: `SubmitIntent`/`GetIntent` persist/read the full `CanonicalIntent` to/from a real Nautobot custom field (`tenancy.tenant.canonical_intent`); no auth, RBAC, Technical Policy, or Deployment Lifecycle yet |
 | Workflow Orchestration | n8n | ❌ Not implemented |
 | Secrets Management | HashiCorp Vault | ✅ Running — lab stack, KV v2 populated, Terraform now reads credentials from Vault at runtime (no static tfvars) |
 | Observability | Prometheus + Grafana + Loki | ❌ Not implemented |
@@ -522,7 +522,7 @@ After Phases 3b, 5, and 6 are complete:
 | 20 | Stale duplicate Vault container (`infra-automation-lab-vault-1`) removed | — | ✅ Done | — (closed 2026-07-03; leftover from pre-refactor merged stack, shared no unique data) |
 | 21 | `hvac` Python library for `community.hashi_vault` Ansible collection | 4 | ✅ Done | — (installed 2026-07-03 via `pip install --user`, no sudo needed) |
 | 22 | `pyats[full]` installed for pyATS Phase 5 | 5 | ✅ Done | — (installed 2026-07-04 via `pip install --user --break-system-packages`, no sudo needed) |
-| 23 | Vertical Slice v0.1 (Control Plane proof) | New | 🔴 Critical | See [`05-Operations/14-Vertical-Slice-v0.1-Roadmap.md`](../05-Operations/14-Vertical-Slice-v0.1-Roadmap.md) — REST API, Technical Policy (OPA), Nautobot persistence of Canonical Intent, `ExecutionState` store, Workflow/Terraform/Validation stubs, Knowledge Capture |
+| 23 | Vertical Slice v0.1 (Control Plane proof) | New | 🔴 Critical | Milestone 1 ✅ Complete (2026-07-05) — see [`05-Operations/14-Vertical-Slice-v0.1-Roadmap.md`](../05-Operations/14-Vertical-Slice-v0.1-Roadmap.md) and `tests/integration/milestone1_smoke_test.py`. Milestone 2 (Technical Policy) next. |
 
 ---
 

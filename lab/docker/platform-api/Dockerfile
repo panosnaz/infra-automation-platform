@@ -6,6 +6,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app ./app
+COPY --from=canonical_intent_src . ./canonical_intent
 
 EXPOSE 8000
 

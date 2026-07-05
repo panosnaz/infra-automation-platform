@@ -104,11 +104,18 @@ Nine artifacts. Six are new "for real" (1, 3, 4, 5 as infra, 8, 9); three are de
 
 Ordered by dependency — each milestone has its own checkpoint so the slice is validated incrementally rather than all at once.
 
-## M1 — Intent Lifecycle only (no Policy, no Deployment)
+## M1 — Intent Lifecycle only (no Policy, no Deployment) ✅ Complete (2026-07-05)
 
 `SubmitIntent` → Intent Translation → **Persist directly to Nautobot Custom Field** → response. No Technical Policy gate yet.
 
-**Checkpoint:** `GetIntent` returns a `CanonicalIntent` whose envelope was actually read back from Nautobot (restart the API process between submit and get, to prove it isn't held in memory).
+**Checkpoint:** `GetIntent` returns a `CanonicalIntent` whose envelope was actually read back from Nautobot (restart the API process between submit and get, to prove it isn't held in memory). **Passed** — see `tests/integration/milestone1_smoke_test.py`.
+
+**What was built:** `POST /intents` and `GET /intents/{intent_id}/{engineering_version}` added to `lab/docker/platform-api/app/main.py`; a new `app/nautobot_store.py` persists/retrieves the full `CanonicalIntent` as JSON in a Nautobot Tenant custom field (`canonical_intent`, type JSON, content type `tenancy.tenant` — created via the Nautobot REST API, no custom plugin). The Docker build now uses an additional build context (`docker compose`'s `build.additional_contexts`) to reuse `platform/canonical_intent/` unchanged rather than duplicating Contract #1's models.
+
+**Real findings, not architectural problems (implementation continued without stopping):**
+
+- **Scope clarification, not a defect:** `SubmitIntent` requires a Nautobot Tenant matching `domain_intent`'s tenant name to already exist — it does not create/update Tenant/VRF/BridgeDomain/Prefix objects from `domain_intent`. The roadmap's original wording ("domain_intent materializes as real objects, as Phase 3 already does") overstated what exists today; Phase 3 never included a write path from intent into Nautobot inventory. This is a real, tracked gap (see `nautobot_store.py`'s module docstring) but does not block M1 as scoped — it is not yet assigned to a milestone above.
+- **Real bug, fixed:** `pydantic.ValidationError.errors()` embeds a raw exception object in `ctx.error` for validators that raise `ValueError` (e.g. `CanonicalIntent`'s `domain_id` check) — passing it straight to `HTTPException(detail=...)` turned an intended 422 into an unhandled 500 at JSON-serialization time. Fixed with `errors(include_context=False, include_url=False)`. Worth carrying forward to any future FastAPI + Pydantic v2 route with custom validators.
 
 ## M2 — Add Technical Policy
 

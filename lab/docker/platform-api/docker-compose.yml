@@ -8,6 +8,8 @@ services:
     build:
       context: "."
       dockerfile: "Dockerfile"
+      additional_contexts:
+        canonical_intent_src: "../../../platform/canonical_intent"
     image: "infra-automation-lab/platform-api:local"
     container_name: "infra-automation-lab-platform-api"
     ports:
@@ -18,6 +20,7 @@ services:
       # container reach the Nautobot and Vault stacks exposed on the host.
       VAULT_ADDR: "http://host.docker.internal:8200"
       NAUTOBOT_URL: "http://host.docker.internal:8080"
+      NAUTOBOT_TOKEN: "${NAUTOBOT_TOKEN:?Set NAUTOBOT_TOKEN in the environment before starting this stack (see lab/README.md)}"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     healthcheck:
