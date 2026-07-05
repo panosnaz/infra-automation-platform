@@ -86,10 +86,28 @@ def main() -> None:
 
     state = ExecutionState(
         deployment_id=context.deployment_id,
-        lifecycle_state=LifecycleState.DEPLOYED,
+        lifecycle_state=LifecycleState.DEPLOYING,
+        desired_version=intent.engineering_version,
+        applied_version=None,  # not yet confirmed live — only set after successful validation
         policy_decision="allow",
     )
     print("\nExecutionState created:")
+    print(state.model_dump_json(indent=2))
+
+    # Once validation confirms deployed == desired, applied_version catches
+    # up to desired_version and lifecycle_state becomes STABLE. If a later
+    # drift check finds the live infrastructure no longer matches
+    # applied_version's domain_intent, lifecycle_state becomes DRIFTED —
+    # desired_version and applied_version diverging is exactly what makes
+    # drift detectable without re-deriving it from raw infrastructure state.
+    state = state.model_copy(
+        update={
+            "lifecycle_state": LifecycleState.STABLE,
+            "applied_version": intent.engineering_version,
+            "validated_at": state.last_updated_at,
+        }
+    )
+    print("\nExecutionState after successful validation (STABLE):")
     print(state.model_dump_json(indent=2))
 
 

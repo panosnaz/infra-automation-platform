@@ -82,7 +82,8 @@ nautobot-infra-automation/
 │   │
 │   └── 11-Specifications/     ← Platform Specifications (contracts, not architecture prose)
 │       ├── 01-Canonical-Intent-Specification.md   ← Contract #1
-│       └── 02-Platform-API-Specification.md       ← Contract #2
+│       ├── 02-Platform-API-Specification.md       ← Contract #2
+│       └── 03-Platform-Execution-Model-Specification.md   ← Contract #3
 │
 ├── lab/
 │   │

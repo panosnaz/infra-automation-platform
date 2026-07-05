@@ -57,7 +57,7 @@ An entry point's only job is translating its native format (a Jira ticket transi
 
 # 3. Request Lifecycle
 
-Two distinct phases exist, with different synchrony guarantees.
+Two distinct phases exist, with different synchrony guarantees. **The full lifecycle state machine, state ownership, and event-timing rules this section relies on are formalized in [Platform Specification 03 — Platform Execution Model](03-Platform-Execution-Model-Specification.md).** This section describes the request-handling flow; that document is authoritative for the state semantics.
 
 ## Phase A — Submission (synchronous from the caller's perspective)
 
@@ -82,7 +82,7 @@ Policy Evaluation (OPA)      (ADR-014)
     └── allow
          │
          ▼
-    Persist to Nautobot
+    Persist to Nautobot           (ExecutionState.lifecycle_state -> ACCEPTED)
          │
          ▼
     Publish Event (IntentReceived)

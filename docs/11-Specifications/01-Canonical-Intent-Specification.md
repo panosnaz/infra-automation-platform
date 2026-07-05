@@ -115,10 +115,13 @@ One `DeploymentContext` exists per **attempt** to deploy a `CanonicalIntent` —
 
 One `ExecutionState` exists per `DeploymentContext`, updated in place as the deployment progresses. This is the object that changes constantly — `CanonicalIntent` never does.
 
+**The full lifecycle model, state ownership, and event timing rules are defined in [Platform Specification 03 — Platform Execution Model](03-Platform-Execution-Model-Specification.md).** This section only lists the fields; that document is authoritative for their meaning and rationale.
+
 | Field | Type | Rationale |
 |---|---|---|
 | `deployment_id` | UUID | Which `DeploymentContext` this tracks. |
-| `lifecycle_state` | enum (see below) | Current stage of this deployment attempt. |
+| `lifecycle_state` | enum: `accepted` / `deploying` / `validating` / `stable` / `drifted` / `failed` / `retired` | See Contract #3 §1. Internal implementation steps (Intent Translation, Policy Evaluation, Nautobot persistence) are folded into the transition into `accepted` and are not separate states. |
+| `desired_version`, `applied_version` | int, int\|optional | See Contract #3 §4 — the engineering_version being converged toward vs. the one last confirmed live. Essential for rollback and drift detection. |
 | `policy_decision`, `policy_reasons` | str, list[str] | Recorded output of the Policy Decision Contract (Tier 1 #3, not yet drafted). |
 | `persisted_to_nautobot_at`, `deployed_at`, `validated_at` | datetime, optional | Pipeline stage timestamps. |
 | `validation_result_ref` | str, optional | Points to a Validation Result object (Validation Specification, Tier 1 #4, not yet drafted). |
@@ -128,25 +131,27 @@ One `ExecutionState` exists per `DeploymentContext`, updated in place as the dep
 ## Lifecycle State Machine
 
 ```text
-submitted → policy_evaluated → persisted → deployed → validated → managed
-                                                              │
-                                                              ▼
-                                                          drifted → (forward intent resolves) → managed
-                                                              │
-                                                              ▼
-                                                          retired
+accepted → deploying → validating → stable
+                                        │
+                                        ▼
+                                    drifted → (new forward intent resolves) → stable
+
+(accepted | deploying | validating) → failed
+
+(any) → retired
 ```
 
-A `deny` decision at `policy_evaluated` halts the pipeline — no `persisted`, no Nautobot write, no `IntentReceived` event. This state machine is exactly what makes the [ADR-001 Brownfield Onboarding Exception](../03-Decisions/ADR-001-Nautobot-Source-of-Truth.md) enforceable: an object is "platform-managed" from the moment its `ExecutionState.lifecycle_state` first reaches `managed` via this forward pipeline, as opposed to having arrived through brownfield SSoT import.
+A `deny` decision from Policy Evaluation never reaches `accepted` at all — it goes directly to `failed`, and produces no Nautobot write and no `IntentReceived` event (Contract #3 §1). This is deliberately **not** the same concept as ADR-001's "platform-managed" — see Contract #3's Relationship section for the full contrast between `stable` (execution-convergence, reversible) and "platform-managed" (provenance, permanent).
 
 ---
 
 # Relationship to Existing Decisions
 
-- **ADR-001** — `ExecutionState.lifecycle_state = managed` is the machine-readable signal for "this object is now platform-managed," resolving the open question the Brownfield Onboarding Exception amendment left implicit.
+- **ADR-001** — an object is "platform-managed" from the moment it is first referenced by forward-authored `CanonicalIntent` — a provenance fact, permanent, and **independent** of `ExecutionState.lifecycle_state = stable` (an execution-convergence fact, reversible). See [Platform Specification 03](03-Platform-Execution-Model-Specification.md) for the full contrast; this was a naming collision found and resolved on 2026-07-05 (the field was originally named `managed`, renamed to `stable`).
 - **ADR-004** — The Platform Gateway accepts requests; Intent Translation builds `CanonicalIntent` and a `DeploymentContext`; both are hand-off points this contract now makes concrete.
 - **ADR-014** — Policy Evaluation's input is a `CanonicalIntent` + `DeploymentContext` (for `environment`/`approval_state`); its output populates `ExecutionState.policy_decision`/`policy_reasons`.
 - **ADR-009** — Knowledge Layer can capture "what was decided" (`CanonicalIntent`, stable and immutable) independently of "what happened" (`ExecutionState`, which changes and eventually gets archived).
+- **Platform Specification 03** — defines the full lifecycle, state ownership, and event timing model this document's `ExecutionState` fields implement.
 
 ---
 

@@ -53,15 +53,28 @@ class ApprovalState(str, Enum):
 class LifecycleState(str, Enum):
     """Execution lifecycle only. CanonicalIntent itself has no lifecycle —
     it is immutable desired state. This state machine belongs to
-    ExecutionState, tracking one DeploymentContext's progress."""
+    ExecutionState, tracking one DeploymentContext's progress.
 
-    SUBMITTED = "submitted"
-    POLICY_EVALUATED = "policy_evaluated"
-    PERSISTED = "persisted"
-    DEPLOYED = "deployed"
-    VALIDATED = "validated"
-    MANAGED = "managed"
+    This is the EXTERNALLY VISIBLE lifecycle (Platform Execution Model
+    Specification, docs/11-Specifications/03-Platform-Execution-Model-Specification.md).
+    Internal implementation steps — Intent Translation, Policy Evaluation,
+    Nautobot persistence — happen synchronously inside the transition into
+    ACCEPTED and are deliberately NOT separate lifecycle states; they are
+    implementation detail, not platform contract.
+
+    STABLE is an execution-convergence fact ("applied_version matches
+    desired_version, confirmed by validation") and must never be confused
+    with ADR-001's "platform-managed" (a provenance fact: was this object's
+    desired state authored via forward intent, set once, permanently).
+    See the Platform Execution Model Specification for the full contrast.
+    """
+
+    ACCEPTED = "accepted"
+    DEPLOYING = "deploying"
+    VALIDATING = "validating"
+    STABLE = "stable"
     DRIFTED = "drifted"
+    FAILED = "failed"
     RETIRED = "retired"
 
 
@@ -159,7 +172,16 @@ class ExecutionState(BaseModel):
     """
 
     deployment_id: uuid.UUID
-    lifecycle_state: LifecycleState = LifecycleState.SUBMITTED
+    lifecycle_state: LifecycleState = LifecycleState.ACCEPTED
+
+    desired_version: int = Field(
+        ge=1,
+        description="The engineering_version this execution is converging toward (mirrors DeploymentContext.engineering_version).",
+    )
+    applied_version: int | None = Field(
+        default=None,
+        description="The engineering_version last CONFIRMED actually live, set only after successful validation. None if never successfully deployed and validated. Drift is detected by comparing the live infrastructure against the domain_intent of applied_version, not desired_version.",
+    )
 
     policy_decision: str | None = Field(
         default=None, description="'allow' | 'deny' — see the Policy Decision Contract (ADR-014, Tier 1 #3)."

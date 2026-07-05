@@ -108,6 +108,8 @@ Event-driven automation shall follow these principles:
 - Automation remains observable.
 - Human approval remains part of governed workflows.
 
+> **Elevated to a platform-wide principle (2026-07-05):** "Events describe facts, not commands" and "events are published only after the underlying state transition is durably committed" are formalized with full rationale and worked examples in [Platform Specification 03 — Platform Execution Model](../11-Specifications/03-Platform-Execution-Model-Specification.md) §3. That document is authoritative for event-timing semantics; this ADR establishes that the platform is event-driven at all.
+
 ---
 
 # Event Flow
