@@ -436,6 +436,8 @@ No ADRs are superseded or deprecated. ADR-001 and ADR-004 have been amended/refi
 
 The immediate priority is completing the **first end-to-end vertical slice**: Nautobot → NetAsCode YAML → Terraform → Ansible → pyATS. All four are now done and proven end-to-end. The Platform API skeleton runs in parallel as lab infrastructure but is not yet part of the vertical slice's critical path. Remaining vertical-slice work is generator unit tests (Phase 6) and CI (Phase 7); everything else is future scope.
 
+> **2026-07-05:** with the Control Plane specifications (Contracts #1–#3, ADR-014/ADR-015) now stable, the next priority is **Vertical Slice v0.1** — proving the Control Plane sequence (REST API → Canonical Intent → Technical Policy → Nautobot → Deployment Request → Workflow Engine stub → Terraform stub → Validation stub → Knowledge Capture) actually works end to end. See [`05-Operations/14-Vertical-Slice-v0.1-Roadmap.md`](../05-Operations/14-Vertical-Slice-v0.1-Roadmap.md) for the full implementation plan, component inventory (real vs. stub), and milestones. This is implementation work, not new specification — specification work is paused pending this slice's outcome.
+
 ---
 
 # Next Actions
@@ -520,6 +522,7 @@ After Phases 3b, 5, and 6 are complete:
 | 20 | Stale duplicate Vault container (`infra-automation-lab-vault-1`) removed | — | ✅ Done | — (closed 2026-07-03; leftover from pre-refactor merged stack, shared no unique data) |
 | 21 | `hvac` Python library for `community.hashi_vault` Ansible collection | 4 | ✅ Done | — (installed 2026-07-03 via `pip install --user`, no sudo needed) |
 | 22 | `pyats[full]` installed for pyATS Phase 5 | 5 | ✅ Done | — (installed 2026-07-04 via `pip install --user --break-system-packages`, no sudo needed) |
+| 23 | Vertical Slice v0.1 (Control Plane proof) | New | 🔴 Critical | See [`05-Operations/14-Vertical-Slice-v0.1-Roadmap.md`](../05-Operations/14-Vertical-Slice-v0.1-Roadmap.md) — REST API, Technical Policy (OPA), Nautobot persistence of Canonical Intent, `ExecutionState` store, Workflow/Terraform/Validation stubs, Knowledge Capture |
 
 ---
 

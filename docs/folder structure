@@ -60,7 +60,8 @@ nautobot-infra-automation/
 │   │   ├── 06-Engineering-Deployment-Workflow.md
 │   │   ├── 07-Day2-Operations.md
 │   │   ├── 12-Roadmap.md
-│   │   └── 13-Lifecycle-Management.md
+│   │   ├── 13-Lifecycle-Management.md
+│   │   └── 14-Vertical-Slice-v0.1-Roadmap.md
 │   │
 │   ├── 06-Security/
 │   │   └── 10-Platform-Security-Architecture.md
