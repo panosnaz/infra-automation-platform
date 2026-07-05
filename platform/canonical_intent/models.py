@@ -52,15 +52,20 @@ class ApprovalState(str, Enum):
 
 class LifecycleState(str, Enum):
     """Execution lifecycle only. CanonicalIntent itself has no lifecycle —
-    it is immutable desired state. This state machine belongs to
-    ExecutionState, tracking one DeploymentContext's progress.
+    it is immutable desired state, gated only by Technical Policy (ADR-014)
+    at SubmitIntent time, before any DeploymentContext/ExecutionState exists.
+    This state machine belongs entirely to ExecutionState, tracking one
+    DeploymentContext's progress through the separate Deployment Lifecycle.
 
     This is the EXTERNALLY VISIBLE lifecycle (Platform Execution Model
     Specification, docs/11-Specifications/03-Platform-Execution-Model-Specification.md).
-    Internal implementation steps — Intent Translation, Policy Evaluation,
-    Nautobot persistence — happen synchronously inside the transition into
-    ACCEPTED and are deliberately NOT separate lifecycle states; they are
-    implementation detail, not platform contract.
+    Intent Translation, Technical Policy, and Nautobot persistence of the
+    CanonicalIntent are Intent Lifecycle concerns (SubmitIntent) that happen
+    entirely BEFORE this state machine begins — they are not folded into any
+    state here, because ExecutionState does not exist until RequestDeployment
+    creates it. PENDING_APPROVAL exists precisely because Business Approval
+    (ADR-015) is a distinct, later, deployment-scoped concern from Technical
+    Policy — see Contract #2 Section 3 for the full two-lifecycle split.
 
     STABLE is an execution-convergence fact ("applied_version matches
     desired_version, confirmed by validation") and must never be confused
@@ -69,6 +74,7 @@ class LifecycleState(str, Enum):
     See the Platform Execution Model Specification for the full contrast.
     """
 
+    PENDING_APPROVAL = "pending_approval"
     ACCEPTED = "accepted"
     DEPLOYING = "deploying"
     VALIDATING = "validating"
@@ -183,12 +189,16 @@ class ExecutionState(BaseModel):
         description="The engineering_version last CONFIRMED actually live, set only after successful validation. None if never successfully deployed and validated. Drift is detected by comparing the live infrastructure against the domain_intent of applied_version, not desired_version.",
     )
 
-    policy_decision: str | None = Field(
-        default=None, description="'allow' | 'deny' — see the Policy Decision Contract (ADR-014, Tier 1 #3)."
+    approval_decision: str | None = Field(
+        default=None,
+        description="'not_required' | 'approved' | 'denied' — the Approval Workflow's (ADR-015) recorded outcome for THIS deployment attempt. Distinct from Technical Policy (ADR-014), which gates CanonicalIntent creation at SubmitIntent time and is never recorded on ExecutionState.",
     )
-    policy_reasons: list[str] = Field(default_factory=list)
+    approval_reasons: list[str] = Field(default_factory=list)
 
-    persisted_to_nautobot_at: datetime | None = None
+    persisted_at: datetime | None = Field(
+        default=None,
+        description="When this DeploymentContext/ExecutionState was first durably recorded in the Workflow/Execution store. Deliberately NOT 'persisted_to_nautobot_at' — Nautobot holds CanonicalIntent only; ExecutionState belongs to the Workflow/Execution domain (see Platform Execution Model Specification, Persistence Boundary).",
+    )
     deployed_at: datetime | None = None
     validated_at: datetime | None = None
 

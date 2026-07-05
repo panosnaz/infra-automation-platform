@@ -120,10 +120,10 @@ One `ExecutionState` exists per `DeploymentContext`, updated in place as the dep
 | Field | Type | Rationale |
 |---|---|---|
 | `deployment_id` | UUID | Which `DeploymentContext` this tracks. |
-| `lifecycle_state` | enum: `accepted` / `deploying` / `validating` / `stable` / `drifted` / `failed` / `retired` | See Contract #3 §1. Internal implementation steps (Intent Translation, Policy Evaluation, Nautobot persistence) are folded into the transition into `accepted` and are not separate states. |
+| `lifecycle_state` | enum: `pending_approval` / `accepted` / `deploying` / `validating` / `stable` / `drifted` / `failed` / `retired` | See Contract #3 §1. `pending_approval` exists because the Approval Workflow ([ADR-015](../03-Decisions/ADR-015-Deployment-Approval.md)) is a distinct, deployment-scoped concern from Technical Policy ([ADR-014](../03-Decisions/ADR-014-Policy-Enforcement.md)), which gates `CanonicalIntent` creation itself and never appears in this state machine at all. |
 | `desired_version`, `applied_version` | int, int\|optional | See Contract #3 §4 — the engineering_version being converged toward vs. the one last confirmed live. Essential for rollback and drift detection. |
-| `policy_decision`, `policy_reasons` | str, list[str] | Recorded output of the Policy Decision Contract (Tier 1 #3, not yet drafted). |
-| `persisted_to_nautobot_at`, `deployed_at`, `validated_at` | datetime, optional | Pipeline stage timestamps. |
+| `approval_decision`, `approval_reasons` | str, list[str] | Recorded output of the Approval Workflow (ADR-015, Deployment Approval Contract not yet drafted) for **this** deployment attempt. Never records Technical Policy's decision — that decision is made and recorded before this object exists. |
+| `persisted_at`, `deployed_at`, `validated_at` | datetime, optional | Pipeline stage timestamps. `persisted_at` is NOT Nautobot persistence — `DeploymentContext`/`ExecutionState` live in the Workflow/Execution store (Contract #3 §5), never in Nautobot. |
 | `validation_result_ref` | str, optional | Points to a Validation Result object (Validation Specification, Tier 1 #4, not yet drafted). |
 | `rollback_of` | UUID, optional | If this deployment is a rollback, the `deployment_id` it rolls back. |
 | `last_updated_at` | datetime | Updated on every state transition. |
@@ -131,33 +131,38 @@ One `ExecutionState` exists per `DeploymentContext`, updated in place as the dep
 ## Lifecycle State Machine
 
 ```text
-accepted → deploying → validating → stable
-                                        │
-                                        ▼
-                                    drifted → (new forward intent resolves) → stable
+pending_approval → accepted → deploying → validating → stable
+       │                                                   │
+       ▼                                                   ▼
+    failed                              drifted → (new forward intent resolves) → stable
 
-(accepted | deploying | validating) → failed
+(accepted may also be reached directly from deployment creation, skipping
+pending_approval entirely, when no approval is required — Contract #3 §2)
+
+(deploying | validating) → failed
 
 (any) → retired
 ```
 
-A `deny` decision from Policy Evaluation never reaches `accepted` at all — it goes directly to `failed`, and produces no Nautobot write and no `IntentReceived` event (Contract #3 §1). This is deliberately **not** the same concept as ADR-001's "platform-managed" — see Contract #3's Relationship section for the full contrast between `stable` (execution-convergence, reversible) and "platform-managed" (provenance, permanent).
+A Technical Policy `deny` at `SubmitIntent` time never reaches this state machine at all — no `CanonicalIntent` is created, so no `DeploymentContext`/`ExecutionState` can exist yet (Contract #3 §1). An outright Approval Workflow denial at `RequestDeployment` time goes directly to `failed` without ever resting at `pending_approval`. This is deliberately **not** the same concept as ADR-001's "platform-managed" — see Contract #3's Relationship section for the full contrast between `stable` (execution-convergence, reversible) and "platform-managed" (provenance, permanent).
 
 ---
 
 # Relationship to Existing Decisions
 
-- **ADR-001** — an object is "platform-managed" from the moment it is first referenced by forward-authored `CanonicalIntent` — a provenance fact, permanent, and **independent** of `ExecutionState.lifecycle_state = stable` (an execution-convergence fact, reversible). See [Platform Specification 03](03-Platform-Execution-Model-Specification.md) for the full contrast; this was a naming collision found and resolved on 2026-07-05 (the field was originally named `managed`, renamed to `stable`).
-- **ADR-004** — The Platform Gateway accepts requests; Intent Translation builds `CanonicalIntent` and a `DeploymentContext`; both are hand-off points this contract now makes concrete.
-- **ADR-014** — Policy Evaluation's input is a `CanonicalIntent` + `DeploymentContext` (for `environment`/`approval_state`); its output populates `ExecutionState.policy_decision`/`policy_reasons`.
+- **ADR-001** — an object is "platform-managed" from the moment it is first referenced by forward-authored `CanonicalIntent` — a provenance fact, permanent, and **independent** of `ExecutionState.lifecycle_state = stable` (an execution-convergence fact, reversible). See [Platform Specification 03](03-Platform-Execution-Model-Specification.md) for the full contrast; this was a naming collision found and resolved on 2026-07-05 (the field was originally named `managed`, renamed to `stable`). ADR-001's Source-of-Truth scope is also narrowed to `CanonicalIntent` specifically by Contract #3 §5 — `ExecutionState` is never persisted in Nautobot.
+- **ADR-004** — The Platform Gateway accepts requests; Intent Translation builds `CanonicalIntent`; this contract now makes that hand-off point concrete for the Intent Lifecycle. `DeploymentContext` is a separate, later hand-off (`RequestDeployment`), not part of the same flow.
+- **ADR-014 (Technical Policy)** — evaluated once, at `SubmitIntent` time, against `CanonicalIntent` alone. Its output gates whether `CanonicalIntent` is persisted at all; it is never recorded on `ExecutionState`, because `ExecutionState` does not exist until `RequestDeployment`.
+- **ADR-015 (Deployment Approval)** — evaluated at `RequestDeployment` time, against `DeploymentContext` (`environment`/`approval_state`); its output populates `ExecutionState.approval_decision`/`approval_reasons` and determines `pending_approval` vs `accepted` vs `failed`.
 - **ADR-009** — Knowledge Layer can capture "what was decided" (`CanonicalIntent`, stable and immutable) independently of "what happened" (`ExecutionState`, which changes and eventually gets archived).
-- **Platform Specification 03** — defines the full lifecycle, state ownership, and event timing model this document's `ExecutionState` fields implement.
+- **Platform Specification 03** — defines the full lifecycle, state ownership, event timing, and persistence-boundary model this document's `ExecutionState` fields implement.
 
 ---
 
 # What This Contract Does Not Yet Define
 
-- The **Policy Decision Contract** (Tier 1 #3) — the actual JSON shape OPA receives and returns, referenced here only as `policy_decision`/`policy_reasons` fields.
+- The **Technical Policy Decision Contract** (ADR-014) — the actual JSON shape OPA receives and returns for intent-level compliance, referenced here only conceptually.
+- The **Deployment Approval Contract** (ADR-015) — the actual shape of an approval decision, approver routing, and change-window data, referenced here only as `approval_decision`/`approval_reasons` fields.
 - The **Validation Specification** (Tier 1 #4) — what `validation_result_ref` actually points to.
 - The **Domain Provider Specification** (Tier 3) — the schema `domain_intent` must conform to per `domain_id`.
 - The **Platform Events Specification** (Tier 2) — how `correlation_id` propagates through actual event payloads.

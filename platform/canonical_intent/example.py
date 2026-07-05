@@ -84,12 +84,15 @@ def main() -> None:
     print("\nDeploymentContext created:")
     print(context.model_dump_json(indent=2))
 
+    # Lab environment + approval_state=NONE_REQUIRED means the Approval
+    # Workflow (ADR-015) resolves immediately within RequestDeployment —
+    # this ExecutionState never rests at PENDING_APPROVAL at all.
     state = ExecutionState(
         deployment_id=context.deployment_id,
         lifecycle_state=LifecycleState.DEPLOYING,
         desired_version=intent.engineering_version,
         applied_version=None,  # not yet confirmed live — only set after successful validation
-        policy_decision="allow",
+        approval_decision="not_required",
     )
     print("\nExecutionState created:")
     print(state.model_dump_json(indent=2))

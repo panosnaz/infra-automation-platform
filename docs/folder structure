@@ -44,7 +44,9 @@ nautobot-infra-automation/
 │   │   ├── ADR-010-AI-Engineering-Assistant.md
 │   │   ├── ADR-011-Event-Driven-Automation.md
 │   │   ├── ADR-012-Secrets-Management.md
-│   │   └── ADR-013-Observability.md
+│   │   ├── ADR-013-Observability.md
+│   │   ├── ADR-014-Policy-Enforcement.md
+│   │   └── ADR-015-Deployment-Approval.md
 │   │
 │   ├── 04-Validation/
 │   │   ├── README.md

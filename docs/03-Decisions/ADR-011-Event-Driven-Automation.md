@@ -18,6 +18,8 @@
 - ADR-008 — Validation as an Independent Platform Capability
 - ADR-009 — Knowledge Layer as the Engineering Memory of the Platform
 - ADR-010 — AI as an Engineering Assistant
+- ADR-014 — Technical Policy Enforcement (OPA)
+- ADR-015 — Deployment Approval as a Distinct Capability from Technical Policy
 
 ---
 
@@ -80,8 +82,8 @@ Kafka, RabbitMQ, and webhooks are all viable candidates and are shown together i
 
 | Event | Published By | Subscribed By |
 |---|---|---|
-| `IntentReceived` | Platform API | Audit, Knowledge |
-| `DeploymentRequested` | Platform API | Workflow Engine |
+| `IntentSubmitted` | Platform API — Intent Lifecycle (`SubmitIntent`, after Technical Policy allows and Nautobot persistence, [ADR-014](ADR-014-Policy-Enforcement.md)) | Audit, Knowledge |
+| `DeploymentRequested` | Platform API — Deployment Lifecycle (`RequestDeployment` reaching `ACCEPTED`, whether immediately or after Approval Workflow resolves a `PENDING_APPROVAL` rest, [ADR-015](ADR-015-Deployment-Approval.md)) | Workflow Engine |
 | `DeploymentPlanned` | Workflow Engine | Approval Service |
 | `DeploymentStarted` | Workflow Engine | Observability |
 | `DeploymentCompleted` | Workflow Engine / Terraform | Validation, Knowledge, Observability |
@@ -109,6 +111,8 @@ Event-driven automation shall follow these principles:
 - Human approval remains part of governed workflows.
 
 > **Elevated to a platform-wide principle (2026-07-05):** "Events describe facts, not commands" and "events are published only after the underlying state transition is durably committed" are formalized with full rationale and worked examples in [Platform Specification 03 — Platform Execution Model](../11-Specifications/03-Platform-Execution-Model-Specification.md) §3. That document is authoritative for event-timing semantics; this ADR establishes that the platform is event-driven at all.
+
+> **Event renamed 2026-07-05:** `IntentReceived` was renamed to `IntentSubmitted` to match the `SubmitIntent` operation ([Platform Specification 02](../11-Specifications/02-Platform-API-Specification.md)) that produces it, and to avoid ambiguity now that Intent Lifecycle and Deployment Lifecycle are explicitly separate (ADR-014 / ADR-015).
 
 ---
 

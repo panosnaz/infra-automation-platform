@@ -11,6 +11,8 @@
 - ADR-001 — Nautobot as the Source of Truth
 - ADR-002 — Terraform Owns Desired State Provisioning
 - ADR-003 — Ansible Owns Day-2 Operations
+- ADR-014 — Technical Policy Enforcement (OPA)
+- ADR-015 — Deployment Approval as a Distinct Capability from Technical Policy
 
 ---
 
@@ -95,25 +97,11 @@ Responsibilities are grouped into two named sub-capabilities. Both may ship insi
 - Validate schema (Pydantic)
 - Build Canonical Intent
 
-Intent Translation does **not** decide whether a request is *allowed* — that is the Policy Engine's responsibility (see [ADR-014 — Policy Enforcement](ADR-014-Policy-Enforcement.md)).
+Intent Translation does **not** decide whether a request is *allowed* — that is the Technical Policy Engine's responsibility ([ADR-014](ADR-014-Policy-Enforcement.md)) or the Approval Workflow's ([ADR-015](ADR-015-Deployment-Approval.md)), depending on which question is being asked (see ADR-014's Responsibility Boundary table).
 
 ## Pipeline Sequence
 
-```text
-Platform Gateway
-    ↓
-Intent Translation
-    ↓
-Canonical Intent
-    ↓
-Policy Evaluation (OPA)  ── see ADR-014
-    ↓
-Persist to Nautobot
-    ↓
-Publish Event (IntentReceived)
-```
-
-Persisting to Nautobot and publishing the event happen only after Policy Evaluation returns an allow decision — they are not part of either Platform Gateway's or Intent Translation's responsibility list above; they are the final orchestration steps of the request pipeline as a whole.
+See [Platform Specification 02 — Platform API](../11-Specifications/02-Platform-API-Specification.md) §3 for the authoritative Intent Lifecycle and Deployment Lifecycle sequences — including the Technical Policy (ADR-014) vs. Approval Workflow (ADR-015) split, and the `PENDING_APPROVAL` resting state. This diagram is intentionally not reproduced here to avoid the two copies silently diverging, as happened before the 2026-07-05 Control Plane coherence review.
 
 The Platform API does not execute infrastructure changes directly.
 
@@ -192,42 +180,9 @@ The Platform API provides a stable abstraction layer.
 
 # Standard Request Flow
 
-Every platform request follows the same lifecycle.
+Every platform request follows the same lifecycle — see [Platform Specification 02 — Platform API](../11-Specifications/02-Platform-API-Specification.md) §3 for the authoritative Intent Lifecycle and Deployment Lifecycle diagrams. (This section previously reproduced its own version of this flow, including an event, `IntentStored`, that was never defined in [ADR-011](ADR-011-Event-Driven-Automation.md)'s Named Platform Events table — exactly the kind of silent divergence eliminated by treating Contract #2 as the single authoritative sequence, per the 2026-07-05 Control Plane coherence review.)
 
-```text
-Consumer (any entry point)
-     │
-     ▼
-Platform API
-     │
-     ▼
-Authentication + Authorisation
-     │
-     ▼
-Request Validation + Normalisation
-     │
-     ▼
-Policy Enforcement
-     │
-     ▼
-Canonical Intent Generation  ──► Event: IntentReceived
-     │
-     ▼
-Nautobot (Source of Truth)  ──► Event: IntentStored
-     │
-     ▼
-Workflow Engine (Orchestration)
-     │
-     ▼
-Execution  ──► Event: DeploymentCompleted
-     │
-     ▼
-Validation  ──► Event: ValidationPassed / ValidationFailed
-```
-
-This pattern applies consistently across all platform services.
-
-Many entry points.  One canonical execution path.
+Many entry points. One canonical execution path.
 
 ---
 
