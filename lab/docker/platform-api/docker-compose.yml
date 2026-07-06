@@ -23,6 +23,7 @@ services:
       NAUTOBOT_TOKEN: "${NAUTOBOT_TOKEN:?Set NAUTOBOT_TOKEN in the environment before starting this stack (see lab/README.md)}"
       OPA_URL: "http://opa:8181"
       AUDIT_LOG_PATH: "/app/data/policy_denials.jsonl"
+      EXECUTION_STORE_PATH: "/app/data/execution_store.db"
     volumes:
       - "./data:/app/data"
     depends_on:

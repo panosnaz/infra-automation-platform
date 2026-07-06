@@ -136,13 +136,23 @@ Insert OPA evaluation between Intent Translation and Nautobot persistence.
 
 **Domain independence confirmed as designed:** the OPA query path (`data.platform.<domain_id>.decision`) and the fixed `decision` entry-point convention (every domain package exposes exactly one combined `{allow, reasons}` object, regardless of how many internal rules compose it) mean `technical_policy.py` never changed once written. A second domain requires only a new `policy/<domain_id>/*.rego` package — confirmed by design, not yet exercised with a real second domain.
 
-## M3 — Deployment Lifecycle, `ACCEPTED` only
+## M3 — Deployment Lifecycle, `ACCEPTED` through `STABLE` ✅ Complete (2026-07-06)
 
-`RequestDeployment` → create `DeploymentContext`/`ExecutionState` in SQLite → lab environment, `approval_state=none_required` → `ACCEPTED` immediately (no `PENDING_APPROVAL` exercised in v0.1, per scope exclusions above).
+Implemented as one milestone rather than the two originally sketched below (M3 "ACCEPTED only" and M4 "stub chain to STABLE") — in practice, proving the Deployment Lifecycle meant proving the whole `ACCEPTED → DEPLOYING → VALIDATING → STABLE` sequence together, since a lifecycle that only reaches `ACCEPTED` doesn't yet exercise `desired_version`/`applied_version` convergence, the actual point of Contract #3 §4. The original two-milestone split is left below for history, but both are done.
 
-**Checkpoint:** `GetDeploymentStatus` returns `ACCEPTED`, read back from SQLite, independent of the Nautobot-backed `CanonicalIntent` lookup.
+`RequestDeployment` → create `DeploymentContext`/`ExecutionState` in SQLite → lab environment, `approval_state=none_required` → `ACCEPTED` immediately (no `PENDING_APPROVAL` exercised in v0.1, per scope exclusions above). `ACCEPTED` → `DEPLOYING` → `VALIDATING` → `STABLE` via the three stubs, run as a FastAPI `BackgroundTask` scheduled after `RequestDeployment`'s response is sent — this is what makes the HTTP response return at `ACCEPTED` (Contract #2 §3) while the rest proceeds asynchronously, without building a real event bus (ADR-011, still deferred). Each stub owns exactly one transition (Contract #3 §2): `workflow_stub.py` (`ACCEPTED→DEPLOYING`), `terraform_stub.py` (`DEPLOYING→VALIDATING`, sets `deployed_at`), `validation_stub.py` (`VALIDATING→STABLE`, sets `validated_at` and `applied_version = desired_version`).
 
-## M4 — Workflow Engine stub → Terraform stub → Validation stub chain
+**Checkpoint:** `GetDeploymentStatus` (`GET /deployments/{deployment_id}`, a composite `DeploymentContext` + `ExecutionState` view per Contract #2 §4) returns `ACCEPTED` immediately after `RequestDeployment`, then `STABLE` once polled after the background chain completes, `desired_version == applied_version`, `deployed_at`/`validated_at` both set. **Passed** — see `tests/integration/milestone3_smoke_test.py` and `tests/unit/test_execution_store.py`/`test_deployment_stubs.py` (17 unit tests total across M2+M3, no Docker required).
+
+**What was built:** `app/execution_store.py` (SQLite, one table, `DeploymentContext`/`ExecutionState` stored as JSON per `deployment_id`, with a `transition()` method that validates the current→next state pair against Contract #3 §2's allowed transitions — `DRIFTED`/`FAILED`/`RETIRED` deliberately excluded, not required by this milestone); `app/workflow_stub.py`, `app/terraform_stub.py`, `app/validation_stub.py` (one file per stub, mirroring the one-file-per-concern discipline from M1/M2); `POST /deployments` and `GET /deployments/{deployment_id}` in `main.py`.
+
+**Real findings, not architectural problems:**
+
+- **Design decision, not a contradiction:** Contract #2 §3 requires `RequestDeployment`'s response to return at `ACCEPTED`, with the rest happening afterward, tracked via polling. With no real event bus (correctly still deferred), FastAPI's built-in `BackgroundTasks` is the smallest mechanism that honors this split without inventing messaging infrastructure — confirmed working via the integration test observing `ACCEPTED` in the initial response and `STABLE` only after polling.
+- **Naming reconciliation:** Contract #2 §4 defines a single composite "Deployment" resource (`DeploymentContext` + `ExecutionState`), so `GetDeployment` and `GetExecutionState` were implemented as one endpoint (`GET /deployments/{deployment_id}`) returning both, rather than two separate endpoints that would have diverged from the contract's own resource model.
+- **Scope boundary, stated explicitly in code:** `RequestDeployment` accepts an `environment` field but always hardcodes `approval_state=none_required` regardless of its value — Business Approval (ADR-015) isn't implemented, so selecting `production` today does not trigger any gate. This is a deliberate Milestone 3 boundary, not a hidden gap; documented directly in `main.py`'s docstring to prevent it being mistaken for approval support later.
+
+## M4 — Workflow Engine stub → Terraform stub → Validation stub chain (superseded — see M3 above)
 
 Wire the three stubs so reaching `ACCEPTED` triggers `DEPLOYING` → `VALIDATING` → `STABLE` (or `FAILED`, exercised with a stub configured to fail, to confirm the failure path is real and not just the happy path).
 

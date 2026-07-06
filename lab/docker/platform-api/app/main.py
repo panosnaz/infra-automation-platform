@@ -3,19 +3,23 @@
 Per ADR-004 (Platform API as the Unified Platform Interface), this service is
 the single entry point for all platform consumers.
 
-Milestone 2 (docs/05-Operations/14-Vertical-Slice-v0.1-Roadmap.md) scope:
-the Intent Lifecycle, now including Technical Policy (ADR-014) — SubmitIntent
-evaluates a real OPA sidecar before persisting to Nautobot (Platform
-Specification 01) or writing a denial to the audit log (Platform
-Specification 03 §5, Persistence Boundary). Every submission is treated as
-a first submission (engineering_version=1); revision/lineage resolution is
-out of scope.
+Milestone 3 (docs/05-Operations/14-Vertical-Slice-v0.1-Roadmap.md) scope:
+the Deployment Lifecycle — RequestDeployment creates DeploymentContext +
+ExecutionState in the Execution Store (Platform Specification 03 §5), then
+returns once ACCEPTED is reached. DEPLOYING -> VALIDATING -> STABLE run
+afterward via a FastAPI BackgroundTask standing in for the Workflow Engine
+reacting to DeploymentRequested (ADR-011's event bus remains deferred; this
+is the mocked reaction, not a new messaging abstraction) — this is what
+makes RequestDeployment's response synchronous at ACCEPTED while the rest
+of the lifecycle is asynchronous, exactly as Contract #2 §3 specifies.
+Business Approval (ADR-015) is not implemented — every deployment is lab
+environment, approval_state=none_required, reaching ACCEPTED directly
+without ever resting at PENDING_APPROVAL.
 
 Explicitly NOT implemented yet (future milestones, tracked in the roadmap
 above):
-  - Business Approval (ADR-015) / RequestDeployment / ExecutionState /
-    Deployment Lifecycle — Milestone 3
-  - Workflow Engine / Terraform / Validation stubs — Milestone 4
+  - Business Approval (ADR-015) / PENDING_APPROVAL
+  - DRIFTED / FAILED / RETIRED lifecycle states
   - Knowledge Capture — Milestone 5
   - Authentication / authorization (RBAC), rate limiting, idempotency keys
   - Materializing domain_intent into Nautobot Tenant/VRF/BridgeDomain/Prefix
@@ -26,17 +30,23 @@ above):
 from __future__ import annotations
 
 import os
+import uuid
+from datetime import datetime, timezone
 from typing import Any
 
 import httpx
-from fastapi import FastAPI, HTTPException, Response, status
+from fastapi import BackgroundTasks, FastAPI, HTTPException, Response, status
 from pydantic import BaseModel, Field, ValidationError
 
-from canonical_intent import CanonicalIntent
+from canonical_intent import ApprovalState, CanonicalIntent, DeploymentContext, Environment, ExecutionState, LifecycleState
 
 from .audit_log import log_denial
+from .execution_store import ExecutionStore, ExecutionStoreError
 from .nautobot_store import NautobotIntentStore, NautobotStoreError
 from .technical_policy import TechnicalPolicyClient, TechnicalPolicyUnavailableError
+from .terraform_stub import simulate_deployment
+from .validation_stub import simulate_validation
+from .workflow_stub import on_deployment_requested
 
 VAULT_ADDR = os.environ.get("VAULT_ADDR", "http://host.docker.internal:8200")
 NAUTOBOT_URL = os.environ.get("NAUTOBOT_URL", "http://host.docker.internal:8080")
@@ -109,10 +119,8 @@ def _check_http(name: str, url: str) -> DependencyStatus:
 
 
 # ---------------------------------------------------------------------------
-# Intent Lifecycle (Milestone 1) — SubmitIntent / GetIntent only.
-# No Technical Policy gate yet (Milestone 2). No Deployment Lifecycle yet
-# (Milestone 3). See Contract #2 §3 (Intent Lifecycle) for the full sequence
-# this is a subset of.
+# Intent Lifecycle — SubmitIntent / GetIntent, with Technical Policy (M2).
+# See Contract #2 §3 (Intent Lifecycle) for the full sequence.
 # ---------------------------------------------------------------------------
 
 _intent_store: NautobotIntentStore | None = None
@@ -138,7 +146,6 @@ def get_policy_client() -> TechnicalPolicyClient:
     if _policy_client is None:
         _policy_client = TechnicalPolicyClient()
     return _policy_client
-
 
 class SubmitIntentRequest(BaseModel):
     domain_id: str
@@ -244,3 +251,106 @@ def get_intent(intent_id: str, engineering_version: int) -> CanonicalIntent:
         return get_intent_store().get(intent_id, engineering_version)
     except NautobotStoreError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+# ---------------------------------------------------------------------------
+# Deployment Lifecycle (Milestone 3) — RequestDeployment / GetDeployment.
+# See Contract #2 §3 (Deployment Lifecycle) and Contract #3 (lifecycle,
+# ownership, event timing) for the full sequence this implements.
+# ---------------------------------------------------------------------------
+
+_execution_store: ExecutionStore | None = None
+
+
+def get_execution_store() -> ExecutionStore:
+    global _execution_store
+    if _execution_store is None:
+        _execution_store = ExecutionStore()
+    return _execution_store
+
+
+class RequestDeploymentRequest(BaseModel):
+    intent_id: uuid.UUID
+    engineering_version: int
+    requester: str
+    entry_point: str
+    environment: Environment = Environment.LAB
+
+
+class DeploymentResponse(BaseModel):
+    deployment_context: DeploymentContext
+    execution_state: ExecutionState
+
+
+def _run_deployment_pipeline(store: ExecutionStore, deployment_id: uuid.UUID) -> None:
+    """The mocked DeploymentRequested reaction chain: Workflow -> Terraform -> Validation.
+
+    Runs as a FastAPI BackgroundTask, scheduled only after RequestDeployment's
+    response has already been sent — this is what makes ACCEPTED synchronous
+    while DEPLOYING/VALIDATING/STABLE are asynchronous (Contract #2 §3,
+    Contract #3 §3), without building a real event bus (ADR-011, still
+    deferred). Each stub owns exactly one transition, per Contract #3 §2.
+    """
+    on_deployment_requested(store, deployment_id)
+    simulate_deployment(store, deployment_id)
+    simulate_validation(store, deployment_id)
+
+
+@app.post("/deployments", response_model=DeploymentResponse, status_code=status.HTTP_201_CREATED, tags=["deployment"])
+def request_deployment(request: RequestDeploymentRequest, background_tasks: BackgroundTasks) -> DeploymentResponse:
+    """RequestDeployment (Contract #2 §5) — Milestone 3 scope.
+
+    Consumes an existing CanonicalIntent (never mutates it), creates
+    DeploymentContext + ExecutionState, persists both to the Execution
+    Store, and returns once ACCEPTED is reached — matching Contract #2 §3
+    exactly; the rest of the lifecycle happens after the response returns.
+
+    Business Approval (ADR-015) is not implemented in this milestone:
+    approval_state is always none_required, so ACCEPTED is always reached
+    directly, never resting at PENDING_APPROVAL. This is a deliberate
+    Milestone 3 scope boundary, not a claim that production/approval-
+    required environments are supported yet.
+    """
+    try:
+        intent = get_intent_store().get(str(request.intent_id), request.engineering_version)
+    except NautobotStoreError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    context = DeploymentContext(
+        intent_id=intent.intent_id,
+        engineering_version=intent.engineering_version,
+        requester=request.requester,
+        entry_point=request.entry_point,
+        environment=request.environment,
+        approval_state=ApprovalState.NONE_REQUIRED,
+    )
+    state = ExecutionState(
+        deployment_id=context.deployment_id,
+        lifecycle_state=LifecycleState.ACCEPTED,
+        desired_version=intent.engineering_version,
+        approval_decision="not_required",
+        persisted_at=datetime.now(timezone.utc),
+    )
+
+    store = get_execution_store()
+    store.create(context, state)
+
+    background_tasks.add_task(_run_deployment_pipeline, store, context.deployment_id)
+
+    return DeploymentResponse(deployment_context=context, execution_state=state)
+
+
+@app.get("/deployments/{deployment_id}", response_model=DeploymentResponse, tags=["deployment"])
+def get_deployment(deployment_id: uuid.UUID) -> DeploymentResponse:
+    """GetDeploymentStatus (Contract #2 §5) — the composite Deployment resource
+
+    (DeploymentContext + ExecutionState, per Contract #2 §4's "composed view"
+    definition) for one deployment attempt, read from the Execution Store.
+    """
+    store = get_execution_store()
+    try:
+        context = store.get_context(deployment_id)
+        state = store.get_state(deployment_id)
+    except ExecutionStoreError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return DeploymentResponse(deployment_context=context, execution_state=state)

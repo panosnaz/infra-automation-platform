@@ -59,7 +59,7 @@ docs/            Architecture, ADRs, operations guides
 lab/             Local lab environment
   docker/nautobot/      Nautobot stack (nested git repo)
   docker/vault/         HashiCorp Vault — standalone stack, running
-  docker/platform-api/  Platform API skeleton (FastAPI) — standalone stack, running
+  docker/platform-api/  Platform API (FastAPI) + OPA sidecar — Vertical Slice v0.1, Milestones 1-3
 ```
 
 Full canonical layout: [`docs/folder structure`](docs/folder%20structure)
@@ -83,7 +83,8 @@ cd lab/docker/nautobot && invoke start
 # HashiCorp Vault (secrets — populates itself on first start)
 cd lab/docker/vault && docker compose up -d
 
-# Platform API skeleton (FastAPI; /health, /readiness, /version)
+# Platform API — SubmitIntent, Technical Policy, RequestDeployment (needs NAUTOBOT_TOKEN, see lab/README.md)
+export NAUTOBOT_TOKEN=0123456789abcdef0123456789abcdef01234567
 cd lab/docker/platform-api && docker compose up -d
 ```
 
@@ -147,7 +148,7 @@ All decisions are recorded as ADRs in [`docs/03-Decisions/`](docs/03-Decisions/)
 | Day-2 Operations | Ansible (`cisco.aci`) | ✅ Working |
 | Validation | pyATS (`rest.connector`) | ✅ Working |
 | Secrets | HashiCorp Vault | ✅ Running |
-| Platform API | FastAPI | 🟡 Skeleton running (no auth/RBAC/Canonical Intent yet) |
+| Platform API | FastAPI + OPA | 🟡 Milestones 1-3 done — SubmitIntent, Technical Policy, RequestDeployment through STABLE (stubs); no auth/RBAC/Business Approval yet |
 | Orchestration | n8n | ❌ Future |
 | Observability | Prometheus + Grafana + Loki | ❌ Future |
 | CI/CD | GitHub Actions | ❌ Future |
