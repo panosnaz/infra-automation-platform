@@ -119,11 +119,22 @@ Ordered by dependency — each milestone has its own checkpoint so the slice is 
 
 **Architecture Validation Review (2026-07-05):** performed after M1 completion, per the process this roadmap established (implementation feedback drives architecture refinement, not the reverse). Verdict: the architecture validated cleanly — no contract proved unnecessary, no abstraction felt forced, and Contract #3 §5's Persistence Boundary worked exactly as specified on the first real attempt. One small separation-of-concerns violation was found and fixed as an **implementation refinement, not an architecture change**: `NautobotIntentStore` (meant to be domain-agnostic per Contract #1's opacity rule for `domain_intent`) contained ACI-specific parsing (`domain_intent['apic']['tenants'][0]['name']`) to resolve which Nautobot Tenant to anchor to. Fixed by moving that resolution to `app/main.py`'s `_aci_tenant_name()` — the domain-aware API boundary — and having `NautobotIntentStore.save()` accept a plain `tenant_name: str` instead of deriving it internally. No new abstraction, interface, or provider class was introduced; re-verified with `tests/integration/milestone1_smoke_test.py` (no behavioral change). Architecture remains unchanged.
 
-## M2 — Add Technical Policy
+## M2 — Add Technical Policy ✅ Complete (2026-07-06)
 
 Insert OPA evaluation between Intent Translation and Nautobot persistence.
 
-**Checkpoint:** a deliberately-invalid tenant name is rejected with `TECHNICAL_POLICY_DENIED` and never reaches Nautobot; a valid one proceeds exactly as M1.
+**Checkpoint:** a deliberately-invalid tenant name is rejected with `TECHNICAL_POLICY_DENIED` and never reaches Nautobot; a valid one proceeds exactly as M1. **Passed** — see `tests/integration/milestone2_smoke_test.py` (allow, deny + audit record, and OPA-unavailable fail-closed, all verified against the live stack) and `tests/unit/test_technical_policy.py` (8 contract tests, no Docker/OPA required, using `httpx.MockTransport` against the real client rather than a throwaway parallel stub).
+
+**What was built:** `app/technical_policy.py` (`TechnicalPolicyClient`, `PolicyDecision`, `TechnicalPolicyUnavailableError`), `app/audit_log.py` + `app/jsonl_writer.py` (the latter a generic shared primitive, reused as-is by Knowledge Capture later), an OPA sidecar added to `docker-compose.yml` (host-mounted `./policy:/policy:ro`, no image build needed), and `policy/cisco_aci/tenant_naming.rego` (one real rule). Full runtime contract documented in [ADR-014 Appendix A](../03-Decisions/ADR-014-Policy-Enforcement.md#appendix-a--policydecision-runtime-contract) rather than a new standalone specification document — a finding from the Milestone 2 architecture review (the content was too small to justify the ceremony of a new numbered spec).
+
+**Five review cycles preceded this implementation** (architecture validation, design challenge, dependency review, multi-domain stress test, final readiness gate) — see session history. Two real findings survived to implementation, both applied directly rather than reopening design discussion:
+
+- `jsonl_writer.append_jsonl()` creates parent directories defensively (`mkdir(parents=True, exist_ok=True)`) rather than assuming the bind-mounted `data/` directory already exists.
+- `PolicyDecision.evaluated_at` uses `datetime.now(timezone.utc)`, matching the timezone-aware convention already established throughout `platform/canonical_intent/models.py`.
+
+**One real implementation-time discovery, not an architecture contradiction:** the official `openpolicyagent/opa` Docker image has no shell, `wget`, or `curl` — a Docker healthcheck for it cannot work as originally planned. Fixed by removing the healthcheck entirely; `depends_on` only waits for container start, and `technical_policy.py` already fails closed on an unready OPA regardless, so this is a tooling correction, not a design gap.
+
+**Domain independence confirmed as designed:** the OPA query path (`data.platform.<domain_id>.decision`) and the fixed `decision` entry-point convention (every domain package exposes exactly one combined `{allow, reasons}` object, regardless of how many internal rules compose it) mean `technical_policy.py` never changed once written. A second domain requires only a new `policy/<domain_id>/*.rego` package — confirmed by design, not yet exercised with a real second domain.
 
 ## M3 — Deployment Lifecycle, `ACCEPTED` only
 

@@ -21,6 +21,12 @@ services:
       VAULT_ADDR: "http://host.docker.internal:8200"
       NAUTOBOT_URL: "http://host.docker.internal:8080"
       NAUTOBOT_TOKEN: "${NAUTOBOT_TOKEN:?Set NAUTOBOT_TOKEN in the environment before starting this stack (see lab/README.md)}"
+      OPA_URL: "http://opa:8181"
+      AUDIT_LOG_PATH: "/app/data/policy_denials.jsonl"
+    volumes:
+      - "./data:/app/data"
+    depends_on:
+      - opa
     extra_hosts:
       - "host.docker.internal:host-gateway"
     healthcheck:
@@ -30,3 +36,21 @@ services:
       start_period: "10s"
       retries: 5
     restart: unless-stopped
+
+  opa:
+    labels:
+      com.unisystems.lab.name: "infra-automation-lab"
+      com.unisystems.lab.scope: "nautobot-infra-automation"
+      com.unisystems.lab.role: "opa"
+    image: "openpolicyagent/opa:latest"
+    container_name: "infra-automation-lab-opa"
+    command: ["run", "--server", "--addr=0.0.0.0:8181", "/policy"]
+    volumes:
+      - "./policy:/policy:ro"
+    # No healthcheck: the official OPA image has no shell, wget, or curl to
+    # run one with (confirmed by inspection, 2026-07-06). depends_on below
+    # only waits for the container to start, not for OPA to be ready to
+    # serve — technical_policy.py already fails closed on an unready OPA,
+    # so this is a correctness non-issue, not a gap silently accepted.
+    restart: unless-stopped
+

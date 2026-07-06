@@ -432,7 +432,7 @@ No ADRs are superseded or deprecated. ADR-001 and ADR-004 have been amended/refi
 | Observability | Prometheus + Grafana + Loki | ❌ Not implemented |
 | Knowledge Layer | Obsidian + Git | ❌ Not implemented |
 | AI Assistance | LangGraph | ❌ Not implemented |
-| Policy Validation | Open Policy Agent | 🟡 Decided, not implemented — ADR-014 defines the Platform Gateway / Intent Translation / Policy Engine boundary; no OPA instance or Rego policies exist yet |
+| Policy Validation | Open Policy Agent | 🟡 Partial — Milestone 2 complete: real OPA sidecar + one real Rego rule gate `SubmitIntent`, fail-closed on unavailability, denials audited to a durable JSONL log; Business Approval (ADR-015) not implemented |
 
 The immediate priority is completing the **first end-to-end vertical slice**: Nautobot → NetAsCode YAML → Terraform → Ansible → pyATS. All four are now done and proven end-to-end. The Platform API skeleton runs in parallel as lab infrastructure but is not yet part of the vertical slice's critical path. Remaining vertical-slice work is generator unit tests (Phase 6) and CI (Phase 7); everything else is future scope.
 
@@ -516,13 +516,13 @@ After Phases 3b, 5, and 6 are complete:
 | 14 | Observability stack (Prometheus, Grafana, Loki) | Future | 🔵 Future | — |
 | 15 | Knowledge Layer (Obsidian + Git) | Future | 🔵 Future | — |
 | 16 | AI Assistance (LangGraph) | Future | 🔵 Future | — |
-| 17 | Policy Validation (OPA) | Future | 🔵 Future | — |
+| 17 | Policy Validation (OPA) | 2 | ✅ Done | — (completed 2026-07-06 — real OPA sidecar, one real Rego rule, fail-closed on unavailability, JSONL audit log; see `05-Operations/14-Vertical-Slice-v0.1-Roadmap.md` M2) |
 | 18 | Multi-domain expansion (VXLAN EVPN, Azure) | Future | 🔵 Future | — |
 | 19 | Terraform → Vault credential loader (`scripts/load-vault-creds.sh`) | 3 | ✅ Done | — (closed 2026-07-03; replaced hand-typed `terraform.tfvars`) |
 | 20 | Stale duplicate Vault container (`infra-automation-lab-vault-1`) removed | — | ✅ Done | — (closed 2026-07-03; leftover from pre-refactor merged stack, shared no unique data) |
 | 21 | `hvac` Python library for `community.hashi_vault` Ansible collection | 4 | ✅ Done | — (installed 2026-07-03 via `pip install --user`, no sudo needed) |
 | 22 | `pyats[full]` installed for pyATS Phase 5 | 5 | ✅ Done | — (installed 2026-07-04 via `pip install --user --break-system-packages`, no sudo needed) |
-| 23 | Vertical Slice v0.1 (Control Plane proof) | New | 🔴 Critical | Milestone 1 ✅ Complete (2026-07-05) — see [`05-Operations/14-Vertical-Slice-v0.1-Roadmap.md`](../05-Operations/14-Vertical-Slice-v0.1-Roadmap.md) and `tests/integration/milestone1_smoke_test.py`. Milestone 2 (Technical Policy) next. |
+| 23 | Vertical Slice v0.1 (Control Plane proof) | New | 🔴 Critical | Milestone 1 ✅, Milestone 2 ✅ Complete (2026-07-06) — see [`05-Operations/14-Vertical-Slice-v0.1-Roadmap.md`](../05-Operations/14-Vertical-Slice-v0.1-Roadmap.md), `tests/integration/milestone1_smoke_test.py`, `tests/integration/milestone2_smoke_test.py`. Milestone 3 (Deployment Lifecycle) next. |
 
 ---
 

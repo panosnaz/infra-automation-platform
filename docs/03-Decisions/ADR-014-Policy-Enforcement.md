@@ -116,4 +116,47 @@ Embedding policy rules directly in Platform API code was considered and rejected
 
 # Implementation Status
 
-Not yet implemented (0%), as of 2026-07-05. No OPA instance, no Rego policies, and no Technical Policy evaluation call exist anywhere in the codebase — the Platform API skeleton (`lab/docker/platform-api/`) currently exposes only `/health`, `/readiness`, and `/version`. This ADR establishes the responsibility boundary in advance of implementation so the Platform API does not have to be refactored later. See [`01-Current-State.md`](../01-Vision/01-Current-State.md) Pending Items.
+Milestone 2 (Vertical Slice v0.1) implemented, 2026-07-06 — see [`05-Operations/14-Vertical-Slice-v0.1-Roadmap.md`](../05-Operations/14-Vertical-Slice-v0.1-Roadmap.md). `SubmitIntent` now evaluates a real OPA sidecar with one real Rego rule before persisting to Nautobot. See Appendix A below for the runtime `PolicyDecision` contract.
+
+---
+
+# Appendix A — PolicyDecision Runtime Contract
+
+Added 2026-07-06, during Milestone 2 implementation. This is the concrete shape Technical Policy produces — kept here rather than as a separate Platform Specification document, since its content is small enough that a standalone spec would be disproportionate ceremony (a finding from the Milestone 2 architecture review).
+
+## Shape
+
+```python
+class PolicyDecision:
+    allow: bool
+    reasons: list[str]
+    evaluated_at: datetime  # timezone-aware UTC
+```
+
+No other fields. `decision_id`, `correlation_id`, `policy_version`, `evaluated_rules`, and execution/timing metadata were all considered and rejected — none has a current consumer. `correlation_id` in particular is architecturally premature here: it lives on `DeploymentContext` (Contract #1), which does not exist yet at `SubmitIntent` time.
+
+## Query Path Convention — Python Never Knows Rule Names
+
+The Platform API constructs exactly one query path per evaluation, built from `CanonicalIntent.domain_id` alone:
+
+```text
+data.platform.<domain_id>.decision
+```
+
+Every domain's Rego package must expose exactly one entry point named `decision`, returning a single combined object:
+
+```json
+{"allow": true, "reasons": []}
+```
+
+however many internal rules that domain's catalog is actually composed of. This is a hard requirement, not a convention left to chance: the Python integration layer (`technical_policy.py`) never references a specific rule name — only `cisco_aci` exists today; `data.platform.azure_networking.decision` and `data.platform.vxlan_evpn.decision` are expected to work by adding a new Rego package, with zero changes to `technical_policy.py`.
+
+## Failure Semantics
+
+| Condition | Result |
+|---|---|
+| OPA unreachable / timeout | `TechnicalPolicyUnavailableError` — fail closed, no persistence, no audit record |
+| OPA responds non-200 | Same as unreachable |
+| OPA responds 200 with a missing/malformed `result` (e.g. undefined rule, failed bundle compile) | Same as unreachable — **`allow` is never defaulted**; OPA's own semantics return HTTP 200 with an empty result for an undefined path, which must be checked explicitly rather than assumed to mean allow or deny |
+| Policy denies (`allow: false`) | `TECHNICAL_POLICY_DENIED`, no persistence, audit record written |
+| Audit write itself fails | Caught and logged locally; never changes the HTTP response already decided by the policy outcome |

@@ -5,6 +5,9 @@ lab/docker/nautobot/
 lab/docker/vault/state/*.txt
 lab/docker/vault/state/*.json
 
+# Platform API runtime data (audit log, etc.) — bind-mounted, not source
+lab/docker/platform-api/data/
+
 # Terraform
 **/.terraform/
 *.tfstate

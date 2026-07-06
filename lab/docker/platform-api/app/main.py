@@ -3,17 +3,18 @@
 Per ADR-004 (Platform API as the Unified Platform Interface), this service is
 the single entry point for all platform consumers.
 
-Milestone 1 (docs/05-Operations/14-Vertical-Slice-v0.1-Roadmap.md) scope:
-the Intent Lifecycle only — SubmitIntent and GetIntent, persisting the full
-CanonicalIntent (Platform Specification 01) to Nautobot (Platform
+Milestone 2 (docs/05-Operations/14-Vertical-Slice-v0.1-Roadmap.md) scope:
+the Intent Lifecycle, now including Technical Policy (ADR-014) — SubmitIntent
+evaluates a real OPA sidecar before persisting to Nautobot (Platform
+Specification 01) or writing a denial to the audit log (Platform
 Specification 03 §5, Persistence Boundary). Every submission is treated as
 a first submission (engineering_version=1); revision/lineage resolution is
-out of scope for Milestone 1.
+out of scope.
 
 Explicitly NOT implemented yet (future milestones, tracked in the roadmap
 above):
-  - Technical Policy (ADR-014) — Milestone 2
-  - RequestDeployment / ExecutionState / Deployment Lifecycle — Milestone 3
+  - Business Approval (ADR-015) / RequestDeployment / ExecutionState /
+    Deployment Lifecycle — Milestone 3
   - Workflow Engine / Terraform / Validation stubs — Milestone 4
   - Knowledge Capture — Milestone 5
   - Authentication / authorization (RBAC), rate limiting, idempotency keys
@@ -33,7 +34,9 @@ from pydantic import BaseModel, Field, ValidationError
 
 from canonical_intent import CanonicalIntent
 
+from .audit_log import log_denial
 from .nautobot_store import NautobotIntentStore, NautobotStoreError
+from .technical_policy import TechnicalPolicyClient, TechnicalPolicyUnavailableError
 
 VAULT_ADDR = os.environ.get("VAULT_ADDR", "http://host.docker.internal:8200")
 NAUTOBOT_URL = os.environ.get("NAUTOBOT_URL", "http://host.docker.internal:8080")
@@ -71,7 +74,7 @@ def version() -> dict[str, str]:
     return {
         "service": "platform-api",
         "version": app.version,
-        "phase": "vertical-slice-v0.1-milestone-1 — Intent Lifecycle only, no Policy/Deployment yet",
+        "phase": "vertical-slice-v0.1-milestone-2 — Intent Lifecycle + Technical Policy, no Deployment yet",
     }
 
 
@@ -125,6 +128,16 @@ def get_intent_store() -> NautobotIntentStore:
             )
         _intent_store = NautobotIntentStore(base_url=NAUTOBOT_URL, token=NAUTOBOT_TOKEN)
     return _intent_store
+
+
+_policy_client: TechnicalPolicyClient | None = None
+
+
+def get_policy_client() -> TechnicalPolicyClient:
+    global _policy_client
+    if _policy_client is None:
+        _policy_client = TechnicalPolicyClient()
+    return _policy_client
 
 
 class SubmitIntentRequest(BaseModel):
@@ -188,6 +201,27 @@ def submit_intent(request: SubmitIntentRequest) -> CanonicalIntent:
             status_code=422,
             detail=exc.errors(include_context=False, include_url=False),
         ) from exc
+
+    try:
+        decision = get_policy_client().evaluate(intent)
+    except TechnicalPolicyUnavailableError as exc:
+        # Fail closed: OPA unreachable, timed out, or returned a missing/
+        # malformed decision are all treated identically (ADR-014 Appendix A).
+        # No persistence, no audit record — nothing was actually evaluated.
+        raise HTTPException(
+            status_code=502,
+            detail={"error_code": "TECHNICAL_POLICY_UNAVAILABLE", "detail": str(exc)},
+        ) from exc
+
+    if not decision.allow:
+        try:
+            log_denial(intent, decision)
+        except Exception:  # noqa: BLE001 - audit failures must never change the response
+            print(f"WARNING: failed to write audit record for denied intent {intent.intent_id}")
+        raise HTTPException(
+            status_code=422,
+            detail={"error_code": "TECHNICAL_POLICY_DENIED", "policy_reasons": decision.reasons},
+        )
 
     tenant_name = _aci_tenant_name(intent.domain_intent)
     try:
