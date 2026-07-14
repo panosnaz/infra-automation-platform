@@ -40,6 +40,7 @@ from pydantic import BaseModel, Field, ValidationError
 
 from canonical_intent import ApprovalState, CanonicalIntent, DeploymentContext, Environment, ExecutionState, LifecycleState
 
+from .approval_workflow import approval_required
 from .audit_log import log_denial
 from .execution_store import ExecutionStore, ExecutionStoreError
 from .nautobot_store import NautobotIntentStore, NautobotStoreError
@@ -297,19 +298,24 @@ def _run_deployment_pipeline(store: ExecutionStore, deployment_id: uuid.UUID) ->
 
 
 @app.post("/deployments", response_model=DeploymentResponse, status_code=status.HTTP_201_CREATED, tags=["deployment"])
-def request_deployment(request: RequestDeploymentRequest, background_tasks: BackgroundTasks) -> DeploymentResponse:
-    """RequestDeployment (Contract #2 §5) — Milestone 3 scope.
+def request_deployment(
+    request: RequestDeploymentRequest, background_tasks: BackgroundTasks, response: Response
+) -> DeploymentResponse:
+    """RequestDeployment (Contract #2 §5).
 
     Consumes an existing CanonicalIntent (never mutates it), creates
     DeploymentContext + ExecutionState, persists both to the Execution
-    Store, and returns once ACCEPTED is reached — matching Contract #2 §3
-    exactly; the rest of the lifecycle happens after the response returns.
+    Store. The Approval Workflow (ADR-015) determines whether this specific
+    deployment attempt is authorized right now:
 
-    Business Approval (ADR-015) is not implemented in this milestone:
-    approval_state is always none_required, so ACCEPTED is always reached
-    directly, never resting at PENDING_APPROVAL. This is a deliberate
-    Milestone 3 scope boundary, not a claim that production/approval-
-    required environments are supported yet.
+    - Not required (e.g. lab): ACCEPTED is reached immediately, 201, and the
+      DEPLOYING->VALIDATING->STABLE pipeline is scheduled right away.
+    - Required (e.g. production): rests at PENDING_APPROVAL, 202, and the
+      pipeline is NOT scheduled until ApproveDeployment resolves it.
+
+    Matches Contract #2 §3's Deployment Lifecycle diagram exactly — the
+    response reflects whichever state was actually reached, never assumes
+    ACCEPTED.
     """
     try:
         intent = get_intent_store().get(str(request.intent_id), request.engineering_version)
@@ -324,6 +330,22 @@ def request_deployment(request: RequestDeploymentRequest, background_tasks: Back
         environment=request.environment,
         approval_state=ApprovalState.NONE_REQUIRED,
     )
+
+    store = get_execution_store()
+
+    if approval_required(context):
+        context = context.model_copy(update={"approval_state": ApprovalState.PENDING})
+        state = ExecutionState(
+            deployment_id=context.deployment_id,
+            lifecycle_state=LifecycleState.PENDING_APPROVAL,
+            desired_version=intent.engineering_version,
+            approval_decision=None,
+            persisted_at=datetime.now(timezone.utc),
+        )
+        store.create(context, state)
+        response.status_code = status.HTTP_202_ACCEPTED
+        return DeploymentResponse(deployment_context=context, execution_state=state)
+
     state = ExecutionState(
         deployment_id=context.deployment_id,
         lifecycle_state=LifecycleState.ACCEPTED,
@@ -331,13 +353,84 @@ def request_deployment(request: RequestDeploymentRequest, background_tasks: Back
         approval_decision="not_required",
         persisted_at=datetime.now(timezone.utc),
     )
-
-    store = get_execution_store()
     store.create(context, state)
-
     background_tasks.add_task(_run_deployment_pipeline, store, context.deployment_id)
 
     return DeploymentResponse(deployment_context=context, execution_state=state)
+
+
+class ApprovalDecisionRequest(BaseModel):
+    approved_by: str
+
+
+@app.post("/deployments/{deployment_id}/approve", response_model=DeploymentResponse, tags=["deployment"])
+def approve_deployment(
+    deployment_id: uuid.UUID, request: ApprovalDecisionRequest, background_tasks: BackgroundTasks
+) -> DeploymentResponse:
+    """ApproveDeployment (Contract #2 §5) — resolves a PENDING_APPROVAL ExecutionState.
+
+    Calling this against a deployment not currently PENDING_APPROVAL is a
+    no-op error (Contract #2 §5's exact wording) — 409, not a silent no-op.
+    """
+    store = get_execution_store()
+    try:
+        state = store.get_state(deployment_id)
+        context = store.get_context(deployment_id)
+    except ExecutionStoreError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    if state.lifecycle_state != LifecycleState.PENDING_APPROVAL:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Deployment {deployment_id} is not pending approval (current state: {state.lifecycle_state.value})",
+        )
+
+    context = context.model_copy(
+        update={
+            "approval_state": ApprovalState.APPROVED,
+            "approved_by": request.approved_by,
+            "approved_at": datetime.now(timezone.utc),
+        }
+    )
+    store.update_context(context)
+    new_state = store.transition(deployment_id, LifecycleState.ACCEPTED, approval_decision="approved")
+
+    background_tasks.add_task(_run_deployment_pipeline, store, deployment_id)
+
+    return DeploymentResponse(deployment_context=context, execution_state=new_state)
+
+
+@app.post("/deployments/{deployment_id}/deny", response_model=DeploymentResponse, tags=["deployment"])
+def deny_deployment(deployment_id: uuid.UUID, request: ApprovalDecisionRequest) -> DeploymentResponse:
+    """DenyDeployment (Contract #2 §5) — resolves a PENDING_APPROVAL ExecutionState to FAILED.
+
+    Same no-op-is-an-error rule as ApproveDeployment. No pipeline is
+    scheduled — a denied deployment never reaches ACCEPTED.
+    """
+    store = get_execution_store()
+    try:
+        state = store.get_state(deployment_id)
+        context = store.get_context(deployment_id)
+    except ExecutionStoreError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    if state.lifecycle_state != LifecycleState.PENDING_APPROVAL:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Deployment {deployment_id} is not pending approval (current state: {state.lifecycle_state.value})",
+        )
+
+    context = context.model_copy(
+        update={
+            "approval_state": ApprovalState.DENIED,
+            "approved_by": request.approved_by,
+            "approved_at": datetime.now(timezone.utc),
+        }
+    )
+    store.update_context(context)
+    new_state = store.transition(deployment_id, LifecycleState.FAILED, approval_decision="denied")
+
+    return DeploymentResponse(deployment_context=context, execution_state=new_state)
 
 
 @app.get("/deployments/{deployment_id}", response_model=DeploymentResponse, tags=["deployment"])

@@ -20,10 +20,12 @@ from canonical_intent import DeploymentContext, ExecutionState, LifecycleState
 
 EXECUTION_STORE_PATH = Path(os.environ.get("EXECUTION_STORE_PATH", "/app/data/execution_store.db"))
 
-# Contract #3 §2 (State Ownership Model) — only the transitions this
-# milestone implements. DRIFTED/FAILED/RETIRED are deliberately absent;
-# adding them is a future milestone's job, not this one's.
+# Contract #3 §2 (State Ownership Model) — ACCEPTED through STABLE (M3),
+# plus PENDING_APPROVAL's two resolutions (ADR-015, Business Approval).
+# DRIFTED/RETIRED are deliberately absent; adding them is a future
+# milestone's job, not this one's.
 _ALLOWED_TRANSITIONS: dict[LifecycleState, set[LifecycleState]] = {
+    LifecycleState.PENDING_APPROVAL: {LifecycleState.ACCEPTED, LifecycleState.FAILED},
     LifecycleState.ACCEPTED: {LifecycleState.DEPLOYING},
     LifecycleState.DEPLOYING: {LifecycleState.VALIDATING},
     LifecycleState.VALIDATING: {LifecycleState.STABLE},
@@ -75,6 +77,22 @@ class ExecutionStore:
     def get_state(self, deployment_id: uuid.UUID | str) -> ExecutionState:
         _, state_json = self._fetch(deployment_id)
         return ExecutionState.model_validate_json(state_json)
+
+    def update_context(self, context: DeploymentContext) -> None:
+        """Persist an updated DeploymentContext — used by ApproveDeployment/DenyDeployment
+
+        to record approval_state/approved_by/approved_at (Contract #1).
+        DeploymentContext is mutable per Contract #1 (unlike CanonicalIntent);
+        this is the update path for it, mirroring transition()'s update path
+        for ExecutionState.
+        """
+        with self._connect() as conn:
+            cursor = conn.execute(
+                "UPDATE deployments SET deployment_context = ? WHERE deployment_id = ?",
+                (context.model_dump_json(), str(context.deployment_id)),
+            )
+            if cursor.rowcount == 0:
+                raise ExecutionStoreError(f"No deployment found for deployment_id={context.deployment_id}")
 
     def transition(self, deployment_id: uuid.UUID | str, to_state: LifecycleState, **field_updates: object) -> ExecutionState:
         """Move `deployment_id`'s ExecutionState to `to_state`, validating the transition first.

@@ -101,3 +101,70 @@ def test_duplicate_create_is_rejected(store: ExecutionStore) -> None:
 
     with pytest.raises(ExecutionStoreError):
         store.create(context, state)
+
+
+def test_pending_approval_can_resolve_to_accepted(store: ExecutionStore) -> None:
+    context = DeploymentContext(
+        intent_id=uuid.uuid4(),
+        engineering_version=1,
+        requester="tester",
+        entry_point="cli",
+        environment=Environment.PRODUCTION,
+        approval_state=ApprovalState.PENDING,
+    )
+    state = ExecutionState(deployment_id=context.deployment_id, lifecycle_state=LifecycleState.PENDING_APPROVAL, desired_version=1)
+    store.create(context, state)
+
+    accepted = store.transition(context.deployment_id, LifecycleState.ACCEPTED, approval_decision="approved")
+    assert accepted.lifecycle_state == LifecycleState.ACCEPTED
+    assert accepted.approval_decision == "approved"
+
+
+def test_pending_approval_can_resolve_to_failed(store: ExecutionStore) -> None:
+    context = DeploymentContext(
+        intent_id=uuid.uuid4(),
+        engineering_version=1,
+        requester="tester",
+        entry_point="cli",
+        environment=Environment.PRODUCTION,
+        approval_state=ApprovalState.PENDING,
+    )
+    state = ExecutionState(deployment_id=context.deployment_id, lifecycle_state=LifecycleState.PENDING_APPROVAL, desired_version=1)
+    store.create(context, state)
+
+    failed = store.transition(context.deployment_id, LifecycleState.FAILED, approval_decision="denied")
+    assert failed.lifecycle_state == LifecycleState.FAILED
+
+
+def test_pending_approval_cannot_skip_to_deploying(store: ExecutionStore) -> None:
+    context = DeploymentContext(
+        intent_id=uuid.uuid4(),
+        engineering_version=1,
+        requester="tester",
+        entry_point="cli",
+        environment=Environment.PRODUCTION,
+        approval_state=ApprovalState.PENDING,
+    )
+    state = ExecutionState(deployment_id=context.deployment_id, lifecycle_state=LifecycleState.PENDING_APPROVAL, desired_version=1)
+    store.create(context, state)
+
+    with pytest.raises(InvalidTransitionError):
+        store.transition(context.deployment_id, LifecycleState.DEPLOYING)
+
+
+def test_update_context_persists_approval_fields(store: ExecutionStore) -> None:
+    context, state = _new_deployment()
+    store.create(context, state)
+
+    updated = context.model_copy(update={"approval_state": ApprovalState.APPROVED, "approved_by": "admin"})
+    store.update_context(updated)
+
+    fetched = store.get_context(context.deployment_id)
+    assert fetched.approval_state == ApprovalState.APPROVED
+    assert fetched.approved_by == "admin"
+
+
+def test_update_context_missing_deployment_raises(store: ExecutionStore) -> None:
+    context, _ = _new_deployment()
+    with pytest.raises(ExecutionStoreError):
+        store.update_context(context)

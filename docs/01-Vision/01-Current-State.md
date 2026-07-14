@@ -427,7 +427,7 @@ No ADRs are superseded or deprecated. ADR-001 and ADR-004 have been amended/refi
 | Validation | pyATS + Catfish | ✅ Working — test_aci_tenants.py + test_aci_vrfs.py proven against the live ACI simulator (positive and negative cases both verified) |
 | CI/CD Pipeline | GitHub Actions | ❌ Not implemented |
 | Platform API | FastAPI | 🟡 Partial — Milestone 1 complete: `SubmitIntent`/`GetIntent` persist/read the full `CanonicalIntent` to/from a real Nautobot custom field (`tenancy.tenant.canonical_intent`); no auth, RBAC, Technical Policy, or Deployment Lifecycle yet |
-| Workflow Orchestration | n8n | 🟡 Partial — Milestone 3 complete: `RequestDeployment` → `ACCEPTED` → `DEPLOYING` → `VALIDATING` → `STABLE` proven end-to-end with Workflow/Terraform/Validation stubs and a real SQLite Execution Store; real n8n, real Terraform, real validation, and Business Approval remain unimplemented |
+| Workflow Orchestration | n8n | 🟡 Partial — Milestone 3 + Business Approval complete: `RequestDeployment` → `PENDING_APPROVAL`/`ACCEPTED` → `DEPLOYING` → `VALIDATING` → `STABLE` proven end-to-end, including ADR-015's approve/deny gate for production; real n8n, real Terraform, real validation remain unimplemented |
 | Secrets Management | HashiCorp Vault | ✅ Running — lab stack, KV v2 populated, Terraform now reads credentials from Vault at runtime (no static tfvars) |
 | Observability | Prometheus + Grafana + Loki | ❌ Not implemented |
 | Knowledge Layer | Obsidian + Git | ❌ Not implemented |
@@ -522,7 +522,7 @@ After Phases 3b, 5, and 6 are complete:
 | 20 | Stale duplicate Vault container (`infra-automation-lab-vault-1`) removed | — | ✅ Done | — (closed 2026-07-03; leftover from pre-refactor merged stack, shared no unique data) |
 | 21 | `hvac` Python library for `community.hashi_vault` Ansible collection | 4 | ✅ Done | — (installed 2026-07-03 via `pip install --user`, no sudo needed) |
 | 22 | `pyats[full]` installed for pyATS Phase 5 | 5 | ✅ Done | — (installed 2026-07-04 via `pip install --user --break-system-packages`, no sudo needed) |
-| 23 | Vertical Slice v0.1 (Control Plane proof) | New | 🔴 Critical | Milestone 1 ✅, Milestone 2 ✅, Milestone 3 ✅ Complete (2026-07-06) — see [`05-Operations/14-Vertical-Slice-v0.1-Roadmap.md`](../05-Operations/14-Vertical-Slice-v0.1-Roadmap.md), `tests/integration/milestone{1,2,3}_smoke_test.py`. Knowledge Capture (M5) next. |
+| 23 | Vertical Slice v0.1 (Control Plane proof) | New | 🔴 Critical | Milestone 1 ✅, Milestone 2 ✅, Milestone 3 ✅, Business Approval (ADR-015) ✅ Complete (2026-07-14) — see [`05-Operations/14-Vertical-Slice-v0.1-Roadmap.md`](../05-Operations/14-Vertical-Slice-v0.1-Roadmap.md), `tests/integration/`. Domain Materialization next. |
 
 ---
 
