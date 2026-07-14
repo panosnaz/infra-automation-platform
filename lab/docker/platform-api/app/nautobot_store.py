@@ -18,30 +18,9 @@ import httpx
 
 from canonical_intent import CanonicalIntent
 
-_ACI_TENANT_PREFIX = "ACI:"  # matches platform/python/generator/transformer.py
-
 
 class NautobotStoreError(Exception):
     """Raised when a CanonicalIntent cannot be persisted to or read from Nautobot."""
-
-
-def _tenant_name(intent: CanonicalIntent) -> str:
-    """Extract the ACI tenant name this intent targets.
-
-    Milestone 1 scope: exactly one domain (cisco_aci), exactly one tenant
-    per CanonicalIntent — matches the existing web-tenant vertical slice.
-    Multi-tenant intents are out of scope until a Domain Provider
-    Specification exists to define domain_intent's shape formally.
-    """
-    try:
-        tenants = intent.domain_intent["apic"]["tenants"]
-        return tenants[0]["name"]
-    except (KeyError, IndexError, TypeError) as exc:
-        raise NautobotStoreError(
-            f"Could not extract a tenant name from domain_intent for domain_id={intent.domain_id!r}. "
-            "Milestone 1 only supports the cisco_aci shape used by the existing vertical slice "
-            "(domain_intent['apic']['tenants'][0]['name'])."
-        ) from exc
 
 
 class NautobotIntentStore:
