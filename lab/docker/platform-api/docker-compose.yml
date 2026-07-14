@@ -24,6 +24,7 @@ services:
       OPA_URL: "http://opa:8181"
       AUDIT_LOG_PATH: "/app/data/policy_denials.jsonl"
       EXECUTION_STORE_PATH: "/app/data/execution_store.db"
+      KNOWLEDGE_CAPTURE_PATH: "/app/data/knowledge/deployments.jsonl"
     volumes:
       - "./data:/app/data"
     depends_on:

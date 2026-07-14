@@ -522,7 +522,7 @@ After Phases 3b, 5, and 6 are complete:
 | 20 | Stale duplicate Vault container (`infra-automation-lab-vault-1`) removed | — | ✅ Done | — (closed 2026-07-03; leftover from pre-refactor merged stack, shared no unique data) |
 | 21 | `hvac` Python library for `community.hashi_vault` Ansible collection | 4 | ✅ Done | — (installed 2026-07-03 via `pip install --user`, no sudo needed) |
 | 22 | `pyats[full]` installed for pyATS Phase 5 | 5 | ✅ Done | — (installed 2026-07-04 via `pip install --user --break-system-packages`, no sudo needed) |
-| 23 | Vertical Slice v0.1 (Control Plane proof) | New | 🔴 Critical | Milestone 1 ✅, Milestone 2 ✅, Milestone 3 ✅, Business Approval (ADR-015) ✅, Domain Materialization ✅ Complete (2026-07-14) — see [`05-Operations/14-Vertical-Slice-v0.1-Roadmap.md`](../05-Operations/14-Vertical-Slice-v0.1-Roadmap.md), `tests/integration/`. Knowledge Capture (M5) next. |
+| 23 | Vertical Slice v0.1 (Control Plane proof) | New | ✅ Done | Milestone 1 ✅, Milestone 2 ✅, Milestone 3 ✅, Business Approval (ADR-015) ✅, Domain Materialization ✅, Knowledge Capture (M5) ✅ Complete (2026-07-14) — see [`05-Operations/14-Vertical-Slice-v0.1-Roadmap.md`](../05-Operations/14-Vertical-Slice-v0.1-Roadmap.md), `tests/integration/`. Vertical Slice v0.1 fully complete; next work is capability implementation (Real Terraform, RBAC, additional domains), not further architecture review. |
 
 ---
 

@@ -20,10 +20,14 @@ Prefix objects (app/aci_materializer.py) before persisting the
 CanonicalIntent envelope — closing the Milestone 1 gap where a matching
 Tenant had to already exist.
 
+Knowledge Capture (app/knowledge_capture.py, ADR-009, Milestone 5) appends a
+read-only record (CanonicalIntent + DeploymentContext + ExecutionState) once
+a deployment reaches a terminal state (STABLE or FAILED) — never a write
+path for either the Intent Store or the Execution Store.
+
 Explicitly NOT implemented yet:
   - DRIFTED / RETIRED lifecycle states
   - Change window enforcement / approver routing (ADR-015's own Open Items)
-  - Knowledge Capture — Milestone 5
   - Authentication / authorization (RBAC), rate limiting, idempotency keys
 """
 
@@ -44,6 +48,7 @@ from .approval_workflow import approval_required
 from .audit_log import log_denial
 from .aci_materializer import AciMaterializer, MaterializationError
 from .execution_store import ExecutionStore, ExecutionStoreError
+from .knowledge_capture import capture_deployment_outcome
 from .nautobot_store import NautobotIntentStore, NautobotStoreError
 from .technical_policy import TechnicalPolicyClient, TechnicalPolicyUnavailableError
 from .terraform_stub import simulate_deployment
@@ -317,6 +322,11 @@ def _run_deployment_pipeline(store: ExecutionStore, deployment_id: uuid.UUID) ->
     simulate_deployment(store, deployment_id)
     simulate_validation(store, deployment_id)
 
+    try:
+        capture_deployment_outcome(get_intent_store(), store, deployment_id)
+    except Exception:  # noqa: BLE001 - knowledge capture failures must never affect deployment state
+        print(f"WARNING: failed to write knowledge capture record for deployment {deployment_id}")
+
 
 @app.post("/deployments", response_model=DeploymentResponse, status_code=status.HTTP_201_CREATED, tags=["deployment"])
 def request_deployment(
@@ -450,6 +460,11 @@ def deny_deployment(deployment_id: uuid.UUID, request: ApprovalDecisionRequest) 
     )
     store.update_context(context)
     new_state = store.transition(deployment_id, LifecycleState.FAILED, approval_decision="denied")
+
+    try:
+        capture_deployment_outcome(get_intent_store(), store, deployment_id)
+    except Exception:  # noqa: BLE001 - knowledge capture failures must never change the response
+        print(f"WARNING: failed to write knowledge capture record for deployment {deployment_id}")
 
     return DeploymentResponse(deployment_context=context, execution_state=new_state)
 

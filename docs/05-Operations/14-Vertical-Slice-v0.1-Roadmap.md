@@ -178,11 +178,17 @@ Wire the three stubs so reaching `ACCEPTED` triggers `DEPLOYING` → `VALIDATING
 
 **Checkpoint:** `GetDeploymentStatus` shows the full transition history via `lifecycle_state` changes across polls; `desired_version`/`applied_version` converge correctly at `STABLE`.
 
-## M5 — Knowledge Capture
+## M5 — Knowledge Capture ✅ Complete (2026-07-14)
 
-On reaching `STABLE` or `FAILED`, append a record to the JSON Lines file.
+Implemented after a Capability Readiness Review confirmed the milestone fit cleanly within the frozen architecture (Contract #1-#3, ADR-009) with no blocker. On reaching `STABLE` or `FAILED`, a record is appended to a new JSON Lines file.
 
-**Checkpoint:** the file contains one line per completed deployment, and that line's `CanonicalIntent` matches what Nautobot holds and its `ExecutionState` matches what SQLite holds — i.e. Knowledge Capture is a read-only reflection of the other two stores, not a fourth independent source of truth (consistent with [Contract #3](../11-Specifications/03-Platform-Execution-Model-Specification.md) §5).
+**What was built:** `app/knowledge_capture.py` (`capture_deployment_outcome()`) — a single, read-only function: it reads `DeploymentContext`+`ExecutionState` from the Execution Store and the matching `CanonicalIntent` from the Intent Store, never writing to either, and appends one record via `jsonl_writer.append_jsonl()` (the same generic primitive `audit_log.py` already used, whose docstring had reserved this exact reuse since Milestone 2). Wired into `app/main.py` at the two places a deployment currently reaches a terminal state: the end of the background pipeline (`STABLE`) and `deny_deployment` (`FAILED`) — both call sites wrapped in the same "failures must never affect the response/state" pattern already established for `log_denial`.
+
+**Scope decision, made explicitly during the readiness review:** the record captures `CanonicalIntent` + `DeploymentContext` + `ExecutionState` together — expanded from this document's original "`CanonicalIntent` + final `ExecutionState`" wording once it was pointed out that including `DeploymentContext` gives `correlation_id` (Contract #1, previously unconsumed since it was added) its first real consumer, at no cost in new abstractions or persistence. No API surface was added — Contract #2 names no Knowledge Capture read endpoint, and the checkpoint below is validated by reading the file directly, exactly as the existing audit-denial JSONL file already is in `tests/integration/milestone2_smoke_test.py`.
+
+**Checkpoint:** `tests/integration/knowledge_capture_smoke_test.py` — a deployment reaching `STABLE` produces exactly one new record whose `canonical_intent`/`deployment_context`/`execution_state` match Nautobot and SQLite exactly (including `correlation_id`); a denied production deployment produces a `lifecycle_state=failed` record too. 3 new unit tests (`test_knowledge_capture.py`, zero Docker, using a minimal fake intent store). Full regression (Milestones 1-3 + Business Approval + Domain Materialization, 33 unit tests total, all 6 integration checkpoints) re-run unchanged and still passing — i.e. Knowledge Capture is a read-only reflection of the other two stores, not a fourth independent source of truth (consistent with [Contract #3](../11-Specifications/03-Platform-Execution-Model-Specification.md) §5).
+
+**Real finding, not new architectural debt:** `correlation_id` (Contract #1) had no consumer from the moment it was added through the Platform v0.4 Readiness Review. This milestone gives it its first — every captured record now threads the same `correlation_id` a deployment attempt carries throughout its lifecycle, ready for a future Platform Events Specification (Tier 2, ADR-011) to key on, without building any tracing infrastructure now.
 
 ## M6 — End-to-end test script
 
