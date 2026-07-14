@@ -3,28 +3,28 @@
 Per ADR-004 (Platform API as the Unified Platform Interface), this service is
 the single entry point for all platform consumers.
 
-Milestone 3 (docs/05-Operations/14-Vertical-Slice-v0.1-Roadmap.md) scope:
-the Deployment Lifecycle — RequestDeployment creates DeploymentContext +
-ExecutionState in the Execution Store (Platform Specification 03 §5), then
-returns once ACCEPTED is reached. DEPLOYING -> VALIDATING -> STABLE run
-afterward via a FastAPI BackgroundTask standing in for the Workflow Engine
-reacting to DeploymentRequested (ADR-011's event bus remains deferred; this
-is the mocked reaction, not a new messaging abstraction) — this is what
-makes RequestDeployment's response synchronous at ACCEPTED while the rest
-of the lifecycle is asynchronous, exactly as Contract #2 §3 specifies.
-Business Approval (ADR-015) is not implemented — every deployment is lab
-environment, approval_state=none_required, reaching ACCEPTED directly
-without ever resting at PENDING_APPROVAL.
+Deployment Lifecycle (docs/05-Operations/14-Vertical-Slice-v0.1-Roadmap.md):
+RequestDeployment creates DeploymentContext + ExecutionState in the
+Execution Store (Platform Specification 03 §5). The Approval Workflow
+(ADR-015, app/approval_workflow.py) determines whether ACCEPTED is reached
+immediately or rests at PENDING_APPROVAL first (production only, today).
+DEPLOYING -> VALIDATING -> STABLE run via a FastAPI BackgroundTask standing
+in for the Workflow Engine reacting to DeploymentRequested (ADR-011's event
+bus remains deferred; this is the mocked reaction, not a new messaging
+abstraction) — this is what keeps the response synchronous at
+ACCEPTED/PENDING_APPROVAL while the rest of the lifecycle is asynchronous,
+exactly as Contract #2 §3 specifies.
 
-Explicitly NOT implemented yet (future milestones, tracked in the roadmap
-above):
-  - Business Approval (ADR-015) / PENDING_APPROVAL
-  - DRIFTED / FAILED / RETIRED lifecycle states
+SubmitIntent materializes domain_intent into real Nautobot Tenant/VRF/
+Prefix objects (app/aci_materializer.py) before persisting the
+CanonicalIntent envelope — closing the Milestone 1 gap where a matching
+Tenant had to already exist.
+
+Explicitly NOT implemented yet:
+  - DRIFTED / RETIRED lifecycle states
+  - Change window enforcement / approver routing (ADR-015's own Open Items)
   - Knowledge Capture — Milestone 5
   - Authentication / authorization (RBAC), rate limiting, idempotency keys
-  - Materializing domain_intent into Nautobot Tenant/VRF/BridgeDomain/Prefix
-    objects (a real gap surfaced while implementing Milestone 1 — SubmitIntent
-    requires a matching Tenant to already exist; see app/nautobot_store.py)
 """
 
 from __future__ import annotations
@@ -42,6 +42,7 @@ from canonical_intent import ApprovalState, CanonicalIntent, DeploymentContext, 
 
 from .approval_workflow import approval_required
 from .audit_log import log_denial
+from .aci_materializer import AciMaterializer, MaterializationError
 from .execution_store import ExecutionStore, ExecutionStoreError
 from .nautobot_store import NautobotIntentStore, NautobotStoreError
 from .technical_policy import TechnicalPolicyClient, TechnicalPolicyUnavailableError
@@ -148,6 +149,21 @@ def get_policy_client() -> TechnicalPolicyClient:
         _policy_client = TechnicalPolicyClient()
     return _policy_client
 
+
+_aci_materializer: AciMaterializer | None = None
+
+
+def get_aci_materializer() -> AciMaterializer:
+    global _aci_materializer
+    if _aci_materializer is None:
+        if not NAUTOBOT_TOKEN:
+            raise HTTPException(
+                status_code=500,
+                detail="NAUTOBOT_TOKEN is not configured on the Platform API.",
+            )
+        _aci_materializer = AciMaterializer(base_url=NAUTOBOT_URL, token=NAUTOBOT_TOKEN)
+    return _aci_materializer
+
 class SubmitIntentRequest(BaseModel):
     domain_id: str
     domain_intent: dict[str, Any]
@@ -232,6 +248,11 @@ def submit_intent(request: SubmitIntentRequest) -> CanonicalIntent:
         )
 
     tenant_name = _aci_tenant_name(intent.domain_intent)
+    try:
+        get_aci_materializer().materialize(intent.domain_intent)
+    except MaterializationError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
     try:
         get_intent_store().save(intent, tenant_name=tenant_name)
     except NautobotStoreError as exc:

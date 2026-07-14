@@ -162,6 +162,16 @@ Implemented after the Platform v0.3 architecture freeze, entirely within the fro
 
 **Real finding, not new architectural debt:** this milestone's own test incidentally exercised something the 2026-07-13 freeze review had marked **Unvalidated** — two independent `DeploymentContext`s (one denied, one accepted) against the same `CanonicalIntent`, both resolving correctly and independently. That design claim (the entire justification for splitting the three Contract #1 objects) now has real test evidence behind it, not just code inspection.
 
+## Domain Materialization ✅ Complete (2026-07-14)
+
+Closes the Milestone 1 gap: `SubmitIntent` previously required a Nautobot Tenant matching `domain_intent`'s tenant name to already exist. Implemented within the frozen architecture — Contract #1 already assigned this responsibility to "that domain's own generator"; this is that generator's write-side counterpart, not a new decision.
+
+**What was built:** `app/aci_materializer.py` (`AciMaterializer`) — domain-specific by nature (ACI's Tenant/Namespace/VRF/Prefix/VRFPrefixAssignment shape), deliberately kept at the domain-aware boundary alongside `_aci_tenant_name()`, never inside `NautobotIntentStore` (which stays domain-agnostic per the Milestone 1 Architecture Validation Review's already-established rule). Create-if-missing only — an object matched by name/prefix is left as-is; this does not reconcile drift on a resubmission, which is `DRIFTED`'s job (not implemented) rather than materialization's. Verified empirically against the live Nautobot API before writing code (exact filter field names — `vrf`/`prefix`, not `vrf_id`/`prefix_id`, on `vrf-prefix-assignments` — a real, would-have-been-silent bug caught by testing against the running instance rather than assuming REST conventions).
+
+Wired into `SubmitIntent` (`app/main.py`) between Technical Policy's allow decision and Nautobot persistence — materialization must complete before `NautobotIntentStore.save()` can find its anchor Tenant.
+
+**Checkpoint:** `tests/integration/domain_materialization_smoke_test.py` — `SubmitIntent` for a tenant confirmed not to exist yet succeeds (previously impossible); the created Tenant/VRF/Prefix are read back independently via the Nautobot API with the exact shape `platform/python/generator/transformer.py` expects (network address stored, not the gateway; the `"ACI Bridge Domain: <bd>:<tenant>"` description encoding); **the existing generator (`generate_aci.py --dry-run`) was run directly against the newly materialized tenant and correctly reconstructed the original gateway IP** — a genuine, real round-trip proof, not just a shape check; resubmitting the same intent is confirmed idempotent (no duplicate objects). 5 new unit tests (`test_aci_materializer.py`, `httpx.MockTransport`-based, zero Nautobot required). Full regression (Milestones 1-3 + Business Approval, 30 unit tests total) re-run unchanged and still passing.
+
 ## M4 — Workflow Engine stub → Terraform stub → Validation stub chain (superseded — see M3 above)
 
 Wire the three stubs so reaching `ACCEPTED` triggers `DEPLOYING` → `VALIDATING` → `STABLE` (or `FAILED`, exercised with a stub configured to fail, to confirm the failure path is real and not just the happy path).

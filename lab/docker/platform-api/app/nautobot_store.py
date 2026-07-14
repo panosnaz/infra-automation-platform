@@ -7,13 +7,9 @@ boundary: a CanonicalIntent is stored/retrieved as JSON in a Nautobot
 Tenant's `canonical_intent` custom field (type JSON, content type
 tenancy.tenant — created via the Nautobot REST API, no custom app/plugin).
 
-Scope note (found during Milestone 1 implementation, not yet resolved):
-domain_intent's Tenant/VRF/BridgeDomain/Prefix objects are NOT created or
-updated by this module. SubmitIntent only requires a matching Nautobot
-Tenant to already exist (see docs/05-Operations/14-Vertical-Slice-v0.1-Roadmap.md,
-Milestone 1). Materializing domain_intent into new Nautobot inventory
-objects is a real gap surfaced by this implementation, not yet assigned to
-a milestone.
+SubmitIntent requires the target Tenant to already exist by the time
+save() is called — app/aci_materializer.py creates it (and its VRF/Prefix
+objects) beforehand, closing what was a real gap through Milestone 3.
 """
 
 from __future__ import annotations
@@ -113,8 +109,8 @@ class NautobotIntentStore:
         results = response.json()["results"]
         if not results:
             raise NautobotStoreError(
-                f"Nautobot tenant {tenant_name!r} does not exist. Milestone 1 requires the target tenant "
-                "to already exist in Nautobot (SubmitIntent does not create infrastructure objects yet — "
-                "see docs/05-Operations/14-Vertical-Slice-v0.1-Roadmap.md)."
+                f"Nautobot tenant {tenant_name!r} does not exist and materialization did not create it "
+                "(app/aci_materializer.py runs before this call — this indicates a real bug, not an "
+                "expected/known limitation)."
             )
         return results[0]["id"]
