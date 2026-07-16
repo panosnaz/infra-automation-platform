@@ -67,7 +67,10 @@ def main() -> None:
 
     # 3. Poll GetDeployment until STABLE (the background pipeline runs after
     #    the response above was already sent — this is the asynchronous part).
-    deadline = time.monotonic() + 10.0
+    #    Milestone 6A: real Terraform init/plan/apply against the live APIC
+    #    takes real time (observed ~15-20s), unlike the near-instant stub this
+    #    timeout was originally written for.
+    deadline = time.monotonic() + 90.0
     final_state = None
     while time.monotonic() < deadline:
         status_resp = httpx.get(f"{PLATFORM_API_URL}/deployments/{deployment_id}", timeout=10.0)
@@ -78,7 +81,7 @@ def main() -> None:
             break
         time.sleep(0.2)
     else:
-        fail(f"Deployment did not reach STABLE within 10s; last observed state: {final_state}")
+        fail(f"Deployment did not reach STABLE within 90s; last observed state: {final_state}")
 
     print("PASS: deployment reached STABLE via GetDeployment (polled, not held in Platform API memory)")
 

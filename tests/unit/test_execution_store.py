@@ -152,6 +152,29 @@ def test_pending_approval_cannot_skip_to_deploying(store: ExecutionStore) -> Non
         store.transition(context.deployment_id, LifecycleState.DEPLOYING)
 
 
+def test_deploying_can_resolve_to_failed(store: ExecutionStore) -> None:
+    """Milestone 6A: the Execution Plane's own DEPLOYING -> FAILED transition
+
+    (Contract #3 §2), unreachable before Real Terraform since no stub ever failed.
+    """
+    context, state = _new_deployment()
+    store.create(context, state)
+    store.transition(context.deployment_id, LifecycleState.DEPLOYING)
+
+    failed = store.transition(context.deployment_id, LifecycleState.FAILED)
+    assert failed.lifecycle_state == LifecycleState.FAILED
+
+
+def test_deploying_failed_cannot_be_resurrected_to_validating(store: ExecutionStore) -> None:
+    context, state = _new_deployment()
+    store.create(context, state)
+    store.transition(context.deployment_id, LifecycleState.DEPLOYING)
+    store.transition(context.deployment_id, LifecycleState.FAILED)
+
+    with pytest.raises(InvalidTransitionError):
+        store.transition(context.deployment_id, LifecycleState.VALIDATING)
+
+
 def test_update_context_persists_approval_fields(store: ExecutionStore) -> None:
     context, state = _new_deployment()
     store.create(context, state)

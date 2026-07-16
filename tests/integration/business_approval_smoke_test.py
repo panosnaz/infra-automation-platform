@@ -80,7 +80,7 @@ def main() -> None:
         fail(f"Expected ACCEPTED immediately after approval, got: {approve_resp.json()['execution_state']}")
     print("PASS: ApproveDeployment -> 200, ACCEPTED")
 
-    deadline = time.monotonic() + 10.0
+    deadline = time.monotonic() + 90.0
     final_state = None
     while time.monotonic() < deadline:
         status_resp = httpx.get(f"{PLATFORM_API_URL}/deployments/{deployment_id}", timeout=10.0)
@@ -89,7 +89,7 @@ def main() -> None:
             break
         time.sleep(0.2)
     else:
-        fail(f"Approved deployment did not reach STABLE within 10s; last state: {final_state}")
+        fail(f"Approved deployment did not reach STABLE within 90s; last state: {final_state}")
     if final_state["applied_version"] != intent["engineering_version"]:
         fail(f"applied_version did not converge after approval: {final_state}")
     print("PASS: approved deployment's pipeline resumed and reached STABLE")

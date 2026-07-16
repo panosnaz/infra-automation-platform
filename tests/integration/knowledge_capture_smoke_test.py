@@ -79,7 +79,7 @@ def main() -> None:
     deployment_id = deployment["deployment_context"]["deployment_id"]
     correlation_id = deployment["deployment_context"]["correlation_id"]
 
-    deadline = time.monotonic() + 10.0
+    deadline = time.monotonic() + 90.0
     final = None
     while time.monotonic() < deadline:
         status_resp = httpx.get(f"{PLATFORM_API_URL}/deployments/{deployment_id}", timeout=10.0)
@@ -88,11 +88,11 @@ def main() -> None:
             break
         time.sleep(0.2)
     else:
-        fail(f"Deployment did not reach STABLE within 10s; last observed: {final}")
+        fail(f"Deployment did not reach STABLE within 90s; last observed: {final}")
     print(f"PASS: deployment {deployment_id} reached STABLE")
 
     # Give the BackgroundTask a moment to run after STABLE was persisted.
-    deadline = time.monotonic() + 5.0
+    deadline = time.monotonic() + 15.0
     while _knowledge_line_count() == lines_before and time.monotonic() < deadline:
         time.sleep(0.2)
 

@@ -15,6 +15,17 @@ abstraction) — this is what keeps the response synchronous at
 ACCEPTED/PENDING_APPROVAL while the rest of the lifecycle is asynchronous,
 exactly as Contract #2 §3 specifies.
 
+Real Terraform Integration (app/terraform_executor.py, ADR-002, Milestone
+6A) replaced terraform_stub.py: the Execution Plane now runs the
+already-proven Phase 3 Terraform module (platform/terraform/aci/) against a
+freshly regenerated NetAsCode YAML. Per Contract #3 §2's ownership table,
+the Execution Plane — not the Workflow Engine — owns ACCEPTED -> DEPLOYING
+and DEPLOYING -> FAILED; workflow_stub.py (which previously performed
+ACCEPTED -> DEPLOYING on the Workflow Engine's behalf) was retired once
+that responsibility moved to its correct owner. validation_stub.py gained
+the matching correction: it now owns its own DEPLOYING -> VALIDATING entry
+transition.
+
 SubmitIntent materializes domain_intent into real Nautobot Tenant/VRF/
 Prefix objects (app/aci_materializer.py) before persisting the
 CanonicalIntent envelope — closing the Milestone 1 gap where a matching
@@ -51,9 +62,8 @@ from .execution_store import ExecutionStore, ExecutionStoreError
 from .knowledge_capture import capture_deployment_outcome
 from .nautobot_store import NautobotIntentStore, NautobotStoreError
 from .technical_policy import TechnicalPolicyClient, TechnicalPolicyUnavailableError
-from .terraform_stub import simulate_deployment
+from .terraform_executor import execute_deployment
 from .validation_stub import simulate_validation
-from .workflow_stub import on_deployment_requested
 
 VAULT_ADDR = os.environ.get("VAULT_ADDR", "http://host.docker.internal:8200")
 NAUTOBOT_URL = os.environ.get("NAUTOBOT_URL", "http://host.docker.internal:8080")
@@ -309,23 +319,42 @@ class DeploymentResponse(BaseModel):
     execution_state: ExecutionState
 
 
+def _capture_deployment_outcome_safely(store: ExecutionStore, deployment_id: uuid.UUID) -> None:
+    """Knowledge Capture (Milestone 5) — failures here must never affect deployment state or any response."""
+    try:
+        capture_deployment_outcome(get_intent_store(), store, deployment_id)
+    except Exception:  # noqa: BLE001 - knowledge capture failures must never affect deployment state
+        print(f"WARNING: failed to write knowledge capture record for deployment {deployment_id}")
+
+
 def _run_deployment_pipeline(store: ExecutionStore, deployment_id: uuid.UUID) -> None:
-    """The mocked DeploymentRequested reaction chain: Workflow -> Terraform -> Validation.
+    """The mocked DeploymentRequested reaction chain: Terraform -> Validation.
 
     Runs as a FastAPI BackgroundTask, scheduled only after RequestDeployment's
     response has already been sent — this is what makes ACCEPTED synchronous
     while DEPLOYING/VALIDATING/STABLE are asynchronous (Contract #2 §3,
     Contract #3 §3), without building a real event bus (ADR-011, still
-    deferred). Each stub owns exactly one transition, per Contract #3 §2.
-    """
-    on_deployment_requested(store, deployment_id)
-    simulate_deployment(store, deployment_id)
-    simulate_validation(store, deployment_id)
+    deferred).
 
-    try:
-        capture_deployment_outcome(get_intent_store(), store, deployment_id)
-    except Exception:  # noqa: BLE001 - knowledge capture failures must never affect deployment state
-        print(f"WARNING: failed to write knowledge capture record for deployment {deployment_id}")
+    Per Contract #3 §2, the Execution Plane (terraform_executor.
+    execute_deployment) owns ACCEPTED->DEPLOYING and DEPLOYING->FAILED
+    itself — this function no longer performs any transition of its own
+    (workflow_stub.py, which previously performed ACCEPTED->DEPLOYING on the
+    Workflow Engine's behalf, was retired during Milestone 6A once that
+    responsibility moved to its correct owner). If Terraform execution
+    fails, execute_deployment() has already transitioned to FAILED and
+    validation must not run (VALIDATING is only reachable from DEPLOYING) —
+    checking the resulting state and branching is orchestration, not
+    Terraform-specific logic, so it stays here per ADR-004.
+    """
+    execute_deployment(store, deployment_id)
+
+    if store.get_state(deployment_id).lifecycle_state == LifecycleState.FAILED:
+        _capture_deployment_outcome_safely(store, deployment_id)
+        return
+
+    simulate_validation(store, deployment_id)
+    _capture_deployment_outcome_safely(store, deployment_id)
 
 
 @app.post("/deployments", response_model=DeploymentResponse, status_code=status.HTTP_201_CREATED, tags=["deployment"])
@@ -461,10 +490,7 @@ def deny_deployment(deployment_id: uuid.UUID, request: ApprovalDecisionRequest) 
     store.update_context(context)
     new_state = store.transition(deployment_id, LifecycleState.FAILED, approval_decision="denied")
 
-    try:
-        capture_deployment_outcome(get_intent_store(), store, deployment_id)
-    except Exception:  # noqa: BLE001 - knowledge capture failures must never change the response
-        print(f"WARNING: failed to write knowledge capture record for deployment {deployment_id}")
+    _capture_deployment_outcome_safely(store, deployment_id)
 
     return DeploymentResponse(deployment_context=context, execution_state=new_state)
 

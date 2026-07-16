@@ -1,13 +1,16 @@
-"""Unit tests for the Workflow/Terraform/Validation stubs — no Docker required."""
+"""Unit tests for the Validation stub — no Docker required.
+
+Milestone 6A retired workflow_stub.py (ACCEPTED->DEPLOYING moved to
+terraform_executor.py, per Contract #3 §2) and terraform_stub.py (replaced
+by terraform_executor.py — see test_terraform_executor.py).
+"""
 
 from __future__ import annotations
 
 import uuid
 
 from app.execution_store import ExecutionStore
-from app.terraform_stub import simulate_deployment
 from app.validation_stub import simulate_validation
-from app.workflow_stub import on_deployment_requested
 from canonical_intent import ApprovalState, DeploymentContext, Environment, ExecutionState, LifecycleState
 
 
@@ -25,24 +28,20 @@ def _new_deployment(store: ExecutionStore) -> uuid.UUID:
     return context.deployment_id
 
 
-def test_workflow_stub_transitions_accepted_to_deploying(tmp_path) -> None:
-    store = ExecutionStore(path=tmp_path / "db.sqlite")
-    deployment_id = _new_deployment(store)
+def test_validation_stub_owns_deploying_to_validating_entry_transition(tmp_path) -> None:
+    """Milestone 6A: Validation, not the Execution Plane, owns DEPLOYING -> VALIDATING (Contract #3 §2),
 
-    on_deployment_requested(store, deployment_id)
-
-    assert store.get_state(deployment_id).lifecycle_state == LifecycleState.DEPLOYING
-
-
-def test_terraform_stub_transitions_deploying_to_validating(tmp_path) -> None:
+    including setting deployed_at -- moved here from terraform_stub.py, which
+    no longer performs this transition.
+    """
     store = ExecutionStore(path=tmp_path / "db.sqlite")
     deployment_id = _new_deployment(store)
     store.transition(deployment_id, LifecycleState.DEPLOYING)
 
-    simulate_deployment(store, deployment_id)
+    simulate_validation(store, deployment_id)
 
     state = store.get_state(deployment_id)
-    assert state.lifecycle_state == LifecycleState.VALIDATING
+    assert state.lifecycle_state == LifecycleState.STABLE
     assert state.deployed_at is not None
 
 
@@ -50,7 +49,6 @@ def test_validation_stub_transitions_validating_to_stable_and_sets_applied_versi
     store = ExecutionStore(path=tmp_path / "db.sqlite")
     deployment_id = _new_deployment(store)
     store.transition(deployment_id, LifecycleState.DEPLOYING)
-    store.transition(deployment_id, LifecycleState.VALIDATING)
 
     simulate_validation(store, deployment_id)
 

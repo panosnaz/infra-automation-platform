@@ -21,13 +21,16 @@ from canonical_intent import DeploymentContext, ExecutionState, LifecycleState
 EXECUTION_STORE_PATH = Path(os.environ.get("EXECUTION_STORE_PATH", "/app/data/execution_store.db"))
 
 # Contract #3 §2 (State Ownership Model) — ACCEPTED through STABLE (M3),
-# plus PENDING_APPROVAL's two resolutions (ADR-015, Business Approval).
-# DRIFTED/RETIRED are deliberately absent; adding them is a future
-# milestone's job, not this one's.
+# plus PENDING_APPROVAL's two resolutions (ADR-015, Business Approval), plus
+# DEPLOYING's failure resolution (Milestone 6A, Real Terraform Integration —
+# the Execution Plane's own DEPLOYING -> FAILED transition, previously
+# unreachable because no stub ever failed). DRIFTED/RETIRED are still
+# deliberately absent; adding them is a future milestone's job, not this
+# one's.
 _ALLOWED_TRANSITIONS: dict[LifecycleState, set[LifecycleState]] = {
     LifecycleState.PENDING_APPROVAL: {LifecycleState.ACCEPTED, LifecycleState.FAILED},
     LifecycleState.ACCEPTED: {LifecycleState.DEPLOYING},
-    LifecycleState.DEPLOYING: {LifecycleState.VALIDATING},
+    LifecycleState.DEPLOYING: {LifecycleState.VALIDATING, LifecycleState.FAILED},
     LifecycleState.VALIDATING: {LifecycleState.STABLE},
 }
 
