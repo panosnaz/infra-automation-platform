@@ -25,6 +25,15 @@ DEPLOYING -> FAILED itself and returns normally — it never raises to its
 caller. main.py's _run_deployment_pipeline only needs to check the
 resulting lifecycle_state; no Terraform-specific exception handling
 belongs in the Platform API (ADR-004).
+
+terraform init/plan/apply are serialized within this process via
+_TERRAFORM_EXECUTION_LOCK (a plain threading.Lock — FastAPI's
+BackgroundTasks for sync routes run in a thread pool, not separate
+processes): platform/terraform/aci/ is one shared module with one shared
+local state file for the whole domain, and concurrent deployments would
+otherwise contend for the same terraform.tfstate. -lock-timeout remains as
+a defensive fallback for any external/manual concurrent `terraform`
+invocation outside this process.
 """
 
 from __future__ import annotations
@@ -32,6 +41,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+import threading
 import uuid
 from pathlib import Path
 
@@ -53,6 +63,14 @@ NETASCODE_OUTPUT_DIR = Path(os.environ.get("NETASCODE_OUTPUT_DIR", "/app/netasco
 _GENERATOR_SRC_DIR = os.environ.get("GENERATOR_SRC_DIR", "/app/generator_src")
 _TERRAFORM_TIMEOUT = float(os.environ.get("TERRAFORM_TIMEOUT_SECONDS", "180"))
 _TERRAFORM_LOCK_TIMEOUT = os.environ.get("TERRAFORM_LOCK_TIMEOUT", "60s")
+
+# Serializes terraform init/plan/apply within this process -- platform/terraform/aci/
+# is one shared module with one shared local state file for the whole domain, and
+# concurrent BackgroundTasks (one per in-flight deployment) would otherwise contend
+# for the same terraform.tfstate. -lock-timeout above is a defensive fallback for any
+# external/manual concurrent `terraform` invocation outside this process; this lock is
+# the primary mechanism for concurrency this process itself creates.
+_TERRAFORM_EXECUTION_LOCK = threading.Lock()
 
 if _GENERATOR_SRC_DIR not in sys.path:
     sys.path.insert(0, _GENERATOR_SRC_DIR)
@@ -141,12 +159,13 @@ def _read_aci_credentials() -> dict[str, str]:
 def _run_terraform(var_file: Path, aci_env: dict[str, str]) -> None:
     env = {**os.environ, **aci_env, "TF_VAR_netascode_yaml_file": str(var_file)}
     lock_timeout = f"-lock-timeout={_TERRAFORM_LOCK_TIMEOUT}"
-    for args in (
-        ["init", "-input=false", lock_timeout],
-        ["plan", "-input=false", lock_timeout],
-        ["apply", "-auto-approve", "-input=false", lock_timeout],
-    ):
-        _run_terraform_command(args, env)
+    with _TERRAFORM_EXECUTION_LOCK:
+        for args in (
+            ["init", "-input=false", lock_timeout],
+            ["plan", "-input=false", lock_timeout],
+            ["apply", "-auto-approve", "-input=false", lock_timeout],
+        ):
+            _run_terraform_command(args, env)
 
 
 def _run_terraform_command(args: list[str], env: dict[str, str]) -> None:

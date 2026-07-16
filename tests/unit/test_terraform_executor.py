@@ -173,3 +173,45 @@ def test_execute_deployment_never_raises_to_caller(tmp_path, monkeypatch) -> Non
     monkeypatch.setattr(te_module, "NAUTOBOT_TOKEN", None)
 
     execute_deployment(store, deployment_id)  # must not raise
+
+
+def test_concurrent_deployments_never_run_terraform_simultaneously(tmp_path, monkeypatch) -> None:
+    """Two concurrent execute_deployment() calls must serialize their terraform
+
+    init/plan/apply calls (_TERRAFORM_EXECUTION_LOCK) -- platform/terraform/aci/
+    is one shared module with one shared local state file for the whole domain.
+    """
+    import threading
+    import time as time_module
+
+    store = ExecutionStore(path=tmp_path / "db.sqlite")
+    deployment_id_1 = _new_deployment(store)
+    deployment_id_2 = _new_deployment(store)
+    _mock_generator(monkeypatch)
+    _mock_vault(monkeypatch)
+
+    active = 0
+    max_concurrent = 0
+    lock = threading.Lock()
+
+    def _fake_run(*args, **kwargs):
+        nonlocal active, max_concurrent
+        with lock:
+            active += 1
+            max_concurrent = max(max_concurrent, active)
+        time_module.sleep(0.05)  # long enough for a real overlap to be observed if unsynchronized
+        with lock:
+            active -= 1
+        return subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+
+    with patch("subprocess.run", side_effect=_fake_run):
+        t1 = threading.Thread(target=execute_deployment, args=(store, deployment_id_1))
+        t2 = threading.Thread(target=execute_deployment, args=(store, deployment_id_2))
+        t1.start()
+        t2.start()
+        t1.join(timeout=10.0)
+        t2.join(timeout=10.0)
+
+    assert max_concurrent == 1, "terraform commands from two deployments ran concurrently -- the lock did not serialize them"
+    assert store.get_state(deployment_id_1).lifecycle_state == LifecycleState.DEPLOYING
+    assert store.get_state(deployment_id_2).lifecycle_state == LifecycleState.DEPLOYING
