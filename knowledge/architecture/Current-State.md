@@ -170,7 +170,7 @@ This is a deliberate choice, not an oversight: Nautobot's compose files live ins
 
 ## Phase 1 — Repository scaffold ✅ Complete
 
-The repository structure follows the canonical layout defined in [`docs/folder structure`](../folder%20structure).
+The repository structure follows the canonical layout defined in [`README.md`](../../README.md)'s "Repository structure" section (the `docs/folder structure` file this used to point to is now a historical snapshot at [`archive/folder-structure.md`](archive/folder-structure.md), no longer live-maintained).
 
 Key directories established:
 
@@ -369,11 +369,15 @@ pyats run job aci/job.py --testbed-file aci/testbed.yml --no-mail
 3. **Cleanup fragility** — `CommonCleanup` now sets the `apic` parameter *before* calling `connect()` (not after) and guards with `is_connected(alias="rest")`, so a setup failure no longer crashes cleanup with `Missing parameters {'apic'}`.
 4. **pyATS install** — not present on the host; installed via `python3 -m pip install --user --break-system-packages "pyats[full]"` (no sudo; PEP 668 externally-managed-environment).
 
-## Phase 6 — Generator unit tests ⏳ Pending
+## Phase 6 — Generator unit tests ✅ Complete
+
+> **Update (2026-07-28):** this phase is done — `tests/unit/` now has 44 passing unit tests for `platform/python/generator/` (`python3 -m pytest tests/unit -q`), with no external dependencies required. The paragraph below describing "no unit tests exist" is historical (as of the 2026-07-04 vertical slice) and left as originally written.
 
 No unit tests exist for `platform/python/generator/`. The generator has been manually validated against the live Nautobot lab but has no automated regression protection.
 
-## Phase 7 — GitHub Actions CI ⏳ Pending
+## Phase 7 — GitHub Actions CI ⏳ Superseded
+
+> **Update (2026-07-28):** GitHub Actions CI was never built and is no longer the plan. Per [ADR-016](../adr/ADR-016-Platform-v2-Replacement-Architecture.md), execution moved to a self-hosted **GitLab CE + GitLab Runner** instead, implementing the [Execution Framework](Execution-Framework.md)'s 7-stage lifecycle. Milestones 1-4 (GitLab Execution Pipeline, Nautobot → NetAsCode Integration, Policy & Approval, Verification & Knowledge Capture) are complete — see `Execution-Framework.md` §6 for full gate evidence. `.github/` remains an empty placeholder; it is not part of the current CI plan.
 
 `.github/` contains only a `.gitkeep`. No CI workflow has been defined.
 
@@ -416,7 +420,9 @@ No unit tests exist for `platform/python/generator/`. The generator has been man
 
 # Architecture Decisions
 
-All 14 ADRs have been authored and accepted. They are located in [`docs/03-Decisions/`](../03-Decisions/).
+> **Update (2026-07-28):** the table below (14 ADRs, "no ADRs superseded or deprecated") reflects the state as of the 2026-07-04/05 vertical slice and is left as originally written. It is no longer current. Five more ADRs have since been accepted (ADR-015 through ADR-019), and per [ADR-016](../adr/ADR-016-Platform-v2-Replacement-Architecture.md)'s Platform v2 replacement decision, **ADR-004, ADR-005, ADR-006, and ADR-015 are now retired/archived** (moved to `knowledge/adr/archive/`), and ADR-014 was rescoped. The authoritative, current ADR index is [`knowledge/adr/`](../adr/) — do not treat the table below as current.
+
+All 14 ADRs have been authored and accepted. They are located in [`knowledge/adr/`](../adr/).
 
 | ADR | Title | Status |
 |---|---|---|

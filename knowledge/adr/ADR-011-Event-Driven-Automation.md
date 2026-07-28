@@ -119,9 +119,9 @@ Event-driven automation shall follow these principles:
 - Automation remains observable.
 - Human approval remains part of governed workflows.
 
-> **Elevated to a platform-wide principle (2026-07-05):** "Events describe facts, not commands" and "events are published only after the underlying state transition is durably committed" are formalized with full rationale and worked examples in [Platform Specification 03 — Platform Execution Model](../11-Specifications/03-Platform-Execution-Model-Specification.md) §3. That document is authoritative for event-timing semantics; this ADR establishes that the platform is event-driven at all.
+> **Elevated to a platform-wide principle (2026-07-05):** "Events describe facts, not commands" and "events are published only after the underlying state transition is durably committed" are formalized with full rationale and worked examples in [Platform Specification 03 — Platform Execution Model, archived](../architecture/archive/Contract-3-Platform-Execution-Model-Specification.md) §3. That document is authoritative for event-timing semantics; this ADR establishes that the platform is event-driven at all.
 
-> **Event renamed 2026-07-05:** `IntentReceived` was renamed to `IntentSubmitted` to match the `SubmitIntent` operation ([Platform Specification 02](../11-Specifications/02-Platform-API-Specification.md)) that produces it, and to avoid ambiguity now that Intent Lifecycle and Deployment Lifecycle are explicitly separate (ADR-014 / ADR-015).
+> **Event renamed 2026-07-05:** `IntentReceived` was renamed to `IntentSubmitted` to match the `SubmitIntent` operation ([Platform Specification 02, archived](../architecture/archive/Contract-2-Platform-API-Specification.md)) that produces it, and to avoid ambiguity now that Intent Lifecycle and Deployment Lifecycle are explicitly separate (ADR-014 / ADR-015).
 
 ---
 

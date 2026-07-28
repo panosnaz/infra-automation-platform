@@ -108,7 +108,7 @@ Persist Canonical Intent to Nautobot
 Publish Event (IntentSubmitted)
 ```
 
-This diagram is illustrative only — see [Platform Specification 02 — Platform API](../11-Specifications/02-Platform-API-Specification.md) §3 for the authoritative Intent Lifecycle sequence. A `deny` decision from the Technical Policy Engine stops the pipeline before Nautobot is ever written to and before any event is published — a denied request produces no `CanonicalIntent`, no platform state change, and no `IntentSubmitted` event.
+This diagram is illustrative only — see [Platform Specification 02 — Platform API, archived](../architecture/archive/Contract-2-Platform-API-Specification.md) §3 for the authoritative Intent Lifecycle sequence. A `deny` decision from the Technical Policy Engine stops the pipeline before Nautobot is ever written to and before any event is published — a denied request produces no `CanonicalIntent`, no platform state change, and no `IntentSubmitted` event.
 
 ---
 

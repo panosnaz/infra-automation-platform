@@ -70,7 +70,7 @@ Engineering intent captured in Nautobot shall be translated into the NetAsCode m
 
 Terraform, Ansible, validation frameworks and future automation components consume this canonical representation rather than engineering intent directly.
 
-NetAsCode is scoped to **one specific tier** of the platform's two-tier canonical abstraction: it is the domain-specific Canonical Engineering Model (Cisco ACI only), produced *after* Nautobot. It is not, and is not intended to be, the domain-agnostic Canonical Intent produced *before* Nautobot by the Platform API's Intent Translation Layer. See the **Canonical Intent** glossary entry in [`03a-Platform-Glossary.md`](../02-Architecture/03a-Platform-Glossary.md) for the full contrast. When VXLAN EVPN, Azure, or other domains are added, each gets its own Canonical Engineering Model — NetAsCode does not generalize across domains, by design.
+NetAsCode is scoped to **one specific tier** of the platform's two-tier canonical abstraction: it is the domain-specific Canonical Engineering Model (Cisco ACI only), produced *after* Nautobot. It is not, and is not intended to be, the domain-agnostic Canonical Intent produced *before* Nautobot by the Platform API's Intent Translation Layer. See the **Canonical Intent** glossary entry in [`Glossary.md`](../architecture/Glossary.md) for the full contrast. When VXLAN EVPN, Azure, or other domains are added, each gets its own Canonical Engineering Model — NetAsCode does not generalize across domains, by design.
 
 ---
 

@@ -141,7 +141,7 @@ Reverse synchronization may continue to run for visibility into *unmanaged* obje
 
 This preserves Nautobot as the authoritative Source of Truth for everything the platform manages, while still providing a practical, honest path for onboarding infrastructure that already exists — which every real deployment of this platform will need on day one.
 
-> **Terminology note (2026-07-05):** "platform-managed" here is a **provenance** fact — permanent, set once, answering "was this object's desired state ever authored via forward intent?" Do not confuse this with `ExecutionState.lifecycle_state = stable` ([Platform Specification 03](../11-Specifications/03-Platform-Execution-Model-Specification.md)), an **execution-convergence** fact that is reversible (`stable` ⇄ `drifted`) and answers a completely different question: "does the live infrastructure currently match what was last validated?" An object can be platform-managed and `drifted` at the same time.
+> **Terminology note (2026-07-05):** "platform-managed" here is a **provenance** fact — permanent, set once, answering "was this object's desired state ever authored via forward intent?" Do not confuse this with `ExecutionState.lifecycle_state = stable` ([Platform Specification 03, archived](../architecture/archive/Contract-3-Platform-Execution-Model-Specification.md)), an **execution-convergence** fact that is reversible (`stable` ⇄ `drifted`) and answers a completely different question: "does the live infrastructure currently match what was last validated?" An object can be platform-managed and `drifted` at the same time.
 
 ---
 

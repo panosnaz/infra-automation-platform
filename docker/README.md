@@ -153,7 +153,7 @@ The APIC endpoint and other connection details are configured inside Nautobot it
 
 ---
 
-## Platform API (`lab/docker/platform-api/`)
+## Platform API (`docker/platform-api/`)
 
 Vertical Slice v0.1's Intent Lifecycle implementation (see
 [`docs/05-Operations/14-Vertical-Slice-v0.1-Roadmap.md`](../docs/05-Operations/14-Vertical-Slice-v0.1-Roadmap.md)).
@@ -162,12 +162,12 @@ compose file fails fast with a clear error if it's missing:
 
 ```bash
 export NAUTOBOT_TOKEN=<nautobot-superuser-api-token>
-cd lab/docker/platform-api
+cd docker/platform-api
 docker compose up -d --build
 ```
 
 The token is the same one Nautobot issues to its superuser account (see
-`docs/01-Vision/01-Current-State.md`). Reading it from Vault at runtime,
+[`knowledge/architecture/Current-State.md`](../knowledge/architecture/Current-State.md)). Reading it from Vault at runtime,
 the way Terraform/Ansible already do, is a natural follow-up but not yet
 wired in — Milestone 1 only required the same round-trip proof those tools
 already established, not a new secrets-loading path.

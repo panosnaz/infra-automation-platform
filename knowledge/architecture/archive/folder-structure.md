@@ -7,6 +7,8 @@ owner: platform-engineering-team
 last_updated: 2026-07-28
 ---
 
+> **Historical snapshot (2026-07-28):** this document is filed under `archive/` (`status: historical`) because it is a point-in-time repository layout snapshot, not a live-maintained reference — despite its original claim below. No document in this repository currently plays that continuously-kept-in-sync role; for the current top-level layout, see [`README.md`](../../../README.md)'s "Repository structure" section and [`CLAUDE.md`](../../../CLAUDE.md)'s "Repository layout" table, both of which are updated as the structure changes. `docs/02-Architecture/05-Engineering-Repository-Structure.md`, referenced below, no longer exists (the `docs/02-Architecture/` folder was removed as a stale pre-reorg duplicate); see [`Engineering-Repository-Structure.md`](Engineering-Repository-Structure.md) in this same `archive/` folder for that superseded material instead.
+
 This is the authoritative repository layout reference, kept in sync with the actual repository. `docs/02-Architecture/05-Engineering-Repository-Structure.md` describes an earlier, idealized top-level layout that was superseded by the structure below — its directory-responsibility descriptions (what each capability owns) remain useful, but its tree diagram does not reflect this repository.
 
 nautobot-infra-automation/

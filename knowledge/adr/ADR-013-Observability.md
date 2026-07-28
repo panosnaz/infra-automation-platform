@@ -15,7 +15,9 @@ last_updated: 2026-07-28
 
 **Decision Makers:** Platform Engineering Team
 
-> **Implementation Status:** Not yet implemented (0%). No platform component currently emits metrics, structured logs, or traces. See [`01-Current-State.md`](../01-Vision/01-Current-State.md) Gaps table. The generator, Terraform, and Ansible currently only produce plain stdout output.
+> **Implementation Status (updated 2026-07-28):** the observability *stack* is now deployed — Prometheus, Grafana, and Loki are running and healthy as part of the Platform v2 infrastructure (see [`Platform-v2-As-Built.md`](../architecture/Platform-v2-As-Built.md) §1). However, the *platform components themselves* still don't emit anything for that stack to scrape: Prometheus's scrape targets for `nautobot`/`platform-api` are configured but return no metrics (`nautobot` → 406, `platform-api` → 404 — see `Platform-v2-As-Built.md` §3), and the generator/Terraform/Ansible/GitLab CI jobs still only produce plain stdout output, not structured logs or traces. This ADR's original 0%-implemented framing (below) is left as historical context.
+>
+> **Original status (2026-06-30):** Not yet implemented (0%). No platform component currently emits metrics, structured logs, or traces. See [`Current-State.md`](../architecture/Current-State.md) Gaps table. The generator, Terraform, and Ansible currently only produce plain stdout output.
 
 **Related ADRs:**
 

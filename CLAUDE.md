@@ -22,25 +22,30 @@ The **Network Platform Engineering Platform** automates network infrastructure t
 Before making any changes, read in order:
 
 1. [`README.md`](README.md) — project overview and quick start
-2. [`docs/START-HERE.md`](docs/START-HERE.md) — platform philosophy and architecture navigation
-3. [`docs/ARCHITECTURE-AT-A-GLANCE.md`](docs/ARCHITECTURE-AT-A-GLANCE.md) — full architecture reference
-4. Relevant ADRs in [`docs/03-Decisions/`](docs/03-Decisions/) for the capability you are changing
+2. [`knowledge/README.md`](knowledge/README.md) — knowledge base map (architecture, ADRs, runbooks, AI notes)
+3. [`knowledge/architecture/Platform-v2-Reference-Architecture.md`](knowledge/architecture/Platform-v2-Reference-Architecture.md) — the approved target architecture (MCP Server + Nautobot + GitLab)
+4. [`knowledge/architecture/Execution-Framework.md`](knowledge/architecture/Execution-Framework.md) — the 7-stage lifecycle and the current build milestones (§6) — this is the actual build order and status tracker
+5. Relevant ADRs in [`knowledge/adr/`](knowledge/adr/) for the capability you are changing (`knowledge/adr/archive/` holds ADRs superseded by [ADR-016](knowledge/adr/ADR-016-Platform-v2-Replacement-Architecture.md))
+
+`docs/` is reserved for future generated/customer-facing documentation only — it is not the knowledge base. If a stale reference anywhere points at `docs/START-HERE.md`, `docs/ARCHITECTURE-AT-A-GLANCE.md`, `docs/03-Decisions/`, or `docs/folder structure`, treat it as wrong and use the `knowledge/` paths above instead.
 
 ---
 
 ## Repository layout
 
-The canonical layout is defined in [`docs/folder structure`](docs/folder%20structure). Key paths:
-
 | Path | Purpose |
 |---|---|
-| `platform/python/` | Generator: Nautobot → NetAsCode YAML |
+| `platform/python/` | Generator: Nautobot GraphQL → NetAsCode YAML |
 | `platform/terraform/aci/` | Terraform ACI module |
 | `platform/ansible/aci/` | Ansible Day-2 playbooks |
-| `platform/netascode/aci/` | Generated YAML output (gitignored) |
+| `platform/netascode/aci/` | Generated NetAsCode YAML — committed by the `generate_nac` CI job, not gitignored |
+| `platform/workflows/scripts/` | Python scripts backing GitLab CI jobs (`write_results.py`, `capture_knowledge.py`, `check_determinism.sh`, `commit_generated_yaml.sh`, `policy_check.py`, `validate_nac.py`) |
 | `tests/pyats/aci/` | pyATS validation tests |
-| `docs/03-Decisions/` | Architecture Decision Records |
-| `lab/docker/nautobot/` | Local Nautobot lab (nested git repo, not tracked) |
+| `tests/unit/` | Generator unit tests |
+| `tests/integration/` | Live-lab integration smoke tests |
+| `pipelines/` | GitLab CI includes — `pipelines/includes/common.gitlab-ci.yml` (shared hidden job templates) + `pipelines/aci.gitlab-ci.yml` (domain wiring); root `.gitlab-ci.yml` just includes the ACI pipeline |
+| `docker/` | All lab infrastructure (Nautobot, Vault, GitLab, GitLab Runner, OPA, Prometheus/Grafana/Loki, MinIO, Traefik) as Compose stacks |
+| `knowledge/adr/` | Architecture Decision Records |
 
 ---
 
@@ -50,26 +55,33 @@ The canonical layout is defined in [`docs/folder structure`](docs/folder%20struc
 - **Terraform:** consumes NetAsCode YAML; does not duplicate Nautobot data.
 - **Ansible:** Day-2 operations only; does not provision new infrastructure.
 - **Validation:** always independent of Terraform and Ansible.
-- **Secrets:** never hardcode tokens, passwords, or API keys. Use environment variables.
+- **Secrets:** never hardcode tokens, passwords, or API keys. Use environment variables, or read from Vault at runtime.
 - **ACI system tenants** (`common`, `infra`, `mgmt`): Terraform must not recreate these.
+- **GitLab CI `needs:` is not transitive** — a job only auto-downloads artifacts from jobs explicitly listed in its own `needs:` array. Always list every upstream job whose generated file/artifact is actually consumed, not just the immediately-prior stage.
 
 ---
 
-## Active Nautobot lab
+## Active lab (local GitLab CE + Nautobot + Vault)
 
-- URL: `http://localhost:8080`
-- API token: `0123456789abcdef0123456789abcdef01234567`
-- ACI Simulator: `https://172.30.46.103` (self-signed cert, use `--no-verify`)
+- Nautobot: `http://localhost:8080`, API token `0123456789abcdef0123456789abcdef01234567`
+- ACI Simulator: `https://172.30.46.103` (self-signed cert, use `--no-verify`) — can go unreachable independent of this repo; check `docker network ls` for a subnet collision (a real recurring bug class here, see [`Current-State.md`](knowledge/architecture/Current-State.md)) before assuming a genuine external outage
+- GitLab CE: `http://localhost:8929` / `http://gitlab.local:8929`, project `root/nautobot-infra-automation`
+- HashiCorp Vault: `http://localhost:8200` — root token in `docker/vault/state/vault-keys.txt` (gitignored, regenerated on each init)
+- MinIO: `http://localhost:9000`, bucket `knowledge-capture`
 
 ---
 
-## Pending implementation (vertical slice)
+## Current build status (Execution Framework, per ADR-017/ADR-018)
 
-| Phase | Directory | Status |
+Phase 2 is built domain-automation-first, with no AI/MCP Server involved until Milestone 5. See [`Execution-Framework.md` §6](knowledge/architecture/Execution-Framework.md) for full gate evidence.
+
+| Milestone | Scope | Status |
 |---|---|---|
-| Generator | `platform/python/` | ✅ Complete |
-| Terraform ACI module | `platform/terraform/aci/` | ⏳ Phase 3 |
-| Ansible Day-2 | `platform/ansible/aci/` | ⏳ Phase 4 |
-| pyATS validation | `tests/pyats/aci/` | ⏳ Phase 5 |
-| Unit tests | `tests/unit/` | ⏳ Phase 6 |
-| GitHub Actions CI | `.github/workflows/` | ⏳ Phase 7 |
+| 1 | GitLab Execution Pipeline (validate → policy → plan → apply → ansible → pyATS → capture) against a static NetAsCode YAML fixture | ✅ Complete |
+| 2 | Nautobot → NetAsCode Integration (`generate_nac` job replaces the static fixture, generator determinism proven) | ✅ Complete |
+| 3 | Policy & Approval (OPA policy job + GitLab protected-branch manual-gate substitute for Premium-only Protected Environments) | ✅ Complete |
+| 4 | Verification & Knowledge Capture (`write_results.py` → Nautobot custom fields, `capture_knowledge.py` → GitLab artifact + MinIO JSONL) | ✅ Complete |
+| 5 | MCP Server (tool registry, thin per-tool schemas, no shared intent envelope per ADR-018) | ❌ Not started |
+| 6 | AI Agents (Claude Desktop, VS Code Copilot Agent, future LangGraph) as MCP clients | ❌ Not started |
+
+The old Platform API (`main.py`, `execution_store.py`, `approval_workflow.py`, `terraform_executor.py`, `nautobot_store.py`) is **legacy (Platform v1)**, replaced (not migrated) per [ADR-016](knowledge/adr/ADR-016-Platform-v2-Replacement-Architecture.md) — do not extend it.
