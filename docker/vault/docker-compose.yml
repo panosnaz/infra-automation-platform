@@ -26,7 +26,14 @@ services:
       start_period: "90s"
       retries: 10
     restart: unless-stopped
+    networks:
+      - app-net
 
 volumes:
   vault_data:
     name: "infra-automation-lab_vault_data"
+
+networks:
+  app-net:
+    external: true
+    name: "infra-automation-lab_app-net"

@@ -76,6 +76,12 @@ The Nautobot ACI SSoT plugin has been configured and the initial sync from the A
 
 All tenant names carry an `ACI:` namespace prefix added by the SSoT plugin (e.g. `ACI:infra`). The generator strips this prefix before writing NetAsCode YAML.
 
+### 2026-07-28 incident — brief Nautobot stack outage during Docker network consolidation
+
+While consolidating 9 previously-separate Docker Compose projects (`vault`, `platform-api`, `gitlab`, `gitlab-runner`, `prometheus`, `grafana`, `loki`, `minio`, `traefik`) onto three shared, centrally-managed networks (`app-net`/`obs-net`/`proxy-net`, see [`Platform-v2-As-Built.md §4`](Platform-v2-As-Built.md)) via a new root `docker/docker-compose.yml` using Compose's `include:`, a `docker compose up -d` run from that root file — sharing the project name `infra-automation-lab` with the already-running, separately-invoked Nautobot stack — caused Compose to treat the Nautobot stack's `infra-automation-lab_default` network as an orphaned resource (since it wasn't declared in that invocation's file set) and attempt to remove it. Docker's own safety check blocked the removal because containers were actively using it, but the attempt still stopped and needed to recreate that network, briefly taking down `nautobot`/`postgres`/`redis`/`celery_worker`/`celery_beat` (and, on the first recreate, leaving Nautobot unable to resolve `redis`/`db` by name — Docker's embedded per-network DNS needed a full `down`/`up` cycle, not just a `restart`, to recover cleanly).
+
+**Lesson:** Compose reconciles *all* resources sharing a project name during `up`/`down`, not just the ones in the current invocation's file list — reusing a project name across independent `docker compose` invocations is unsafe unless every stack sharing that name is included in the same file set. The fix was to add Nautobot's existing compose files to the root file's `include:` list (referenced only, never edited — they remain an independently-managed nested git repository) so nothing is ever seen as orphaned. No data was lost (all volumes are explicitly named and persisted); full regression (44 unit + 3 integration checks) re-confirmed green afterward.
+
 ## ACI Simulator
 
 | Property | Value |

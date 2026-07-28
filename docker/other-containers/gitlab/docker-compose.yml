@@ -29,9 +29,9 @@ services:
         puma['worker_processes'] = 2
         sidekiq['concurrency'] = 10
     volumes:
-      - "config:/etc/gitlab"
-      - "logs:/var/log/gitlab"
-      - "data:/var/opt/gitlab"
+      - "gitlab_config:/etc/gitlab"
+      - "gitlab_logs:/var/log/gitlab"
+      - "gitlab_data:/var/opt/gitlab"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     shm_size: "256m"
@@ -42,11 +42,27 @@ services:
       start_period: "180s"
       retries: 10
     restart: unless-stopped
+    networks:
+      - app-net
+
+networks:
+  app-net:
+    external: true
+    name: "infra-automation-lab_app-net"
 
 volumes:
-  config:
+  # 2026-07-28: local volume KEYS renamed from the generic config/logs/data
+  # to be globally unique across the whole merged project (docker/docker-compose.yml
+  # include:'s all included files' top-level `volumes:`/`networks:` keys share
+  # ONE flat namespace after merging -- a generic key like "data" used by
+  # multiple files collides, with one file's declaration silently winning and
+  # every service that referenced the generic key ending up mounted to the
+  # WRONG volume. Confirmed: minio and prometheus/grafana had all ended up
+  # mounted to this file's "data" volume before this fix. The external volume
+  # `name:` values are unchanged -- only the local YAML keys changed.
+  gitlab_config:
     name: "infra-automation-lab_gitlab_config"
-  logs:
+  gitlab_logs:
     name: "infra-automation-lab_gitlab_logs"
-  data:
+  gitlab_data:
     name: "infra-automation-lab_gitlab_data"

@@ -1,0 +1,66 @@
+---
+# Single entry point for the whole lab. Each stack still lives in, and can
+# still be run independently from, its own directory (docker/vault/,
+# docker/other-containers/gitlab/, etc.) -- this file only adds a shared
+# project name and three centrally-managed networks on top, via Compose's
+# `include:` (path resolution for each included file happens relative to
+# that file's own directory, not this one, so none of their bind mounts or
+# build contexts change).
+#
+# Usage:
+#   cd docker && docker compose up -d            # whole lab
+#   cd docker && docker compose up -d gitlab      # just one service
+#   cd docker && docker compose down              # whole lab down
+#
+# The nautobot/postgres/redis/celery stack (docker/nautobot/) IS included
+# below by reference only -- its files live in an independently-managed
+# nested git repository (see knowledge/architecture/Current-State.md) and
+# are never edited from this repo, only pointed at. Including it (rather
+# than leaving it out) is deliberate: Compose reconciles ALL resources under
+# a shared project name during `up`/`down`, so a second, separate `docker
+# compose` invocation reusing the same project name without declaring
+# nautobot's resources would see them as orphaned and attempt to remove them
+# (this happened once during setup -- Docker's own safety check blocked it
+# because the network was in active use, but it should never be attempted in
+# the first place). Its own default network still auto-allocates a subnet
+# from Docker's 172.16.0.0/12 pool -- a known, low-severity residual risk
+# since nautobot itself never talks to the ACI simulator directly -- see
+# knowledge/architecture/Platform-v2-As-Built.md §4.
+name: "infra-automation-lab"
+
+include:
+  - path: "nautobot/environments/docker-compose.base.yml"
+  - path: "nautobot/environments/docker-compose.postgres.yml"
+  - path: "nautobot/environments/docker-compose.local.yml"
+  - path: "vault/docker-compose.yml"
+  - path: "platform-api/docker-compose.yml"
+  - path: "other-containers/gitlab/docker-compose.yml"
+  - path: "other-containers/gitlab-runner/docker-compose.yml"
+  - path: "other-containers/prometheus/docker-compose.yml"
+  - path: "other-containers/grafana/docker-compose.yml"
+  - path: "other-containers/loki/docker-compose.yml"
+  - path: "other-containers/minio/docker-compose.yml"
+  - path: "other-containers/traefik/docker-compose.yml"
+
+networks:
+  # Explicit, centrally-managed subnets outside Docker's 172.16.0.0/12
+  # default auto-allocation pool entirely -- that pool is where the real ACI
+  # simulator (172.30.46.0/24) lives, and two separate incidents this phase
+  # (Loki, then gitlab-runner) proved Docker will happily auto-allocate a
+  # colliding subnet there. See knowledge/architecture/Platform-v2-As-Built.md §4
+  # and knowledge/runbooks/Phase1-Infrastructure-Validation-Report.md §9.
+  app-net:
+    name: "infra-automation-lab_app-net"
+    ipam:
+      config:
+        - subnet: "10.200.0.0/22"
+  obs-net:
+    name: "infra-automation-lab_obs-net"
+    ipam:
+      config:
+        - subnet: "10.200.4.0/24"
+  proxy-net:
+    name: "infra-automation-lab_proxy-net"
+    ipam:
+      config:
+        - subnet: "10.200.5.0/24"

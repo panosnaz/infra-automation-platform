@@ -47,11 +47,11 @@ The platform requires a single source that represents the desired operational st
 
 # Decision
 
-Nautobot shall be the **authoritative Source of Truth (SoT)** for the Network Platform Engineering Platform.
+Nautobot shall be the **authoritative Source of Truth (SoT)** for the Network Platform Engineering Platform's **network inventory and topology** — tenants, VRFs, prefixes, interfaces, devices, bridge domains, and other objects that fit Nautobot's native DCIM/IPAM data model.
 
-All engineering intent originates from Nautobot.
+All network-domain engineering intent originates from Nautobot. Terraform, Ansible, validation frameworks and AI agents consume data from Nautobot but do not own the desired network state.
 
-Terraform, Ansible, validation frameworks and AI agents consume data from Nautobot but do not own the desired state.
+> **Scope clarification (2026-07-28, see [ADR-019](ADR-019-Three-Truths-Principle.md)):** this ADR governs which system owns *network inventory and topology*. It does not claim Nautobot is the sole authority for *business intent* (why a change was requested, what outcome it serves) or *non-network-shaped state* (security policies, cloud WAF rules, NAC posture policies). Those concerns are addressed separately by ADR-019's "Three Truths" principle. Nothing in this ADR prevents a future intent layer from sitting above Nautobot — it only requires that Nautobot remain the authoritative source for the network objects downstream automation consumes.
 
 ---
 
@@ -199,6 +199,8 @@ Future domains include:
 * Kubernetes Networking
 
 The Source of Truth should support multiple infrastructure domains.
+
+> **Extensibility boundary (2026-07-28):** domains whose objects fit Nautobot's DCIM/IPAM model (network inventory, topology, IPAM — e.g. ACI, EVPN) should use Nautobot as their SoT. Domains whose objects do not fit that model (firewall security policies, cloud WAF rules, NAC posture policies) may require their own domain-specific SoT, with the platform's orchestration layer coordinating across SoTs. This ADR does not mandate that *every* future domain must store its state in Nautobot — only that Nautobot is the SoT for network-shaped objects. See [ADR-019](ADR-019-Three-Truths-Principle.md) for the full multi-domain SoT design principle.
 
 ---
 
@@ -410,14 +412,17 @@ This restores alignment between engineering intent and operational reality.
 
 | Component       | Responsibility                  |
 | --------------- | ------------------------------- |
-| Nautobot        | Engineering Intent              |
-| Platform API    | Platform abstraction            |
-| Workflow Engine | Orchestration                   |
+| Nautobot        | Network inventory and topology SoT |
+| NetAsCode YAML  | Git-committed desired-state artifact (generated from Nautobot) |
+| Platform API    | Platform abstraction (legacy v1; replaced by MCP Server in v2) |
+| MCP Server (future) | Business-operation entry point; thin, never orchestrates |
+| Intent Layer (future) | Business intent — *why* a change was requested (see ADR-019) |
+| Workflow Engine | Orchestration (GitLab CI in Platform v2) |
 | Terraform       | Infrastructure provisioning     |
 | Ansible         | Day-2 operational configuration |
 | Validation      | Independent verification        |
 | Observability   | Operational visibility          |
-| AI Agents       | Engineering assistance          |
+| AI Agents       | Engineering assistance and reasoning |
 
 Each component has a single well-defined responsibility.
 

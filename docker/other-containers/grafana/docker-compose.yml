@@ -14,7 +14,7 @@ services:
       GF_SECURITY_ADMIN_PASSWORD: "${GRAFANA_ADMIN_PASSWORD:?Set GRAFANA_ADMIN_PASSWORD in the environment before starting this stack}"
     volumes:
       - "./provisioning:/etc/grafana/provisioning:ro"
-      - "data:/var/lib/grafana"
+      - "grafana_data:/var/lib/grafana"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     healthcheck:
@@ -24,7 +24,16 @@ services:
       start_period: "15s"
       retries: 5
     restart: unless-stopped
+    networks:
+      - obs-net
+
+networks:
+  obs-net:
+    external: true
+    name: "infra-automation-lab_obs-net"
 
 volumes:
-  data:
+  # 2026-07-28: renamed from the generic "data" key -- see the matching note
+  # in gitlab/docker-compose.yml for why this was necessary.
+  grafana_data:
     name: "infra-automation-lab_grafana_data"

@@ -77,13 +77,16 @@ This is a genuine implementation gap versus the target, not a Prometheus configu
 
 ---
 
-# 4. Docker Networking — One Real Deviation from the "No New Bridge Network" Principle
+# 4. Docker Networking — Consolidated (resolved 2026-07-28)
 
-The reference architecture's Docker Networking Diagram (§3) describes three explicit named networks (`app-net`, `obs-net`, `proxy-net`) with deliberately chosen, non-conflicting subnets. Phase 1's actual implementation deviated from this: each new service was given **its own Docker Compose default network** (unnamed, Docker-auto-allocated), following the pattern already proven by `platform-api` rather than pre-declaring the three named networks up front.
+The reference architecture's Docker Networking Diagram (§3) describes three explicit named networks (`app-net`, `obs-net`, `proxy-net`) with deliberately chosen, non-conflicting subnets. This is now fully implemented: a single root [`docker/docker-compose.yml`](../../docker/docker-compose.yml) uses Compose's `include:` to bring all 9 non-Nautobot stacks plus Nautobot's own (referenced, never edited — it remains an independently-managed nested git repository) under one Compose project (`infra-automation-lab`), on three centrally-managed networks with explicit subnets (`app-net` 10.200.0.0/22, `obs-net` 10.200.4.0/24, `proxy-net` 10.200.5.0/24) — all outside Docker's `172.16.0.0/12` default auto-allocation pool, eliminating the entire class of subnet-collision bug that hit this stack twice (Loki, then GitLab Runner) during Phase 1.
 
-This worked cleanly for every service except `loki`, whose auto-allocated subnet (`172.30.0.0/16`) happened to fully contain the real ACI simulator's address (`172.30.46.103`), hijacking routing for any container that needed to reach it. This is documented in full, with root-cause evidence, in the validation report §9.
+**Two real issues were hit and fixed during this consolidation, both now documented as lessons in repo memory:**
 
-**Fix applied:** pinned an explicit subnet (`10.220.0.0/24`) on `loki`'s network rather than retroactively adopting the reference architecture's three-named-network model. **This remains a deviation worth revisiting in Phase 2** — the reference architecture's explicit `app-net`/`obs-net`/`proxy-net` model with deliberately chosen subnets would prevent this entire class of collision by design, rather than requiring a manual pin per-service after the fact. Recommendation: adopt the three-named-network model when the MCP Server is introduced, since that is also the point at which cross-network traffic (MCP → Nautobot, MCP → GitLab, MCP → Vault) becomes real rather than host-port-mediated.
+1. **Project-name reconciliation risk.** Compose reconciles *all* resources sharing a project name during `up`/`down`, not just what's declared in the current invocation. An early attempt that didn't include Nautobot's files (while still using the same project name) caused Compose to treat Nautobot's network as orphaned and briefly disrupt it. Fixed by including Nautobot's existing files by reference.
+2. **Volume/network key collisions under `include:`.** Compose merges all included files' top-level `volumes:`/`networks:` keys into one flat namespace — generic local key names (e.g. `data`, `config`) used by multiple files collide, with one silently winning and unrelated services ending up mounted on the wrong volume (confirmed: MinIO briefly mounted onto GitLab's own data volume). Fixed by renaming every volume key to be globally unique (`grafana_data`, `gitlab_config`, `gitlab_runner_config`, etc.) — the external Docker volume `name:` values were never affected, only the local YAML keys.
+
+Full incident detail: [`Current-State.md`](Current-State.md)'s 2026-07-28 entries. **This closes the deviation this section used to describe as "worth revisiting in Phase 2" — it is no longer a deviation.**
 
 ---
 

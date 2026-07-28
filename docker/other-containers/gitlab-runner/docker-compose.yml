@@ -8,27 +8,24 @@ services:
     image: "gitlab/gitlab-runner:latest"
     container_name: "infra-automation-lab-gitlab-runner"
     volumes:
-      - "config:/etc/gitlab-runner"
+      - "gitlab_runner_config:/etc/gitlab-runner"
       - "/var/run/docker.sock:/var/run/docker.sock"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
     networks:
-      - default
+      - app-net
 
 networks:
-  # Docker auto-allocated 172.30.0.0/16 here too (the same supernet that
-  # contains the real ACI simulator, 172.30.46.103) once loki's stack freed
-  # that slot in the address pool -- confirmed 2026-07-28 via
-  # `docker network inspect gitlab-runner_default`. Pin an explicit,
-  # non-conflicting subnet so this can't recur. See the identical loki
-  # incident documented in docker/other-containers/loki/docker-compose.yml
-  # and knowledge/architecture/Current-State.md.
-  default:
-    ipam:
-      config:
-        - subnet: "10.221.0.0/24"
+  app-net:
+    external: true
+    name: "infra-automation-lab_app-net"
 
 volumes:
-  config:
+  # 2026-07-28: renamed from the generic "config" key -- it collided with
+  # gitlab/docker-compose.yml's own "config" key once both files were merged
+  # under docker/docker-compose.yml's `include:`, causing this container to
+  # be mounted onto GitLab's own /etc/gitlab config volume instead of its own
+  # runner config volume. See the matching note in gitlab/docker-compose.yml.
+  gitlab_runner_config:
     name: "infra-automation-lab_gitlab_runner_config"
