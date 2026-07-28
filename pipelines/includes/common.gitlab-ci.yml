@@ -106,6 +106,7 @@ stages:
   stage: verify
   image: "python:3.12-slim"
   before_script:
+    - apt-get update -qq && apt-get install -y -qq curl >/dev/null
     - pip install --quiet --no-cache-dir -r tests/pyats/requirements.txt
     - . tests/pyats/aci/scripts/load-vault-env.sh
   script:
