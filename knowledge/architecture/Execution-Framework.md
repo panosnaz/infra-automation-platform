@@ -169,18 +169,18 @@ Note the diagram's own ordering: Milestones 1-4 exercise everything from `Gen` (
 
 Per [ADR-018](../adr/ADR-018-NetAsCode-Centric-Execution-Framework.md), Phase 2 is built **domain-automation-first**: the pipeline, generator, policy/approval, and verification/knowledge-capture stages are all proven using existing NetAsCode YAML with no AI or MCP Server involved, before the MCP Server or any AI agent touches the platform at all.
 
-## Milestone 1 — GitLab Execution Pipeline
+## Milestone 1 — GitLab Execution Pipeline ✅ Complete (2026-07-28)
 
 * Register the GitLab Runner against GitLab CE; verify with `gitlab-runner verify`.
 * Build the first end-to-end pipeline (`.gitlab-ci.yml` + `pipelines/includes/common.gitlab-ci.yml` + `pipelines/aci.gitlab-ci.yml`, per Platform-v2-Reference-Architecture.md §6's folder layout) covering: NaC validation → OPA policy check → Terraform execution → Ansible (if applicable) → pyATS verification → deployment-result capture.
 * **Input:** the existing, already-committed `platform/netascode/aci/tenants.yaml` — no generator, no Nautobot read, no AI/MCP involved yet.
-* **Gate:** one full pipeline run succeeds end-to-end against the ACI simulator using this static YAML input.
+* **Gate:** one full pipeline run succeeds end-to-end against the ACI simulator using this static YAML input. **Met** — pipeline #2 on the local GitLab instance, all 7 jobs green.
 
-## Milestone 2 — Nautobot → NetAsCode Integration
+## Milestone 2 — Nautobot → NetAsCode Integration ✅ Complete (2026-07-28)
 
 * Formalize how Nautobot data is converted into NetAsCode YAML (already implemented in `platform/python/generate_aci.py` — this milestone hardens and documents it as the domain automation layer's boundary, per ADR-018).
 * Confirm the generator's output is deterministic (byte-identical YAML for unchanged Nautobot state) and that the generated file is version-controlled (committed by a pipeline job, not left as a local gitignored artifact).
-* **Gate:** the Milestone 1 pipeline now runs against generator output instead of the static fixture, with no other pipeline changes required.
+* **Gate:** the Milestone 1 pipeline now runs against generator output instead of the static fixture, with no other pipeline changes required. **Met** — pipeline #5, a new `generate` stage queries live Nautobot (33 tenants found), proves determinism empirically (two runs, diffed), and commits the generated YAML back to Git (`94586ac`) with `[skip ci]` confirmed not to cause an infinite trigger loop. All 8 jobs green.
 
 ## Milestone 3 — Policy & Approval
 

@@ -6,6 +6,7 @@
 # Ansible/pyATS directory it points at.
 #
 # Stage <-> Execution Framework mapping (knowledge/architecture/Execution-Framework.md):
+#   generate -> Stage 1 (Intent, Milestone 2+: Nautobot -> NetAsCode YAML)
 #   validate -> Stage 2 (Validation, schema half)
 #   policy   -> Stage 3 (Policy)
 #   plan     -> Stage 5 (Execution, terraform plan)
@@ -15,6 +16,7 @@
 #   capture  -> Stage 7 (Knowledge Capture)
 
 stages:
+  - generate
   - validate
   - policy
   - plan
@@ -22,6 +24,32 @@ stages:
   - configure
   - verify
   - capture
+
+.generate_nac:
+  stage: generate
+  image: "python:3.12-slim"
+  before_script:
+    - apt-get update -qq && apt-get install -y -qq git >/dev/null
+    - pip install --quiet --no-cache-dir -r platform/python/requirements.txt
+  script:
+    # Run the generator twice and diff the output -- Milestone 2's gate
+    # requires proving determinism empirically, not assuming it (the
+    # generator writes with sort_keys=False, so determinism depends on
+    # Nautobot returning objects in stable order, not on the generator
+    # sorting them itself).
+    - python3 platform/python/generate_aci.py --url "${NAUTOBOT_URL}" --token "${NAUTOBOT_TOKEN}" --output "$(dirname "${NETASCODE_YAML}")"
+    - cp "${NETASCODE_YAML}" /tmp/generate_run1.yaml
+    - python3 platform/python/generate_aci.py --url "${NAUTOBOT_URL}" --token "${NAUTOBOT_TOKEN}" --output "$(dirname "${NETASCODE_YAML}")"
+    - bash platform/workflows/scripts/check_determinism.sh /tmp/generate_run1.yaml "${NETASCODE_YAML}"
+    # Commit the generated YAML back to Git so it is a version-controlled,
+    # auditable desired-state artifact (ADR-019 Truth #2), not a local
+    # gitignored file. [skip ci] avoids an infinite trigger loop from this
+    # commit's own push.
+    - bash platform/workflows/scripts/commit_generated_yaml.sh "${NETASCODE_YAML}"
+  artifacts:
+    paths:
+      - "${NETASCODE_YAML}"
+    expire_in: "1 week"
 
 .validate_nac:
   stage: validate
