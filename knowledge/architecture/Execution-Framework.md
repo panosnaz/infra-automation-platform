@@ -182,11 +182,15 @@ Per [ADR-018](../adr/ADR-018-NetAsCode-Centric-Execution-Framework.md), Phase 2 
 * Confirm the generator's output is deterministic (byte-identical YAML for unchanged Nautobot state) and that the generated file is version-controlled (committed by a pipeline job, not left as a local gitignored artifact).
 * **Gate:** the Milestone 1 pipeline now runs against generator output instead of the static fixture, with no other pipeline changes required. **Met** — pipeline #5, a new `generate` stage queries live Nautobot (33 tenants found), proves determinism empirically (two runs, diffed), and commits the generated YAML back to Git (`94586ac`) with `[skip ci]` confirmed not to cause an infinite trigger loop. All 8 jobs green.
 
-## Milestone 3 — Policy & Approval
+## Milestone 3 — Policy & Approval ✅ Complete (2026-07-28)
 
 * Integrate OPA into the pipeline as a first-class job (already scaffolded in Milestone 1; this milestone exercises it properly), reusing `docker/platform-api/policy/cisco_aci/tenant_naming.rego`.
 * Configure GitLab protected-environment approval gates (production requires an approver; lab does not).
-* **Gate:** demonstrate one compliant deployment (passes Policy, proceeds through Approval) and one deliberately non-compliant deployment (denied by Policy, never reaches Execution).
+  > **Finding:** GitLab's actual "Protected Environments" feature (environment-level deploy restriction) is Premium/Ultimate-only — confirmed unavailable in this lab's GitLab CE 17.2.2 instance (`License.current` doesn't even exist as a class; the `/protected_environments` API 404s on both GET and POST). Substituted the CE-native equivalent: the `main` branch's existing protected-branch rule (push/merge restricted to Maintainer, access_level 40) already gates manual-job execution for pipelines on that ref — this is GitLab's documented behavior for protected branches, not a Premium feature. **Residual item:** true per-environment differentiation (e.g. "lab" open, "production" Maintainer-only) requires GitLab Premium's Protected Environments when a real second environment is added later; noted here rather than faked.
+* **Gate:** demonstrate one compliant deployment (passes Policy, proceeds through Approval) and one deliberately non-compliant deployment (denied by Policy, never reaches Execution). **Met**:
+  - *Approval gate:* created a real second GitLab user (`developer1`, Developer/access_level 30) and confirmed `POST .../jobs/:id/play` on the manual `terraform_apply` job returns `403 Forbidden` for that user, and `200 OK` for a Maintainer+ user (root) — pipeline #7.
+  - *Compliant path:* pipeline #7 — `policy_check` passed, proceeded through the approval gate, all 8 jobs green.
+  - *Non-compliant path:* created a deliberately invalid tenant (`Bad_Tenant_Policy_Test`, violates `^[a-z0-9-]+$`) directly in Nautobot, triggered pipeline #8 — `policy_check` failed with `DENIED by policy 'cisco_aci': tenant name 'Bad_Tenant_Policy_Test' does not match required pattern ^[a-z0-9-]+$`, and `terraform_plan`/`terraform_apply`/`ansible_configure`/`pyats_verify` all show `skipped` — Execution never ran. Test tenant deleted from Nautobot afterward.
 
 ## Milestone 4 — Verification & Knowledge Capture
 
