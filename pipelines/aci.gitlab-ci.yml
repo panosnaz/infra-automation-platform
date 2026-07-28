@@ -1,0 +1,53 @@
+---
+# Cisco ACI domain pipeline. Extends the shared stage templates in
+# includes/common.gitlab-ci.yml, filling in only this domain's variables --
+# per Platform-v2-Reference-Architecture.md §6, a new domain (EVPN, Fortinet,
+# Azure, ...) only ever needs a new file shaped exactly like this one.
+#
+# Milestone 1 scope (knowledge/architecture/Execution-Framework.md §6): the
+# NETASCODE_YAML input below is the existing, already-committed
+# platform/netascode/aci/tenants.yaml -- no generator, no Nautobot read, no
+# MCP Server or AI involved yet (that's Milestones 2 and 5+).
+
+include:
+  - local: "pipelines/includes/common.gitlab-ci.yml"
+
+variables:
+  NETASCODE_YAML: "platform/netascode/aci/tenants.yaml"
+  POLICY_DOMAIN: "cisco_aci"
+  TERRAFORM_DIR: "platform/terraform/aci"
+  ANSIBLE_DIR: "platform/ansible/aci"
+  TERRAFORM_VERSION: "1.9.8"
+  KNOWLEDGE_CAPTURE_PATH: "knowledge_capture/aci-deployments.jsonl"
+  CI_ENVIRONMENT_NAME: "lab"
+
+validate_nac:
+  extends: ".validate_nac"
+
+policy_check:
+  extends: ".policy_check"
+  needs: ["validate_nac"]
+
+terraform_plan:
+  extends: ".terraform_plan"
+  needs: ["policy_check"]
+
+terraform_apply:
+  extends: ".terraform_apply"
+  needs: ["terraform_plan"]
+  environment:
+    name: "lab"
+
+ansible_configure:
+  extends: ".ansible_configure"
+  needs: ["terraform_apply"]
+
+pyats_verify:
+  extends: ".pyats_verify"
+  needs: ["ansible_configure"]
+
+knowledge_capture:
+  extends: ".knowledge_capture"
+  needs:
+    - job: "pyats_verify"
+      optional: true

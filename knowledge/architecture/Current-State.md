@@ -87,6 +87,12 @@ All tenant names carry an `ACI:` namespace prefix added by the SSoT plugin (e.g.
 
 The ACI simulator is a Cisco APIC development appliance. It represents the target infrastructure for the vertical slice.
 
+### 2026-07-28 incident — integration tests failing to reach the simulator from containers
+
+Four integration smoke tests (`business_approval`, `knowledge_capture`, `milestone3`, `real_terraform`) failed with `platform-api`'s Terraform provider reporting `dial tcp 172.30.46.103:443: i/o timeout`. Investigation ruled out VPN, routing, firewall, DNS, and simulator availability as causes — direct `curl`/`ping`/full APIC login from the **host** all succeeded throughout, which is inconsistent with any of those explanations (all would also break host-level reachability).
+
+Root cause: the same day's Phase 1 infrastructure work (see [`Platform-v2-As-Built.md`](Platform-v2-As-Built.md)) added a new `loki` Docker Compose stack. Docker auto-allocated `172.30.0.0/16` for its default bridge network — a supernet that fully contains the simulator's own `172.30.46.0/24` — which hijacked routing for that address inside any container's network namespace, while leaving the Docker host itself unaffected. Fixed by pinning an explicit, non-conflicting subnet (`10.220.0.0/24`) on the `loki` stack's network. All 4 previously-failing tests passed after the fix; full detail and evidence in [`../runbooks/Phase1-Infrastructure-Validation-Report.md`](../runbooks/Phase1-Infrastructure-Validation-Report.md).
+
 ## HashiCorp Vault (Secrets Management)
 
 | Property | Value |

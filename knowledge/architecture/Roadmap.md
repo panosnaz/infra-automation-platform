@@ -27,6 +27,8 @@ Rather than focusing on specific projects or deadlines, the roadmap describes th
 
 The roadmap serves as a planning guide for future engineering capabilities while remaining flexible enough to accommodate changing business priorities and technology advancements.
 
+> **2026-07-28 update:** the near-term increment following Phase 1's infrastructure work (see [`Platform-v2-As-Built.md`](Platform-v2-As-Built.md)) is **not** scoped as "build the GitLab CI pipeline." It is scoped as the [**Execution Framework**](Execution-Framework.md) — a seven-stage lifecycle (Intent → Validation → Policy → Approval → Execution → Verification → Knowledge Capture) of which GitLab CI implements exactly one stage (Execution) plus hosts the native Approval gate. See [ADR-017](../adr/ADR-017-Execution-Framework.md) for the decision record. The future AI/reasoning-layer integration (Obsidian-compatible knowledge base, Nautobot, GitLab, Vault, OPA, and a future LangGraph layer) is mapped onto this same lifecycle in [`../ai/Future-AI-Integration-Design.md`](../ai/Future-AI-Integration-Design.md), even though LangGraph itself remains a later-phase build.
+
 ---
 
 # Vision
@@ -150,7 +152,7 @@ Capabilities:
 - Continuous validation
 - Engineering standards
 - Architecture Decision Records
-- CI/CD pipelines
+- CI/CD pipelines — see the [Execution Framework](Execution-Framework.md) for the stage-by-stage design this platform builds pipelines against
 
 Primary objective:
 
@@ -175,6 +177,8 @@ Capabilities:
 - Vector database
 - Semantic documentation search
 - Engineering recommendations
+
+See [`../ai/Future-AI-Integration-Design.md`](../ai/Future-AI-Integration-Design.md) for how the knowledge base, Nautobot, GitLab, Vault, OPA, and a future LangGraph reasoning layer map onto this level's capabilities.
 
 Primary objective:
 

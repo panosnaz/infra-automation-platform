@@ -1,0 +1,128 @@
+---
+# Shared Execution Framework stage templates (Platform-v2-Reference-Architecture.md
+# §6). Domain pipelines (e.g. pipelines/aci.gitlab-ci.yml) `include` this file
+# and `extend` these hidden jobs, filling in only domain-specific variables --
+# no domain ever needs to redefine stage logic, only which YAML/Terraform/
+# Ansible/pyATS directory it points at.
+#
+# Stage <-> Execution Framework mapping (knowledge/architecture/Execution-Framework.md):
+#   validate -> Stage 2 (Validation, schema half)
+#   policy   -> Stage 3 (Policy)
+#   plan     -> Stage 5 (Execution, terraform plan)
+#   apply    -> Stage 4 (Approval, manual gate) + Stage 5 (Execution, terraform apply)
+#   configure-> Stage 5 (Execution, Ansible Day-2)
+#   verify   -> Stage 6 (Verification, pyATS)
+#   capture  -> Stage 7 (Knowledge Capture)
+
+stages:
+  - validate
+  - policy
+  - plan
+  - apply
+  - configure
+  - verify
+  - capture
+
+.validate_nac:
+  stage: validate
+  image: "python:3.12-slim"
+  before_script:
+    - pip install --quiet --no-cache-dir PyYAML
+  script:
+    - python3 platform/workflows/scripts/validate_nac.py "${NETASCODE_YAML}"
+  artifacts:
+    paths:
+      - "${NETASCODE_YAML}"
+    expire_in: "1 week"
+
+.policy_check:
+  stage: policy
+  image: "python:3.12-slim"
+  before_script:
+    - pip install --quiet --no-cache-dir PyYAML
+  script:
+    - python3 platform/workflows/scripts/policy_check.py "${NETASCODE_YAML}" "${POLICY_DOMAIN}"
+
+.terraform_plan:
+  stage: plan
+  image: "python:3.12-slim"
+  before_script:
+    - apt-get update -qq && apt-get install -y -qq curl unzip >/dev/null
+    - curl -sSLo /tmp/tf.zip "https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_linux_amd64.zip"
+    - unzip -q /tmp/tf.zip -d /usr/local/bin
+    - . "${TERRAFORM_DIR}/scripts/load-vault-creds.sh"
+  script:
+    - cd "${TERRAFORM_DIR}"
+    - terraform init -input=false
+    - terraform plan -input=false -lock-timeout=60s -out=tfplan
+  resource_group: "terraform-${POLICY_DOMAIN}-${CI_ENVIRONMENT_NAME}"
+  artifacts:
+    paths:
+      - "${TERRAFORM_DIR}/tfplan"
+    expire_in: "1 week"
+
+.terraform_apply:
+  stage: apply
+  image: "python:3.12-slim"
+  before_script:
+    - apt-get update -qq && apt-get install -y -qq curl unzip >/dev/null
+    - curl -sSLo /tmp/tf.zip "https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_linux_amd64.zip"
+    - unzip -q /tmp/tf.zip -d /usr/local/bin
+    - . "${TERRAFORM_DIR}/scripts/load-vault-creds.sh"
+  script:
+    - cd "${TERRAFORM_DIR}"
+    - terraform init -input=false
+    - terraform apply -input=false -auto-approve -lock-timeout=60s tfplan
+  resource_group: "terraform-${POLICY_DOMAIN}-${CI_ENVIRONMENT_NAME}"
+  # Milestone 1: a plain manual gate proves the Approval stage's mechanics.
+  # allow_failure explicitly false so the pipeline actually blocks later
+  # stages (configure/verify/capture) until a human clicks "Run" here --
+  # this is the Stage 4 Approval gate in its simplest form. Milestone 3
+  # hardens this into a real GitLab protected-environment gate (approvers
+  # restricted by role) -- see Execution-Framework.md §2.4 and §6.
+  when: manual
+  allow_failure: false
+  artifacts:
+    paths:
+      - "${TERRAFORM_DIR}/tfplan"
+    expire_in: "1 week"
+
+.ansible_configure:
+  stage: configure
+  image: "python:3.12-slim"
+  before_script:
+    - pip install --quiet --no-cache-dir "ansible-core>=2.16" "hvac>=2.1.0"
+    - ansible-galaxy collection install cisco.aci community.hashi_vault
+  script:
+    - cd "${ANSIBLE_DIR}"
+    - ansible-playbook -i inventory/hosts.yml playbooks/verify-tenants.yml
+  artifacts:
+    when: always
+    paths:
+      - "${ANSIBLE_DIR}/*.log"
+    expire_in: "1 week"
+
+.pyats_verify:
+  stage: verify
+  image: "python:3.12-slim"
+  before_script:
+    - pip install --quiet --no-cache-dir -r tests/pyats/requirements.txt
+    - . tests/pyats/aci/scripts/load-vault-env.sh
+  script:
+    - pyats run job tests/pyats/aci/job.py --testbed-file tests/pyats/aci/testbed.yml --no-mail
+  artifacts:
+    when: always
+    paths:
+      - "**/*.zip"
+    expire_in: "1 week"
+
+.knowledge_capture:
+  stage: capture
+  image: "python:3.12-slim"
+  when: always
+  script:
+    - python3 platform/workflows/scripts/capture_knowledge.py "${KNOWLEDGE_CAPTURE_PATH}"
+  artifacts:
+    paths:
+      - "${KNOWLEDGE_CAPTURE_PATH}"
+    expire_in: "1 month"

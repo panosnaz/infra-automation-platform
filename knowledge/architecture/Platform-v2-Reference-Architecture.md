@@ -15,7 +15,7 @@ last_updated: 2026-07-28
 
 **Version:** 2.0
 
-**Status:** Approved — replacement architecture, implementation not yet started
+**Status:** Approved — replacement architecture; Phase 1 infrastructure implemented and validated (see [`Platform-v2-As-Built.md`](Platform-v2-As-Built.md) and the [Phase 1 Infrastructure Validation Report](../runbooks/Phase1-Infrastructure-Validation-Report.md)); MCP Server not yet built
 
 **Owner:** Platform Engineering Team
 
@@ -24,6 +24,8 @@ last_updated: 2026-07-28
 > **Architectural decision:** this document is a **replacement**, not a migration. The Platform API (`main.py`, `execution_store.py`, `approval_workflow.py`, `terraform_executor.py`, `workflow_stub.py`, `validation_stub.py`, `nautobot_store.py`) is now **legacy (Platform v1)**. It is not preserved, ported, or kept compatible. Only the **proven domain automation** (`platform/python/`, `platform/terraform/`, `platform/ansible/`, `tests/pyats/`) survives unchanged, now invoked by GitLab instead of by Python glue code.
 >
 > **Supersedes:** [`03b-Reference-Architecture.md`](03b-Reference-Architecture.md), [`03c-Platform-Control-Plane.md`](03c-Platform-Control-Plane.md), [`06-AI-Driven-Platform-Evolution.md`](06-AI-Driven-Platform-Evolution.md) (which framed this as an evolution — superseded by this document's replacement framing), Contract #2 ([`02-Platform-API-Specification.md`](../11-Specifications/02-Platform-API-Specification.md)) and Contract #3 ([`03-Platform-Execution-Model-Specification.md`](../11-Specifications/03-Platform-Execution-Model-Specification.md)). ADR-004, ADR-005, ADR-006, ADR-015 are retired by this decision. The full file-by-file disposition is the Component Responsibility Matrix already reviewed and approved (session record, not duplicated here).
+>
+> **Next increment:** scoped as the [Execution Framework](Execution-Framework.md) (ADR-017), not narrowly as "GitLab CI pipeline work" — GitLab CI implements one stage of that framework.
 
 ---
 
@@ -315,8 +317,8 @@ mcp-server/
         azure.py                           # future
       schemas/
         __init__.py
-        common.py                # shared Pydantic base (lineage from Platform v1's CanonicalIntent)
-        aci.py                       # ACI-specific request schemas (extends common.py for AP/EPG/Contract/L3Out — new, not modeled in v1)
+        common.py                # shared Pydantic conventions only (field-level helpers) -- NOT a cross-domain intent envelope; see ADR-018
+        aci.py                       # ACI-specific per-tool request schemas (thin argument validation only -- create_tenant, create_vrf, etc.)
   tests/
     unit/
     integration/
@@ -354,6 +356,8 @@ Structured JSON logs per tool call (tool name, request ID, domain, duration, out
 `show_status` merges Nautobot's Change Log with GitLab's pipeline status — the one piece of genuinely new logic the MCP Server owns (per the Platform Boundary Review already conducted).
 
 ## 7.8 Tool catalogue
+
+Per [ADR-018](../adr/ADR-018-NetAsCode-Centric-Execution-Framework.md), every tool below writes structured objects directly to Nautobot -- there is no shared intent envelope. NetAsCode YAML, generated from Nautobot by the domain generator, is the authoritative intent artifact that the Execution Framework's later stages consume; the MCP Server's job ends at the Nautobot write plus triggering/monitoring the pipeline.
 
 **Generic** (never imports vendor-specific code): `deploy`, `approve_change`, `deny_change`, `show_status`, `query_knowledge`.
 

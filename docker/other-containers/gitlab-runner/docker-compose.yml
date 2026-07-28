@@ -1,0 +1,34 @@
+---
+services:
+  gitlab-runner:
+    labels:
+      com.unisystems.lab.name: "infra-automation-lab"
+      com.unisystems.lab.scope: "nautobot-infra-automation"
+      com.unisystems.lab.role: "gitlab-runner"
+    image: "gitlab/gitlab-runner:latest"
+    container_name: "infra-automation-lab-gitlab-runner"
+    volumes:
+      - "config:/etc/gitlab-runner"
+      - "/var/run/docker.sock:/var/run/docker.sock"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+    networks:
+      - default
+
+networks:
+  # Docker auto-allocated 172.30.0.0/16 here too (the same supernet that
+  # contains the real ACI simulator, 172.30.46.103) once loki's stack freed
+  # that slot in the address pool -- confirmed 2026-07-28 via
+  # `docker network inspect gitlab-runner_default`. Pin an explicit,
+  # non-conflicting subnet so this can't recur. See the identical loki
+  # incident documented in docker/other-containers/loki/docker-compose.yml
+  # and knowledge/architecture/Current-State.md.
+  default:
+    ipam:
+      config:
+        - subnet: "10.221.0.0/24"
+
+volumes:
+  config:
+    name: "infra-automation-lab_gitlab_runner_config"

@@ -1,0 +1,32 @@
+http:
+  routers:
+    nautobot:
+      rule: "Host(`nautobot.lab.local`)"
+      service: "nautobot"
+    gitlab:
+      rule: "Host(`gitlab.lab.local`)"
+      service: "gitlab"
+    platform-api:
+      rule: "Host(`platform-api.lab.local`)"
+      service: "platform-api"
+    grafana:
+      rule: "Host(`grafana.lab.local`)"
+      service: "grafana"
+
+  services:
+    nautobot:
+      loadBalancer:
+        servers:
+          - url: "http://host.docker.internal:8080"
+    gitlab:
+      loadBalancer:
+        servers:
+          - url: "http://host.docker.internal:8929"
+    platform-api:
+      loadBalancer:
+        servers:
+          - url: "http://host.docker.internal:8000"
+    grafana:
+      loadBalancer:
+        servers:
+          - url: "http://host.docker.internal:3000"

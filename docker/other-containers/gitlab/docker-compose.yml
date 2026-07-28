@@ -1,0 +1,52 @@
+---
+services:
+  gitlab:
+    labels:
+      com.unisystems.lab.name: "infra-automation-lab"
+      com.unisystems.lab.scope: "nautobot-infra-automation"
+      com.unisystems.lab.role: "gitlab"
+    image: "gitlab/gitlab-ce:17.2.2-ce.0"
+    container_name: "infra-automation-lab-gitlab"
+    hostname: "gitlab.local"
+    ports:
+      - "8929:8929"
+      - "8922:22"
+    environment:
+      GITLAB_OMNIBUS_CONFIG: |
+        external_url 'http://gitlab.local:8929'
+        gitlab_rails['gitlab_shell_ssh_port'] = 8922
+        # This lab already runs its own Prometheus, Grafana and Loki stack
+        # (docker/other-containers/{prometheus,grafana,loki}) -- disable
+        # GitLab's bundled copies to reduce memory footprint on this host.
+        # Note: `grafana['enable']` was removed from Omnibus in newer GitLab
+        # releases (bundled Grafana no longer exists) -- do not set it.
+        prometheus_monitoring['enable'] = false
+        alertmanager['enable'] = false
+        # Not needed for this lab's Phase 1 scope; reduces footprint further.
+        registry['enable'] = false
+        gitlab_kas['enable'] = false
+        # Puma worker count tuned down for a lab host with shared resources.
+        puma['worker_processes'] = 2
+        sidekiq['concurrency'] = 10
+    volumes:
+      - "config:/etc/gitlab"
+      - "logs:/var/log/gitlab"
+      - "data:/var/opt/gitlab"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    shm_size: "256m"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8929/-/health"]
+      interval: "30s"
+      timeout: "10s"
+      start_period: "180s"
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  config:
+    name: "infra-automation-lab_gitlab_config"
+  logs:
+    name: "infra-automation-lab_gitlab_logs"
+  data:
+    name: "infra-automation-lab_gitlab_data"

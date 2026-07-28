@@ -1,0 +1,29 @@
+---
+services:
+  minio:
+    labels:
+      com.unisystems.lab.name: "infra-automation-lab"
+      com.unisystems.lab.scope: "nautobot-infra-automation"
+      com.unisystems.lab.role: "minio"
+    image: "minio/minio:latest"
+    container_name: "infra-automation-lab-minio"
+    command: ["server", "/data", "--console-address", ":9091"]
+    ports:
+      - "9000:9000"
+      - "9091:9091"
+    environment:
+      MINIO_ROOT_USER: "${MINIO_ROOT_USER:?Set MINIO_ROOT_USER in the environment before starting this stack}"
+      MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD in the environment before starting this stack}"
+    volumes:
+      - "data:/data"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: "15s"
+      timeout: "5s"
+      start_period: "15s"
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  data:
+    name: "infra-automation-lab_minio_data"

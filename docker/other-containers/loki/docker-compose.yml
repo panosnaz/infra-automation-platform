@@ -1,0 +1,39 @@
+---
+services:
+  loki:
+    labels:
+      com.unisystems.lab.name: "infra-automation-lab"
+      com.unisystems.lab.scope: "nautobot-infra-automation"
+      com.unisystems.lab.role: "loki"
+    image: "grafana/loki:latest"
+    container_name: "infra-automation-lab-loki"
+    ports:
+      - "3100:3100"
+    command: ["-config.file=/etc/loki/loki-config.yml"]
+    volumes:
+      - "./loki-config.yml:/etc/loki/loki-config.yml:ro"
+      - "data:/loki"
+    # No healthcheck: the grafana/loki image is a minimal, shell-less image
+    # with no wget/curl available (same situation as the existing OPA
+    # container in docker/platform-api/docker-compose.yml).
+    restart: unless-stopped
+    networks:
+      - default
+
+volumes:
+  data:
+    name: "infra-automation-lab_loki_data"
+
+networks:
+  # Docker auto-allocated 172.30.0.0/16 for this stack's default network,
+  # which fully contains the real ACI simulator's address (172.30.46.103) --
+  # this hijacked routing for that address for any container needing to
+  # reach it (confirmed 2026-07-28: platform-api's terraform provider got
+  # "dial tcp 172.30.46.103:443: i/o timeout" only after this network was
+  # created, while the Docker host itself could still reach the simulator
+  # fine). Pin an explicit subnet outside the 172.16.0.0/12 Docker default
+  # pool entirely to guarantee this can't recur.
+  default:
+    ipam:
+      config:
+        - subnet: "10.220.0.0/24"

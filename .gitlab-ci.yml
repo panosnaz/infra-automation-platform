@@ -1,0 +1,14 @@
+---
+# Root pipeline entrypoint. Includes the domain-specific pipeline for this
+# repo's single active domain (Cisco ACI). Per Execution-Framework.md, this
+# pipeline implements exactly Stage 5 (Execution) end-to-end, hosts Stage 4's
+# native Approval gate, and runs Stage 3 (Policy) and Stage 6/7
+# (Verification/Knowledge Capture) as jobs -- see
+# knowledge/architecture/Execution-Framework.md for the full stage design.
+#
+# Milestone 1 scope (knowledge/architecture/Execution-Framework.md §6):
+# input is the existing, already-committed platform/netascode/aci/tenants.yaml
+# -- no generator, no MCP Server, no AI involved yet.
+
+include:
+  - local: "pipelines/aci.gitlab-ci.yml"

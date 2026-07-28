@@ -60,6 +60,11 @@ services:
     image: "openpolicyagent/opa:latest"
     container_name: "infra-automation-lab-opa"
     command: ["run", "--server", "--addr=0.0.0.0:8181", "/policy"]
+    ports:
+      # Published so GitLab CI jobs (docker executor, network_mode=host per
+      # docker/other-containers/gitlab-runner/) can reach OPA directly at
+      # localhost:8181 for the Execution Framework's Policy stage.
+      - "8181:8181"
     volumes:
       - "./policy:/policy:ro"
     # No healthcheck: the official OPA image has no shell, wget, or curl to
