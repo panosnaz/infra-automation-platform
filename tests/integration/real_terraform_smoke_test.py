@@ -35,9 +35,9 @@ PLATFORM_API_URL = os.environ.get("PLATFORM_API_URL", "http://localhost:8000")
 _VAULT_ADDR = os.environ.get("VAULT_ADDR", "http://localhost:8200")
 _VAULT_TOKEN = os.environ.get("VAULT_TOKEN", "")
 
-_VAULT_COMPOSE_DIR = Path(__file__).resolve().parents[2] / "lab" / "docker" / "vault"
-_KNOWLEDGE_LOG_PATH = Path(__file__).resolve().parents[2] / "lab" / "docker" / "platform-api" / "data" / "knowledge" / "deployments.jsonl"
-_AUDIT_LOG_PATH = Path(__file__).resolve().parents[2] / "lab" / "docker" / "platform-api" / "data" / "policy_denials.jsonl"
+_VAULT_COMPOSE_DIR = Path(__file__).resolve().parents[2] / "docker" / "vault"
+_KNOWLEDGE_LOG_PATH = Path(__file__).resolve().parents[2] / "docker" / "platform-api" / "data" / "knowledge" / "deployments.jsonl"
+_AUDIT_LOG_PATH = Path(__file__).resolve().parents[2] / "docker" / "platform-api" / "data" / "policy_denials.jsonl"
 
 
 def fail(message: str) -> None:

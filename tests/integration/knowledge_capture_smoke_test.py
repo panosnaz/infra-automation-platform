@@ -27,7 +27,7 @@ import httpx
 
 PLATFORM_API_URL = os.environ.get("PLATFORM_API_URL", "http://localhost:8000")
 
-_COMPOSE_DIR = Path(__file__).resolve().parents[2] / "lab" / "docker" / "platform-api"
+_COMPOSE_DIR = Path(__file__).resolve().parents[2] / "docker" / "platform-api"
 _KNOWLEDGE_LOG_PATH = _COMPOSE_DIR / "data" / "knowledge" / "deployments.jsonl"
 
 

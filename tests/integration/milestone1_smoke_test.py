@@ -34,7 +34,7 @@ PLATFORM_API_URL = os.environ.get("PLATFORM_API_URL", "http://localhost:8000")
 NAUTOBOT_URL = os.environ.get("NAUTOBOT_URL", "http://localhost:8080")
 NAUTOBOT_TOKEN = os.environ.get("NAUTOBOT_TOKEN")
 
-_PLATFORM_API_COMPOSE_DIR = Path(__file__).resolve().parents[2] / "lab" / "docker" / "platform-api"
+_PLATFORM_API_COMPOSE_DIR = Path(__file__).resolve().parents[2] / "docker" / "platform-api"
 
 _WEB_TENANT_DOMAIN_INTENT = {
     "apic": {

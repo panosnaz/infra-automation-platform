@@ -1,12 +1,12 @@
 # Nested git repo — handle as submodule or separate decision
-lab/docker/nautobot/
+docker/nautobot/
 
 # Vault unseal keys — never commit
-lab/docker/vault/state/*.txt
-lab/docker/vault/state/*.json
+docker/vault/state/*.txt
+docker/vault/state/*.json
 
 # Platform API runtime data (audit log, etc.) — bind-mounted, not source
-lab/docker/platform-api/data/
+docker/platform-api/data/
 
 # Terraform
 **/.terraform/
