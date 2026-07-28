@@ -139,18 +139,40 @@ stages:
     - . tests/pyats/aci/scripts/load-vault-env.sh
   script:
     - pyats run job tests/pyats/aci/job.py --testbed-file tests/pyats/aci/testbed.yml --no-mail
+    # pyATS writes its archive to /root/.pyats/archive/, outside the job's
+    # working directory -- GitLab CI artifacts must live inside it, so copy
+    # the archive in rather than globbing an out-of-tree absolute path
+    # (which silently found nothing before this fix).
+    - mkdir -p pyats-results
+    - cp /root/.pyats/archive/*/*.zip pyats-results/ 2>/dev/null || true
   artifacts:
     when: always
     paths:
-      - "**/*.zip"
+      - "pyats-results/"
     expire_in: "1 week"
+
+.write_results:
+  stage: verify
+  image: "python:3.12-slim"
+  # needs: is domain-specific (must include generate_nac so the fresh
+  # NETASCODE_YAML artifact is downloaded instead of falling back to a git
+  # checkout of a possibly-stale committed copy) -- set in the domain
+  # pipeline file (e.g. pipelines/aci.gitlab-ci.yml), same pattern as every
+  # other stage in this file.
+  when: always
+  before_script:
+    - pip install --quiet --no-cache-dir PyYAML
+  script:
+    - python3 platform/workflows/scripts/write_results.py "${NETASCODE_YAML}"
 
 .knowledge_capture:
   stage: capture
   image: "python:3.12-slim"
   when: always
+  before_script:
+    - pip install --quiet --no-cache-dir boto3
   script:
-    - python3 platform/workflows/scripts/capture_knowledge.py "${KNOWLEDGE_CAPTURE_PATH}"
+    - python3 platform/workflows/scripts/capture_knowledge.py "${KNOWLEDGE_CAPTURE_PATH}" "${MINIO_KNOWLEDGE_BUCKET}" "${MINIO_KNOWLEDGE_KEY}"
   artifacts:
     paths:
       - "${KNOWLEDGE_CAPTURE_PATH}"

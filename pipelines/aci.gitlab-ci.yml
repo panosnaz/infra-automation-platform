@@ -21,6 +21,9 @@ variables:
   KNOWLEDGE_CAPTURE_PATH: "knowledge_capture/aci-deployments.jsonl"
   CI_ENVIRONMENT_NAME: "lab"
   NAUTOBOT_URL: "http://localhost:8080"
+  MINIO_ENDPOINT: "http://localhost:9000"
+  MINIO_KNOWLEDGE_BUCKET: "knowledge-capture"
+  MINIO_KNOWLEDGE_KEY: "aci/deployments.jsonl"
 
 generate_nac:
   extends: ".generate_nac"
@@ -51,8 +54,25 @@ pyats_verify:
   extends: ".pyats_verify"
   needs: ["ansible_configure"]
 
+# needs generate_nac explicitly (not just the normal upstream chain) so this
+# job always downloads the freshly-generated NETASCODE_YAML artifact, even
+# when pyats_verify (and everything after policy_check) was skipped/failed --
+# without this, GitLab falls back to a plain git checkout of the commit that
+# triggered the pipeline, which can be stale relative to generate_nac's own
+# artifact from this SAME pipeline run (confirmed live: a leftover test
+# tenant from an earlier commit resurfaced this way).
+write_results:
+  extends: ".write_results"
+  needs:
+    - job: "generate_nac"
+    - job: "pyats_verify"
+      optional: true
+
 knowledge_capture:
   extends: ".knowledge_capture"
   needs:
+    - job: "generate_nac"
     - job: "pyats_verify"
+      optional: true
+    - job: "write_results"
       optional: true
