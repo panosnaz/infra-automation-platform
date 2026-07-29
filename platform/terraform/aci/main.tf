@@ -72,6 +72,78 @@ locals {
       })
     }
   ]...)
+
+  # ADR-020 Phase A item 3 -- Flat map of all Filters: "tenant/filter" => {...}
+  filters = merge([
+    for tn, t in local.tenants : {
+      for filt in lookup(t, "filters", []) :
+      "${tn}/${filt.name}" => merge(filt, {
+        tenant_name = tn
+        filter_name = filt.name
+      })
+    }
+  ]...)
+
+  # Flat map of all Filter Entries: "tenant/filter/entry" => {...}
+  filter_entries = merge([
+    for filt_key, filt in local.filters : {
+      for e in lookup(filt, "entries", []) :
+      "${filt_key}/${e.name}" => merge(e, {
+        tenant_name = filt.tenant_name
+        filter_name = filt.filter_name
+      })
+    }
+  ]...)
+
+  # Flat map of all Contracts: "tenant/contract" => {...}
+  contracts = merge([
+    for tn, t in local.tenants : {
+      for c in lookup(t, "contracts", []) :
+      "${tn}/${c.name}" => merge(c, {
+        tenant_name   = tn
+        contract_name = c.name
+      })
+    }
+  ]...)
+
+  # Flat map of all Contract Subjects: "tenant/contract/subject" => {...}
+  contract_subjects = merge([
+    for c_key, c in local.contracts : {
+      for s in lookup(c, "subjects", []) :
+      "${c_key}/${s.name}" => merge(s, {
+        tenant_name   = c.tenant_name
+        contract_name = c.contract_name
+      })
+    }
+  ]...)
+
+  # Flat map of EPG-to-Contract relations, both provided and consumed, built
+  # from each EPG's provided_contracts/consumed_contracts lists:
+  # "tenant/ap/epg/provided/contract" or ".../consumed/contract" => {...}
+  epg_contract_relations = merge([
+    for epg_key, epg in local.endpoint_groups : merge(
+      {
+        for c in lookup(epg, "provided_contracts", []) :
+        "${epg_key}/provided/${c}" => {
+          tenant_name   = epg.tenant_name
+          ap_name       = epg.ap_name
+          epg_name      = epg.name
+          contract_name = c
+          contract_type = "provider"
+        }
+      },
+      {
+        for c in lookup(epg, "consumed_contracts", []) :
+        "${epg_key}/consumed/${c}" => {
+          tenant_name   = epg.tenant_name
+          ap_name       = epg.ap_name
+          epg_name      = epg.name
+          contract_name = c
+          contract_type = "consumer"
+        }
+      }
+    )
+  ]...)
 }
 
 # ---------------------------------------------------------------------------
@@ -185,4 +257,72 @@ resource "aci_application_epg" "this" {
   # Boolean-in-Nautobot -> ACI enum string, same try(...) pattern as the
   # Bridge Domain boolean attributes above. ACI's own default is "exclude".
   preferred_group_member = try(each.value.preferred_group_member ? "include" : "exclude", null)
+}
+
+# ---------------------------------------------------------------------------
+# Filters (ADR-020 Phase A item 3)
+# ---------------------------------------------------------------------------
+resource "aci_filter" "this" {
+  for_each = local.filters
+
+  tenant_dn   = aci_tenant.this[each.value.tenant_name].id
+  name        = each.value.name
+  description = lookup(each.value, "description", null)
+}
+
+resource "aci_filter_entry" "this" {
+  for_each = local.filter_entries
+
+  filter_dn = aci_filter.this["${each.value.tenant_name}/${each.value.filter_name}"].id
+  name      = each.value.name
+
+  # String-valued, null-when-unset attributes -- same lookup(...,null)
+  # pattern as VRF/BD attribute depth (item 1). Valid value strings (e.g.
+  # ether_t: "ip"/"arp"/...; prot: "tcp"/"udp"/"icmp"/...) are left for
+  # Terraform/ACI to validate at plan/apply time, not re-validated here.
+  ether_t     = lookup(each.value, "ether_type", null)
+  prot        = lookup(each.value, "ip_protocol", null)
+  d_from_port = lookup(each.value, "dest_from_port", null)
+  d_to_port   = lookup(each.value, "dest_to_port", null)
+}
+
+# ---------------------------------------------------------------------------
+# Contracts + Subjects (ADR-020 Phase A item 3)
+# ---------------------------------------------------------------------------
+resource "aci_contract" "this" {
+  for_each = local.contracts
+
+  tenant_dn   = aci_tenant.this[each.value.tenant_name].id
+  name        = each.value.name
+  scope       = lookup(each.value, "scope", null)
+  description = lookup(each.value, "description", null)
+}
+
+resource "aci_contract_subject" "this" {
+  for_each = local.contract_subjects
+
+  contract_dn = aci_contract.this["${each.value.tenant_name}/${each.value.contract_name}"].id
+  name        = each.value.name
+
+  # A Subject's Filter Chain -- relation_vz_rs_subj_filt_att accepts a Set of
+  # Filter DNs directly (no separate aci_contract_subject_filter resource
+  # needed for the MVP scope here: no per-filter action/directive/priority
+  # override). Referencing each filter's own .id (rather than the raw YAML
+  # string) creates the implicit dependency edge, same pattern as
+  # relation_to_vrf/relation_to_bridge_domain above.
+  relation_vz_rs_subj_filt_att = [
+    for f in lookup(each.value, "filters", []) :
+    aci_filter.this["${each.value.tenant_name}/${f}"].id
+  ]
+}
+
+# ---------------------------------------------------------------------------
+# EPG-to-Contract relations, provided and consumed (ADR-020 Phase A item 3)
+# ---------------------------------------------------------------------------
+resource "aci_epg_to_contract" "this" {
+  for_each = local.epg_contract_relations
+
+  application_epg_dn = aci_application_epg.this["${each.value.tenant_name}/${each.value.ap_name}/${each.value.epg_name}"].id
+  contract_dn        = aci_contract.this["${each.value.tenant_name}/${each.value.contract_name}"].id
+  contract_type      = each.value.contract_type
 }

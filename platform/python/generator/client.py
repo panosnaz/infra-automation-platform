@@ -16,6 +16,7 @@ _QUERY_TENANTS = """
     id
     name
     description
+    _custom_field_data
     vrfs {
       id
       name
@@ -25,6 +26,14 @@ _QUERY_TENANTS = """
   }
 }
 """
+# ADR-020 Phase A item 3: Contracts/Filters/Subjects have no natural home in
+# Nautobot's existing Tenant/VRF/Prefix/VLAN model, so (per that item's design
+# note) they are stored as a single structured JSON Custom Field on Tenant
+# (`aci_contracts`, holding `{"filters": [...], "contracts": [...]}`) rather
+# than adding new Nautobot models -- read via the `_custom_field_data` field
+# added above. EPG-level provided/consumed contract references live on the
+# EPG's own VLAN object (`aci_epg_contracts` JSON custom field), read via
+# `_QUERY_VLANS`'s existing `_custom_field_data` field below.
 
 _QUERY_PREFIXES = """
 {

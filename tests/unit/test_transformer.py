@@ -294,3 +294,119 @@ def test_epg_preferred_group_member_only_emitted_when_true():
     epgs = {e["name"]: e for e in result["apic"]["tenants"][0]["application_profiles"][0]["endpoint_groups"]}
     assert epgs["web-epg"]["preferred_group_member"] is True
     assert "preferred_group_member" not in epgs["db-epg"]
+
+
+def _tenant_with_contracts(name: str, aci_contracts: dict | None = None) -> dict:
+    return {
+        "name": name,
+        "description": "",
+        "vrfs": [],
+        "_custom_field_data": {"aci_contracts": aci_contracts} if aci_contracts is not None else {},
+    }
+
+
+def test_baseline_output_has_no_filters_or_contracts_when_custom_field_unset():
+    """Regression guard: tenants without the aci_contracts custom field (or
+    with no _custom_field_data at all) must not get filters/contracts keys."""
+    tenants = [_tenant("ACI:acme", vrfs=[{"name": "acme-vrf"}])]
+
+    result = build_netascode_yaml(tenants, prefixes=[])
+
+    tenant = result["apic"]["tenants"][0]
+    assert "filters" not in tenant
+    assert "contracts" not in tenant
+
+
+def test_filters_and_contracts_emitted_from_custom_field():
+    tenants = [
+        _tenant_with_contracts(
+            "ACI:acme",
+            aci_contracts={
+                "filters": [
+                    {
+                        "name": "web-filter",
+                        "entries": [
+                            {
+                                "name": "http",
+                                "ether_type": "ip",
+                                "ip_protocol": "tcp",
+                                "dest_from_port": "http",
+                                "dest_to_port": "http",
+                            }
+                        ],
+                    }
+                ],
+                "contracts": [
+                    {
+                        "name": "web-to-db",
+                        "scope": "context",
+                        "subjects": [{"name": "web-to-db-subj", "filters": ["web-filter"]}],
+                    }
+                ],
+            },
+        )
+    ]
+
+    result = build_netascode_yaml(tenants, prefixes=[])
+
+    tenant = result["apic"]["tenants"][0]
+    assert tenant["filters"] == [
+        {
+            "name": "web-filter",
+            "entries": [
+                {
+                    "name": "http",
+                    "ether_type": "ip",
+                    "ip_protocol": "tcp",
+                    "dest_from_port": "http",
+                    "dest_to_port": "http",
+                }
+            ],
+        }
+    ]
+    assert tenant["contracts"] == [
+        {
+            "name": "web-to-db",
+            "scope": "context",
+            "subjects": [{"name": "web-to-db-subj", "filters": ["web-filter"]}],
+        }
+    ]
+
+
+def test_epg_provided_and_consumed_contracts_emitted_only_when_set():
+    tenants = [_tenant("ACI:acme", vrfs=[{"name": "acme-vrf"}])]
+    vlans = [
+        _vlan(
+            "web-epg",
+            "ACI:acme",
+            custom_fields={
+                "aci_application_profile": "web-ap",
+                "aci_epg_bridge_domain": "web-bd",
+                "aci_epg_contracts": {"provided": ["web-to-db"]},
+            },
+        ),
+        _vlan(
+            "db-epg",
+            "ACI:acme",
+            custom_fields={
+                "aci_application_profile": "web-ap",
+                "aci_epg_bridge_domain": "db-bd",
+                "aci_epg_contracts": {"consumed": ["web-to-db"]},
+            },
+        ),
+        _vlan(
+            "no-contracts-epg",
+            "ACI:acme",
+            custom_fields={"aci_application_profile": "web-ap", "aci_epg_bridge_domain": "other-bd"},
+        ),
+    ]
+
+    result = build_netascode_yaml(tenants, prefixes=[], vlans=vlans)
+
+    epgs = {e["name"]: e for e in result["apic"]["tenants"][0]["application_profiles"][0]["endpoint_groups"]}
+    assert epgs["web-epg"]["provided_contracts"] == ["web-to-db"]
+    assert "consumed_contracts" not in epgs["web-epg"]
+    assert epgs["db-epg"]["consumed_contracts"] == ["web-to-db"]
+    assert "provided_contracts" not in epgs["db-epg"]
+    assert "provided_contracts" not in epgs["no-contracts-epg"]
+    assert "consumed_contracts" not in epgs["no-contracts-epg"]

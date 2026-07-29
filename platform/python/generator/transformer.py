@@ -96,6 +96,12 @@ def build_netascode_yaml(
         if application_profiles:
             entry["application_profiles"] = application_profiles
 
+        filters, contracts = _build_contracts_and_filters(tenant.get("_custom_field_data") or {})
+        if filters:
+            entry["filters"] = filters
+        if contracts:
+            entry["contracts"] = contracts
+
         aci_tenants.append(entry)
 
     return {"apic": {"tenants": aci_tenants}}
@@ -232,12 +238,38 @@ def _build_application_profiles(vlans: list[dict[str, Any]]) -> list[dict[str, A
         if cf.get("aci_epg_preferred_group_member"):
             epg["preferred_group_member"] = True
 
+        # ADR-020 Phase A item 3: EPG-level provided/consumed Contract
+        # references, stored as a JSON Custom Field on the same VLAN.
+        epg_contracts = cf.get("aci_epg_contracts") or {}
+        if provided := epg_contracts.get("provided"):
+            epg["provided_contracts"] = list(provided)
+        if consumed := epg_contracts.get("consumed"):
+            epg["consumed_contracts"] = list(consumed)
+
         aps[ap_name].append(epg)
 
     return [
         {"name": ap_name, "endpoint_groups": epgs}
         for ap_name, epgs in aps.items()
     ]
+
+
+def _build_contracts_and_filters(tenant_cf: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Build apic.tenants[].filters[] and apic.tenants[].contracts[] from a
+    tenant's ``aci_contracts`` JSON Custom Field (ADR-020 Phase A item 3).
+
+    Contracts/Filters/Subjects have no natural home in Nautobot's existing
+    Tenant/VRF/Prefix/VLAN model, so -- per that item's design note -- they
+    are read from a single structured JSON field rather than modeled as new
+    Nautobot object types. Values are passed through as-is (no local
+    validation of e.g. ``scope``/``ether_type`` strings); the netascode/aci
+    Terraform provider validates them at plan/apply time, same convention as
+    every other attribute this generator emits.
+    """
+    data = tenant_cf.get("aci_contracts") or {}
+    filters = list(data.get("filters") or [])
+    contracts = list(data.get("contracts") or [])
+    return filters, contracts
 
 
 def _parse_bd_name(description: str) -> str | None:
