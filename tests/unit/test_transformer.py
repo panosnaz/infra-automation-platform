@@ -465,3 +465,78 @@ def test_l3outs_emitted_from_custom_field():
             ],
         }
     ]
+
+
+def _location(name: str, aci_fabric_policies: dict | None = None) -> dict:
+    return {
+        "name": name,
+        "_custom_field_data": {"aci_fabric_policies": aci_fabric_policies} if aci_fabric_policies is not None else {},
+    }
+
+
+def test_baseline_output_has_no_fabric_or_access_policies_when_locations_unset():
+    """Regression guard: build_netascode_yaml must remain callable without
+    the locations parameter (backward compatibility), and must not add
+    fabric_policies/access_policies keys when no location has the custom
+    field set."""
+    tenants = [_tenant("ACI:acme", vrfs=[{"name": "acme-vrf"}])]
+
+    result = build_netascode_yaml(tenants, prefixes=[])
+
+    assert "fabric_policies" not in result["apic"]
+    assert "access_policies" not in result["apic"]
+
+    result = build_netascode_yaml(tenants, prefixes=[], locations=[_location("ACI-Lab")])
+
+    assert "fabric_policies" not in result["apic"]
+    assert "access_policies" not in result["apic"]
+
+
+def test_fabric_and_access_policies_emitted_from_location_custom_field():
+    locations = [
+        _location(
+            "ACI-Lab",
+            aci_fabric_policies={
+                "vlan_pools": [
+                    {
+                        "name": "pool1",
+                        "alloc_mode": "static",
+                        "ranges": [{"from": "vlan-100", "to": "vlan-200", "alloc_mode": "static", "role": "external"}],
+                    }
+                ],
+                "physical_domains": [{"name": "phys1", "vlan_pool": "pool1"}],
+                "aeps": [{"name": "aep1", "domains": ["phys1"]}],
+                "leaf_interface_policy_groups": [{"name": "ipg1", "aep": "aep1"}],
+            },
+        )
+    ]
+
+    result = build_netascode_yaml([], prefixes=[], locations=locations)
+
+    assert result["apic"]["fabric_policies"] == {
+        "vlan_pools": [
+            {
+                "name": "pool1",
+                "alloc_mode": "static",
+                "ranges": [{"from": "vlan-100", "to": "vlan-200", "alloc_mode": "static", "role": "external"}],
+            }
+        ]
+    }
+    assert result["apic"]["access_policies"] == {
+        "physical_domains": [{"name": "phys1", "vlan_pool": "pool1"}],
+        "aeps": [{"name": "aep1", "domains": ["phys1"]}],
+        "leaf_interface_policy_groups": [{"name": "ipg1", "aep": "aep1"}],
+    }
+
+
+def test_fabric_and_access_policies_aggregated_across_multiple_locations():
+    locations = [
+        _location("site-a", aci_fabric_policies={"vlan_pools": [{"name": "pool-a", "alloc_mode": "static"}]}),
+        _location("site-b", aci_fabric_policies={"vlan_pools": [{"name": "pool-b", "alloc_mode": "dynamic"}]}),
+        _location("site-c"),
+    ]
+
+    result = build_netascode_yaml([], prefixes=[], locations=locations)
+
+    names = {p["name"] for p in result["apic"]["fabric_policies"]["vlan_pools"]}
+    assert names == {"pool-a", "pool-b"}

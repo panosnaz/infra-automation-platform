@@ -41,16 +41,21 @@ def build_netascode_yaml(
     tenants: list[dict[str, Any]],
     prefixes: list[dict[str, Any]],
     vlans: list[dict[str, Any]] | None = None,
+    locations: list[dict[str, Any]] | None = None,
     include_system_tenants: bool = False,
 ) -> dict[str, Any]:
     """Convert Nautobot ACI data to a NetAsCode-compatible YAML structure.
 
     Args:
-        tenants:  List returned by NautobotClient.get_tenants().
-        prefixes: List returned by NautobotClient.get_prefixes().
-        vlans:    List returned by NautobotClient.get_vlans() -- represents
-                  EPGs (ADR-020 Phase A item 2). Optional/defaults to none
-                  for callers that predate this parameter.
+        tenants:   List returned by NautobotClient.get_tenants().
+        prefixes:  List returned by NautobotClient.get_prefixes().
+        vlans:     List returned by NautobotClient.get_vlans() -- represents
+                   EPGs (ADR-020 Phase A item 2). Optional/defaults to none
+                   for callers that predate this parameter.
+        locations: List returned by NautobotClient.get_locations() -- sources
+                   fabric-wide Access/Fabric Policies (ADR-020 Phase B).
+                   Optional/defaults to none for callers that predate this
+                   parameter.
         include_system_tenants: When True, include common/infra/mgmt tenants.
 
     Returns:
@@ -108,7 +113,15 @@ def build_netascode_yaml(
 
         aci_tenants.append(entry)
 
-    return {"apic": {"tenants": aci_tenants}}
+    result: dict[str, Any] = {"apic": {"tenants": aci_tenants}}
+
+    fabric_policies, access_policies = _build_fabric_and_access_policies(locations or [])
+    if fabric_policies:
+        result["apic"]["fabric_policies"] = fabric_policies
+    if access_policies:
+        result["apic"]["access_policies"] = access_policies
+
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -294,6 +307,54 @@ def _build_l3outs(tenant_cf: dict[str, Any]) -> list[dict[str, Any]]:
     """
     data = tenant_cf.get("aci_l3outs") or {}
     return list(data.get("l3outs") or [])
+
+
+def _build_fabric_and_access_policies(
+    locations: list[dict[str, Any]],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Build apic.fabric_policies and apic.access_policies from each
+    Location's ``aci_fabric_policies`` JSON Custom Field (ADR-020 Phase B,
+    logical-only scope).
+
+    VLAN Pools/Physical Domains/AEPs/Leaf Interface Policy Groups are
+    fabric-wide (not Tenant-scoped) objects with no natural Nautobot home,
+    so -- same Custom-Field-JSON approach as Phase A items 3-4 -- they live
+    on the Location representing the ACI fabric/site rather than a new
+    Nautobot model. Aggregated across all Locations that have the field set
+    (multi-site safe, though this lab only has one). Logical-only: no
+    physical port/interface binding is modeled -- this simulator has zero
+    real leaf/spine interface data available (confirmed via direct APIC API
+    query: no l1PhysIf objects exist anywhere, and node-scoped queries fail
+    with "node marked unavailable"). Same pass-through convention as
+    `_build_contracts_and_filters()`/`_build_l3outs()`: no local validation
+    of value strings.
+    """
+    vlan_pools: list[dict[str, Any]] = []
+    physical_domains: list[dict[str, Any]] = []
+    aeps: list[dict[str, Any]] = []
+    leaf_interface_policy_groups: list[dict[str, Any]] = []
+
+    for location in locations:
+        cf = location.get("_custom_field_data") or {}
+        data = cf.get("aci_fabric_policies") or {}
+        vlan_pools.extend(data.get("vlan_pools") or [])
+        physical_domains.extend(data.get("physical_domains") or [])
+        aeps.extend(data.get("aeps") or [])
+        leaf_interface_policy_groups.extend(data.get("leaf_interface_policy_groups") or [])
+
+    fabric_policies: dict[str, Any] = {}
+    if vlan_pools:
+        fabric_policies["vlan_pools"] = vlan_pools
+
+    access_policies: dict[str, Any] = {}
+    if physical_domains:
+        access_policies["physical_domains"] = physical_domains
+    if aeps:
+        access_policies["aeps"] = aeps
+    if leaf_interface_policy_groups:
+        access_policies["leaf_interface_policy_groups"] = leaf_interface_policy_groups
+
+    return fabric_policies, access_policies
 
 
 def _parse_bd_name(description: str) -> str | None:

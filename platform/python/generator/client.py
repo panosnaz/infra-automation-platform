@@ -35,6 +35,24 @@ _QUERY_TENANTS = """
 # EPG's own VLAN object (`aci_epg_contracts` JSON custom field), read via
 # `_QUERY_VLANS`'s existing `_custom_field_data` field below.
 
+# ADR-020 Phase B: VLAN Pools / Physical Domains / AEPs / Leaf Interface Policy
+# Groups are fabric-wide (not Tenant-scoped) objects with no natural Nautobot
+# home either, so (same Custom-Field-JSON approach as Phase A items 3-4) they
+# live on the Location representing the ACI fabric/site
+# (`aci_fabric_policies`). Logical-only scope: this simulator has zero real
+# leaf/spine interface data available (confirmed via direct APIC API query --
+# no l1PhysIf objects exist and node-scoped queries fail with "node marked
+# unavailable"), so no physical port/interface binding is modeled.
+_QUERY_LOCATIONS = """
+{
+  locations {
+    id
+    name
+    _custom_field_data
+  }
+}
+"""
+
 _QUERY_PREFIXES = """
 {
   prefixes {
@@ -103,6 +121,11 @@ class NautobotClient:
         """Return all VLANs with tenant association -- used to represent
         EPGs (ADR-020 Phase A item 2)."""
         return self._query(_QUERY_VLANS)["vlans"]
+
+    def get_locations(self) -> list[dict[str, Any]]:
+        """Return all Locations with their Custom Field data -- used to
+        source fabric-wide Access/Fabric Policies (ADR-020 Phase B)."""
+        return self._query(_QUERY_LOCATIONS)["locations"]
 
     # ------------------------------------------------------------------
     # Internal helpers

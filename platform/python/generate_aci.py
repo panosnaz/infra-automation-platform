@@ -96,6 +96,7 @@ def main() -> None:
         tenants = client.get_tenants()
         prefixes = client.get_prefixes()
         vlans = client.get_vlans()
+        locations = client.get_locations()
     except requests.RequestException as exc:
         print(f"ERROR: Failed to query Nautobot at {nautobot_url}: {exc}", file=sys.stderr)
         sys.exit(1)
@@ -104,12 +105,13 @@ def main() -> None:
         # with an "errors" field in the response body).
         print(f"ERROR: Nautobot GraphQL query failed: {exc}", file=sys.stderr)
         sys.exit(1)
-    print(f"[generator]   tenants={len(tenants)}  prefixes={len(prefixes)}  vlans={len(vlans)}")
+    print(f"[generator]   tenants={len(tenants)}  prefixes={len(prefixes)}  vlans={len(vlans)}  locations={len(locations)}")
 
     data = build_netascode_yaml(
         tenants=tenants,
         prefixes=prefixes,
         vlans=vlans,
+        locations=locations,
         include_system_tenants=args.include_system_tenants,
     )
 

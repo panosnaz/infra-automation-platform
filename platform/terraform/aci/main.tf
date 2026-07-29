@@ -180,6 +180,38 @@ locals {
       })
     }
   ]...)
+
+  # ADR-020 Phase B -- Fabric/Access Policies (logical-only MVP: no physical
+  # interface binding -- see the aci_leaf_access_port_policy_group resource's
+  # comment for why). Fabric-wide, not per-tenant, so read directly off
+  # apic.fabric_policies/apic.access_policies rather than local.tenants.
+  vlan_pools = {
+    for p in lookup(lookup(local.nac.apic, "fabric_policies", {}), "vlan_pools", []) :
+    p.name => p
+  }
+
+  # Flat map of all VLAN Pool ranges: "pool/from" => {...}
+  vlan_pool_ranges = merge([
+    for pool_name, pool in local.vlan_pools : {
+      for r in lookup(pool, "ranges", []) :
+      "${pool_name}/${r.from}" => merge(r, { vlan_pool_name = pool_name })
+    }
+  ]...)
+
+  physical_domains = {
+    for d in lookup(lookup(local.nac.apic, "access_policies", {}), "physical_domains", []) :
+    d.name => d
+  }
+
+  aeps = {
+    for a in lookup(lookup(local.nac.apic, "access_policies", {}), "aeps", []) :
+    a.name => a
+  }
+
+  leaf_interface_policy_groups = {
+    for g in lookup(lookup(local.nac.apic, "access_policies", {}), "leaf_interface_policy_groups", []) :
+    g.name => g
+  }
 }
 
 # ---------------------------------------------------------------------------
@@ -417,4 +449,82 @@ resource "aci_l3_ext_subnet" "this" {
 
   scope     = lookup(each.value, "scope", null)
   aggregate = lookup(each.value, "aggregate", null)
+}
+
+# ---------------------------------------------------------------------------
+# Fabric Policies: VLAN Pools (ADR-020 Phase B, logical-only MVP)
+# ---------------------------------------------------------------------------
+resource "aci_vlan_pool" "this" {
+  for_each = local.vlan_pools
+
+  name        = each.value.name
+  alloc_mode  = each.value.alloc_mode
+  description = lookup(each.value, "description", null)
+}
+
+resource "aci_ranges" "this" {
+  for_each = local.vlan_pool_ranges
+
+  vlan_pool_dn = aci_vlan_pool.this[each.value.vlan_pool_name].id
+  from         = each.value.from
+  to           = each.value.to
+  alloc_mode   = lookup(each.value, "alloc_mode", null)
+  role         = lookup(each.value, "role", null)
+}
+
+# ---------------------------------------------------------------------------
+# Access Policies: Physical Domains, AEPs, Leaf Interface Policy Groups
+# (ADR-020 Phase B, logical-only MVP)
+#
+# Deliberately excludes physical port/interface binding (Leaf/Interface
+# Profiles + Access Port Selectors, which require real leaf node/port
+# names): this ACI simulator has zero real interface data available at all
+# -- confirmed via direct APIC API query (no l1PhysIf objects exist
+# anywhere, and node-scoped queries fail with "node marked unavailable",
+# meaning this simulator does not proxy queries down to individual switch
+# MITs). This models the fabric-wide policy OBJECTS themselves (VLAN Pool,
+# Physical Domain, AEP, Leaf Interface Policy Group + their relations to
+# each other), which require no physical port data to create, but stops
+# short of binding any of them to a real leaf/port.
+# ---------------------------------------------------------------------------
+resource "aci_physical_domain" "this" {
+  for_each = local.physical_domains
+
+  name = each.value.name
+
+  # Relation to the VLAN Pool DN -- referencing the pool's own .id (rather
+  # than the raw YAML string) creates the implicit dependency edge, same
+  # pattern as relation_to_vrf/relation_to_bridge_domain elsewhere in this
+  # file.
+  relation_infra_rs_vlan_ns = (
+    lookup(each.value, "vlan_pool", null) != null
+    ? aci_vlan_pool.this[each.value.vlan_pool].id
+    : null
+  )
+}
+
+resource "aci_attachable_access_entity_profile" "this" {
+  for_each = local.aeps
+
+  name = each.value.name
+
+  # Nested relation blocks (list-of-objects, not a plain Set-of-DN) --
+  # relation_infra_rs_dom_p is the older, deprecated equivalent attribute;
+  # relation_to_domains is the provider's current recommended replacement.
+  relation_to_domains = [
+    for d in lookup(each.value, "domains", []) :
+    { target_dn = aci_physical_domain.this[d].id }
+  ]
+}
+
+resource "aci_leaf_access_port_policy_group" "this" {
+  for_each = local.leaf_interface_policy_groups
+
+  name = each.value.name
+
+  relation_infra_rs_att_ent_p = (
+    lookup(each.value, "aep", null) != null
+    ? aci_attachable_access_entity_profile.this[each.value.aep].id
+    : null
+  )
 }
