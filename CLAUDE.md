@@ -81,7 +81,7 @@ Phase 2 is built domain-automation-first, with no AI/MCP Server involved until M
 | 2 | Nautobot → NetAsCode Integration (`generate_nac` job replaces the static fixture, generator determinism proven) | ✅ Complete |
 | 3 | Policy & Approval (OPA policy job + GitLab protected-branch manual-gate substitute for Premium-only Protected Environments) | ✅ Complete |
 | 4 | Verification & Knowledge Capture (`write_results.py` → Nautobot custom fields, `capture_knowledge.py` → GitLab artifact + MinIO JSONL) | ✅ Complete |
-| 5 | MCP Server (tool registry, thin per-tool schemas, no shared intent envelope per ADR-018) | ❌ Not started |
+| 5 | MCP Server (`mcp-server/`, tool registry, thin per-tool schemas, no shared intent envelope per ADR-018 — `create_tenant` + `show_status` scope) | ✅ Complete |
 | 6 | AI Agents (Claude Desktop, VS Code Copilot Agent, future LangGraph) as MCP clients | ❌ Not started |
 
 The old Platform API (`main.py`, `execution_store.py`, `approval_workflow.py`, `terraform_executor.py`, `nautobot_store.py`) is **legacy (Platform v1)**, replaced (not migrated) per [ADR-016](knowledge/adr/ADR-016-Platform-v2-Replacement-Architecture.md) — do not extend it.
