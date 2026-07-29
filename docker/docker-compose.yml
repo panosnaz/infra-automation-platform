@@ -34,6 +34,7 @@ include:
   - path: "nautobot/environments/docker-compose.local.yml"
   - path: "vault/docker-compose.yml"
   - path: "platform-api/docker-compose.yml"
+  - path: "mcp-server/docker-compose.yml"
   - path: "other-containers/gitlab/docker-compose.yml"
   - path: "other-containers/gitlab-runner/docker-compose.yml"
   - path: "other-containers/prometheus/docker-compose.yml"
