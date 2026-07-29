@@ -12,6 +12,20 @@ from pydantic import BaseModel, Field, field_validator
 # slower round trip that only fails once the pipeline's policy_check job runs.
 _TENANT_NAME_RE = re.compile(r"^[a-z0-9-]+$")
 
+# ACI's own object-naming rule is looser than the Tenant policy above (real
+# ACI allows letters/digits/underscore/period/colon/hyphen for most object
+# names) -- used for every non-Tenant name below (VRF, BD, EPG, AP, Contract,
+# Filter, L3Out, External EPG).
+_ACI_NAME_RE = re.compile(r"^[a-zA-Z0-9_.:-]+$")
+
+
+def _validate_aci_name(v: str) -> str:
+    if not _ACI_NAME_RE.match(v):
+        raise ValueError(
+            f"'{v}' is not a valid ACI object name (allowed: letters, digits, '_', '.', ':', '-')"
+        )
+    return v
+
 
 class CreateTenantRequest(BaseModel):
     name: str = Field(description="Tenant name, e.g. 'finance'. Must match ^[a-z0-9-]+$ (lowercase, digits, hyphens only) -- the same rule the pipeline's OPA policy_check job enforces.")
@@ -27,3 +41,94 @@ class CreateTenantRequest(BaseModel):
                 "here avoids a guaranteed pipeline denial later)"
             )
         return v
+
+
+class CreateVrfRequest(BaseModel):
+    """ADR-020 Phase A item 1 coverage: a first-class Nautobot ipam.vrf
+    object, tenant-scoped."""
+
+    tenant: str = Field(description="Name of the existing Tenant this VRF belongs to.")
+    name: str = Field(description="VRF name.")
+    description: str = Field(default="", description="Optional free-text description")
+
+    @field_validator("name")
+    @classmethod
+    def _validate_name(cls, v: str) -> str:
+        return _validate_aci_name(v)
+
+
+class CreateBridgeDomainRequest(BaseModel):
+    """ADR-020 Phase A item 1 coverage. BD identity is derived from a
+    Prefix's description (`"ACI Bridge Domain: <bd>:<tenant>"`, see
+    transformer.py's module docstring) -- this tool creates that Prefix and
+    its VRF assignment, it does not create a separate first-class BD
+    object (Nautobot has none)."""
+
+    tenant: str = Field(description="Name of the existing Tenant this Bridge Domain belongs to.")
+    vrf: str = Field(description="Name of the existing VRF (in the same tenant) this Bridge Domain is associated with.")
+    name: str = Field(description="Bridge Domain name.")
+    gateway_ip: str = Field(description="Gateway IP and prefix length for the BD's subnet, e.g. '10.10.10.1/24'.")
+    description: str = Field(default="", description="Optional free-text description")
+
+    @field_validator("name")
+    @classmethod
+    def _validate_name(cls, v: str) -> str:
+        return _validate_aci_name(v)
+
+
+class CreateEpgRequest(BaseModel):
+    """ADR-020 Phase A item 2 coverage. EPGs are modeled as Nautobot VLAN
+    objects with two Custom Fields set (aci_application_profile,
+    aci_epg_bridge_domain) -- see transformer.py's `_build_application_profiles()`."""
+
+    tenant: str = Field(description="Name of the existing Tenant this EPG belongs to.")
+    application_profile: str = Field(description="Application Profile name this EPG belongs to (created implicitly if new).")
+    bridge_domain: str = Field(description="Bridge Domain name this EPG binds to (must already exist in this tenant).")
+    name: str = Field(description="EPG name.")
+    vid: int = Field(description="VLAN ID backing this EPG in Nautobot's IPAM (EPGs are modeled as VLANs).", ge=1, le=4094)
+    description: str = Field(default="", description="Optional free-text description")
+
+    @field_validator("name")
+    @classmethod
+    def _validate_name(cls, v: str) -> str:
+        return _validate_aci_name(v)
+
+
+class CreateContractRequest(BaseModel):
+    """ADR-020 Phase A item 3 coverage. Contracts/Filters are modeled as a
+    single structured JSON Custom Field on Tenant (`aci_contracts`) -- this
+    tool appends one Contract (with a single Subject binding one Filter,
+    created if it doesn't already exist for this tenant) rather than
+    creating a first-class Nautobot object."""
+
+    tenant: str = Field(description="Name of the existing Tenant this Contract belongs to.")
+    name: str = Field(description="Contract name.")
+    filter_name: str = Field(description="Name of the Filter this contract's subject binds. Created (with one 'default' entry) if it doesn't already exist in this tenant.")
+    scope: str = Field(default="context", description="Contract scope. Allowed: 'context', 'tenant', 'application-profile', 'global'.")
+    ether_type: str = Field(default="ip", description="Filter entry ether type, only used when the filter is newly created.")
+    ip_protocol: str = Field(default="unspecified", description="Filter entry IP protocol, only used when the filter is newly created.")
+    description: str = Field(default="", description="Optional free-text description")
+
+    @field_validator("name", "filter_name")
+    @classmethod
+    def _validate_name(cls, v: str) -> str:
+        return _validate_aci_name(v)
+
+
+class CreateL3OutRequest(BaseModel):
+    """ADR-020 Phase A item 4 coverage, logical-only scope (no physical
+    interface/OSPF/BGP attachment -- see ADR-020's Phase A item 4 writeup
+    for why). L3Outs are modeled as a structured JSON Custom Field on
+    Tenant (`aci_l3outs`)."""
+
+    tenant: str = Field(description="Name of the existing Tenant this L3Out belongs to.")
+    vrf: str = Field(description="Name of the existing VRF (in the same tenant) this L3Out is associated with.")
+    name: str = Field(description="L3Out name.")
+    external_epg_name: str = Field(description="External EPG name for this L3Out.")
+    subnet: str = Field(default="0.0.0.0/0", description="External subnet (CIDR) for the External EPG, e.g. '0.0.0.0/0'.")
+    description: str = Field(default="", description="Optional free-text description")
+
+    @field_validator("name", "external_epg_name")
+    @classmethod
+    def _validate_name(cls, v: str) -> str:
+        return _validate_aci_name(v)
