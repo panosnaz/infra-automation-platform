@@ -49,6 +49,29 @@ locals {
       })
     }
   ]...)
+
+  # ADR-020 Phase A item 2 -- Flat map of all Application Profiles:
+  # "tenant/ap" => { ...ap attrs, tenant_name, ap_name }
+  application_profiles = merge([
+    for tn, t in local.tenants : {
+      for ap in lookup(t, "application_profiles", []) :
+      "${tn}/${ap.name}" => merge(ap, {
+        tenant_name = tn
+        ap_name     = ap.name
+      })
+    }
+  ]...)
+
+  # Flat map of all EPGs: "tenant/ap/epg" => { ...epg attrs, tenant_name, ap_name }
+  endpoint_groups = merge([
+    for ap_key, ap in local.application_profiles : {
+      for epg in lookup(ap, "endpoint_groups", []) :
+      "${ap_key}/${epg.name}" => merge(epg, {
+        tenant_name = ap.tenant_name
+        ap_name     = ap.ap_name
+      })
+    }
+  ]...)
 }
 
 # ---------------------------------------------------------------------------
@@ -128,4 +151,38 @@ resource "aci_subnet" "this" {
   # ACI rejects an empty scope list, so fall back to "private" if the
   # generator ever emits a subnet with public/private/shared all false.
   scope = length(each.value.scope_values) > 0 ? each.value.scope_values : ["private"]
+}
+
+# ---------------------------------------------------------------------------
+# Application Profiles (ADR-020 Phase A item 2)
+# ---------------------------------------------------------------------------
+resource "aci_application_profile" "this" {
+  for_each = local.application_profiles
+
+  parent_dn   = aci_tenant.this[each.value.tenant_name].id
+  name        = each.value.name
+  description = lookup(each.value, "description", null)
+}
+
+# ---------------------------------------------------------------------------
+# Endpoint Groups (ADR-020 Phase A item 2)
+# ---------------------------------------------------------------------------
+resource "aci_application_epg" "this" {
+  for_each = local.endpoint_groups
+
+  parent_dn   = aci_application_profile.this["${each.value.tenant_name}/${each.value.ap_name}"].id
+  name        = each.value.name
+  description = lookup(each.value, "description", null)
+
+  # Nested relation attribute (not a block) -- referencing the BD resource's
+  # own .name (rather than the raw YAML string) creates the implicit
+  # dependency edge, same pattern as relation_to_vrf on aci_bridge_domain
+  # above.
+  relation_to_bridge_domain = {
+    bridge_domain_name = aci_bridge_domain.this["${each.value.tenant_name}/${each.value.bridge_domain}"].name
+  }
+
+  # Boolean-in-Nautobot -> ACI enum string, same try(...) pattern as the
+  # Bridge Domain boolean attributes above. ACI's own default is "exclude".
+  preferred_group_member = try(each.value.preferred_group_member ? "include" : "exclude", null)
 }

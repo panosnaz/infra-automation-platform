@@ -175,3 +175,122 @@ def test_bridge_domain_omits_attributes_when_custom_field_explicitly_null():
     bd = result["apic"]["tenants"][0]["bridge_domains"][0]
     assert "arp_flooding" not in bd
     assert "mac" not in bd
+
+
+def _vlan(name: str, tenant: str, vid: int = 100, description: str = "", custom_fields: dict | None = None) -> dict:
+    return {
+        "name": name,
+        "vid": vid,
+        "description": description,
+        "tenant": {"name": tenant},
+        "_custom_field_data": custom_fields or {},
+    }
+
+
+def test_baseline_output_has_no_application_profiles_when_no_vlans_given():
+    """Regression guard: build_netascode_yaml must remain callable without
+    the vlans parameter (backward compatibility for existing callers)."""
+    tenants = [_tenant("ACI:acme", vrfs=[{"name": "acme-vrf"}])]
+
+    result = build_netascode_yaml(tenants, prefixes=[])
+
+    assert "application_profiles" not in result["apic"]["tenants"][0]
+
+
+def test_vlan_without_both_epg_custom_fields_is_skipped():
+    """Opt-in requirement: a VLAN missing either aci_application_profile or
+    aci_epg_bridge_domain must not produce an EPG (it's an ordinary IPAM
+    VLAN unrelated to ACI)."""
+    tenants = [_tenant("ACI:acme", vrfs=[{"name": "acme-vrf"}])]
+    vlans = [
+        _vlan("plain-vlan", "ACI:acme"),
+        _vlan("half-set", "ACI:acme", custom_fields={"aci_application_profile": "web-ap"}),
+    ]
+
+    result = build_netascode_yaml(tenants, prefixes=[], vlans=vlans)
+
+    assert "application_profiles" not in result["apic"]["tenants"][0]
+
+
+def test_application_profile_and_epg_emitted_when_both_custom_fields_set():
+    tenants = [_tenant("ACI:acme", vrfs=[{"name": "acme-vrf"}])]
+    vlans = [
+        _vlan(
+            "web-epg",
+            "ACI:acme",
+            description="Web tier",
+            custom_fields={
+                "aci_application_profile": "web-ap",
+                "aci_epg_bridge_domain": "web-bd",
+            },
+        )
+    ]
+
+    result = build_netascode_yaml(tenants, prefixes=[], vlans=vlans)
+
+    aps = result["apic"]["tenants"][0]["application_profiles"]
+    assert aps == [
+        {
+            "name": "web-ap",
+            "endpoint_groups": [
+                {"name": "web-epg", "bridge_domain": "web-bd", "description": "Web tier"}
+            ],
+        }
+    ]
+
+
+def test_epgs_grouped_by_application_profile_name():
+    tenants = [_tenant("ACI:acme", vrfs=[{"name": "acme-vrf"}])]
+    vlans = [
+        _vlan(
+            "web-epg",
+            "ACI:acme",
+            custom_fields={"aci_application_profile": "web-ap", "aci_epg_bridge_domain": "web-bd"},
+        ),
+        _vlan(
+            "db-epg",
+            "ACI:acme",
+            custom_fields={"aci_application_profile": "web-ap", "aci_epg_bridge_domain": "db-bd"},
+        ),
+        _vlan(
+            "other-epg",
+            "ACI:acme",
+            custom_fields={"aci_application_profile": "other-ap", "aci_epg_bridge_domain": "other-bd"},
+        ),
+    ]
+
+    result = build_netascode_yaml(tenants, prefixes=[], vlans=vlans)
+
+    aps = {ap["name"]: ap for ap in result["apic"]["tenants"][0]["application_profiles"]}
+    assert {epg["name"] for epg in aps["web-ap"]["endpoint_groups"]} == {"web-epg", "db-epg"}
+    assert {epg["name"] for epg in aps["other-ap"]["endpoint_groups"]} == {"other-epg"}
+
+
+def test_epg_preferred_group_member_only_emitted_when_true():
+    tenants = [_tenant("ACI:acme", vrfs=[{"name": "acme-vrf"}])]
+    vlans = [
+        _vlan(
+            "web-epg",
+            "ACI:acme",
+            custom_fields={
+                "aci_application_profile": "web-ap",
+                "aci_epg_bridge_domain": "web-bd",
+                "aci_epg_preferred_group_member": True,
+            },
+        ),
+        _vlan(
+            "db-epg",
+            "ACI:acme",
+            custom_fields={
+                "aci_application_profile": "web-ap",
+                "aci_epg_bridge_domain": "db-bd",
+                "aci_epg_preferred_group_member": False,
+            },
+        ),
+    ]
+
+    result = build_netascode_yaml(tenants, prefixes=[], vlans=vlans)
+
+    epgs = {e["name"]: e for e in result["apic"]["tenants"][0]["application_profiles"][0]["endpoint_groups"]}
+    assert epgs["web-epg"]["preferred_group_member"] is True
+    assert "preferred_group_member" not in epgs["db-epg"]

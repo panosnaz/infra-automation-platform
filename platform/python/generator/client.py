@@ -43,6 +43,25 @@ _QUERY_PREFIXES = """
 }
 """
 
+# ADR-020 Phase A item 2: EPGs are represented as VLANs (no new Nautobot
+# plugin/model, per that decision's explicit constraint) -- only VLANs with
+# both aci_application_profile and aci_epg_bridge_domain custom fields set
+# are exported as EPGs (see transformer.py's _build_application_profiles()).
+_QUERY_VLANS = """
+{
+  vlans {
+    id
+    name
+    vid
+    description
+    tenant {
+      name
+    }
+    _custom_field_data
+  }
+}
+"""
+
 
 class NautobotClient:
     """Thin wrapper around the Nautobot GraphQL endpoint."""
@@ -70,6 +89,11 @@ class NautobotClient:
     def get_prefixes(self) -> list[dict[str, Any]]:
         """Return all prefixes with tenant and VRF associations."""
         return self._query(_QUERY_PREFIXES)["prefixes"]
+
+    def get_vlans(self) -> list[dict[str, Any]]:
+        """Return all VLANs with tenant association -- used to represent
+        EPGs (ADR-020 Phase A item 2)."""
+        return self._query(_QUERY_VLANS)["vlans"]
 
     # ------------------------------------------------------------------
     # Internal helpers

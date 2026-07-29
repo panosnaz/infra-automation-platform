@@ -40,6 +40,7 @@ _BD_DESCRIPTION_RE = re.compile(r"^ACI Bridge Domain:\s*(?P<bd>[^:]+):(?P<tenant
 def build_netascode_yaml(
     tenants: list[dict[str, Any]],
     prefixes: list[dict[str, Any]],
+    vlans: list[dict[str, Any]] | None = None,
     include_system_tenants: bool = False,
 ) -> dict[str, Any]:
     """Convert Nautobot ACI data to a NetAsCode-compatible YAML structure.
@@ -47,6 +48,9 @@ def build_netascode_yaml(
     Args:
         tenants:  List returned by NautobotClient.get_tenants().
         prefixes: List returned by NautobotClient.get_prefixes().
+        vlans:    List returned by NautobotClient.get_vlans() -- represents
+                  EPGs (ADR-020 Phase A item 2). Optional/defaults to none
+                  for callers that predate this parameter.
         include_system_tenants: When True, include common/infra/mgmt tenants.
 
     Returns:
@@ -59,6 +63,14 @@ def build_netascode_yaml(
         aci_tenant = _strip_aci_prefix(tenant_raw)
         if aci_tenant:
             prefixes_by_tenant[aci_tenant].append(prefix)
+
+    # Index VLANs (candidate EPGs) by the *stripped* ACI tenant name
+    vlans_by_tenant: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for vlan in vlans or []:
+        tenant_raw = (vlan.get("tenant") or {}).get("name", "")
+        aci_tenant = _strip_aci_prefix(tenant_raw)
+        if aci_tenant:
+            vlans_by_tenant[aci_tenant].append(vlan)
 
     aci_tenants: list[dict[str, Any]] = []
 
@@ -79,6 +91,10 @@ def build_netascode_yaml(
         bridge_domains = _build_bridge_domains(prefixes_by_tenant.get(aci_name, []))
         if bridge_domains:
             entry["bridge_domains"] = bridge_domains
+
+        application_profiles = _build_application_profiles(vlans_by_tenant.get(aci_name, []))
+        if application_profiles:
+            entry["application_profiles"] = application_profiles
 
         aci_tenants.append(entry)
 
@@ -187,6 +203,41 @@ def _build_bridge_domains(prefixes: list[dict[str, Any]]) -> list[dict[str, Any]
 
         result.append(entry)
     return result
+
+
+def _build_application_profiles(vlans: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Build apic.tenants[].application_profiles[].endpoint_groups[] from a
+    tenant's VLANs (ADR-020 Phase A item 2).
+
+    Per that decision, EPGs are represented as Nautobot VLAN objects (no new
+    Nautobot plugin/custom model) -- a VLAN is only exported as an EPG when
+    both ``aci_application_profile`` and ``aci_epg_bridge_domain`` custom
+    fields are explicitly set; VLANs without them are assumed to be
+    ordinary IPAM VLANs unrelated to ACI and silently skipped (this keeps
+    the feature strictly opt-in, unlike VRF/BD attribute depth which reads
+    fields on objects the generator already exports unconditionally).
+    """
+    aps: dict[str, list[dict[str, Any]]] = defaultdict(list)
+
+    for vlan in vlans:
+        cf = vlan.get("_custom_field_data") or {}
+        ap_name = cf.get("aci_application_profile")
+        bd_name = cf.get("aci_epg_bridge_domain")
+        if not ap_name or not bd_name:
+            continue
+
+        epg: dict[str, Any] = {"name": vlan["name"], "bridge_domain": bd_name}
+        if vlan.get("description"):
+            epg["description"] = vlan["description"]
+        if cf.get("aci_epg_preferred_group_member"):
+            epg["preferred_group_member"] = True
+
+        aps[ap_name].append(epg)
+
+    return [
+        {"name": ap_name, "endpoint_groups": epgs}
+        for ap_name, epgs in aps.items()
+    ]
 
 
 def _parse_bd_name(description: str) -> str | None:
