@@ -102,6 +102,20 @@ def _build_vrfs(vrfs: list[dict[str, Any]]) -> list[dict[str, Any]]:
         entry: dict[str, Any] = {"name": vrf["name"]}
         if vrf.get("description"):
             entry["description"] = vrf["description"]
+
+        # ADR-020 Phase A item 1: VRF attribute depth. Custom fields are only
+        # emitted when explicitly set in Nautobot -- an unset field means
+        # "use the netascode/aci Terraform provider's own ACI default",
+        # keeping generated YAML minimal instead of forcing every default
+        # value explicitly.
+        cf = vrf.get("_custom_field_data") or {}
+        if (v := cf.get("aci_ip_data_plane_learning")) is not None:
+            entry["ip_data_plane_learning"] = "enabled" if v else "disabled"
+        if v := cf.get("aci_policy_control_enforcement_direction"):
+            entry["policy_control_enforcement_direction"] = v
+        if v := cf.get("aci_policy_control_enforcement_mode"):
+            entry["policy_control_enforcement_mode"] = v
+
         result.append(entry)
     return result
 
@@ -147,6 +161,29 @@ def _build_bridge_domains(prefixes: list[dict[str, Any]]) -> list[dict[str, Any]
         }
         if vrf_name:
             entry["vrf"] = vrf_name
+
+        # ADR-020 Phase A item 1: Bridge Domain attribute depth, sourced from
+        # the owning Prefix's custom fields (BD identity is derived
+        # per-prefix in this generator, so BD-level attributes live there
+        # too -- see the module docstring). Same "only emit if set" rule as
+        # VRF attributes above.
+        cf = prefix.get("_custom_field_data") or {}
+        if v := cf.get("aci_bd_mac"):
+            entry["mac"] = v
+        if (v := cf.get("aci_bd_arp_flooding")) is not None:
+            entry["arp_flooding"] = bool(v)
+        if (v := cf.get("aci_bd_advertise_host_routes")) is not None:
+            entry["advertise_host_routes"] = bool(v)
+        if v := cf.get("aci_bd_l2_unknown_unicast"):
+            entry["l2_unknown_unicast"] = v
+        if v := cf.get("aci_bd_l3_unknown_multicast"):
+            entry["l3_unknown_multicast"] = v
+        if v := cf.get("aci_bd_multi_destination"):
+            entry["multi_destination"] = v
+        if v := cf.get("aci_bd_ep_move_detect_mode"):
+            entry["ep_move_detect_mode"] = v
+        if (v := cf.get("aci_bd_pim")) is not None:
+            entry["pim"] = bool(v)
 
         result.append(entry)
     return result

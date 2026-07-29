@@ -20,6 +20,7 @@ _QUERY_TENANTS = """
       id
       name
       description
+      _custom_field_data
     }
   }
 }
@@ -37,6 +38,7 @@ _QUERY_PREFIXES = """
     vrfs {
       name
     }
+    _custom_field_data
   }
 }
 """

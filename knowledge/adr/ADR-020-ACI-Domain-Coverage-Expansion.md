@@ -82,10 +82,30 @@ A materially different engineering problem from Phase A: these objects map to Na
 
 ---
 
+# Progress
+
+## Phase A item 1 — VRF and Bridge Domain attribute depth ✅ Complete (2026-07-29)
+
+* Added 11 Nautobot Custom Fields: 3 on `ipam.vrf` (`aci_ip_data_plane_learning`, `aci_policy_control_enforcement_direction`, `aci_policy_control_enforcement_mode`) and 8 on `ipam.prefix` (`aci_bd_mac`, `aci_bd_arp_flooding`, `aci_bd_advertise_host_routes`, `aci_bd_l2_unknown_unicast`, `aci_bd_l3_unknown_multicast`, `aci_bd_multi_destination`, `aci_bd_ep_move_detect_mode`, `aci_bd_pim`) — BD-level fields live on `Prefix` (not a new BD model) since BD identity is already derived per-prefix in the current generator (see `transformer.py`'s module docstring); `igmp_policy` deferred (the provider models it as a relation to a separate `aci_igmp_snooping_policy` resource, not a scalar — out of proportion for this increment).
+* Extended `platform/python/generator/client.py`'s GraphQL queries to fetch `_custom_field_data` for VRFs and Prefixes (confirmed exact field name via live GraphQL introspection, not assumed), and `transformer.py`'s `_build_vrfs`/`_build_bridge_domains` to emit these attributes **only when explicitly set** — an unset Custom Field means "let the netascode/aci Terraform provider's own ACI default apply," keeping generated YAML minimal (same convention `description` already uses).
+* Extended `platform/terraform/aci/main.tf`'s `aci_vrf` and `aci_bridge_domain` resources to consume the new attributes via `lookup(..., null)`/`try(..., null)`. **Every attribute name and valid value was verified against the live `CiscoDevNet/aci` 2.20.0 provider** — via `terraform providers schema -json` for the full attribute list, and the provider's Terraform Registry documentation for exact valid value strings (e.g. `l2_unknown_unicast_flooding`: `"flood"`/`"proxy"`; `multi_destination_flooding`: `"bd-flood"`/`"drop"`/`"encap-flood"`) — not assumed from `Nautobot-NaC-Architecture.md`'s older, unverified schema draft, which used different field names in places (e.g. that document's `routing`/`host_routing` vs. the real provider's `unicast_routing`/`advertise_host_routes`). Confirmed the real provider has **no VRF-level `preferred_group` attribute** (the older doc's field) — Preferred Group Member is an EPG-level concept in this provider version, deferred to Phase A item 2.
+* **Verified live:** set real Custom Field values on `web-tenant`'s VRF/BD, ran the generator against live Nautobot, confirmed the exact expected YAML was produced (`ip_data_plane_learning: disabled`, `policy_control_enforcement_direction: egress`, etc.), then reverted the test values (arbitrary, not deliberate business config) and confirmed the regenerated YAML matched the git-committed baseline exactly (no residual diff).
+* `terraform validate` passes. A live `terraform plan` against the ACI simulator could not be completed this session — `172.30.46.103` was unreachable (confirmed via direct `curl` timeout), the same recurring external outage documented in Milestones 4-5's findings, not a defect in this change. Re-run `terraform plan`/`apply` once the simulator is reachable again for final live-apply confirmation.
+* Added `tests/unit/test_transformer.py` (7 tests, no live infra required): baseline-output-unchanged regression guard, attribute emission when set, `None`-vs-`False` distinction (an explicit `false` must still be emitted, not treated as "unset"), and omission when unset. Full suite: 51/51 unit tests passing (44 pre-existing + 7 new).
+
+## Remaining Phase A items (not started)
+
+2. Application Profiles + EPGs
+3. Contracts / Filters / Subjects (new design)
+4. L3Out (new design, deferred to end of phase)
+
+---
+
 # Consequences
 
 **Positive:** each phase is independently shippable and independently valuable (Phase A alone closes the gap for security-policy-adjacent tenant configuration; Phase B alone closes the gap for physical fabric staging) — sequencing avoids a single large, hard-to-review change. Reusing `Nautobot-NaC-Architecture.md`'s existing schema work for Phase A item 2 and Phase B item 2 avoids redesigning what's already been thought through.
 
-**Negative / risk:** Phase A items 3-4 (Contracts, L3Out) and all of Phase B require new Nautobot data modeling decisions (custom models vs. Custom Fields vs. Relationships) that ADR-001/019 do not currently answer — each should get a short design note before implementation, not be improvised mid-PR. Phase B's Access Policy schema was drafted against an unverified provider version and must be re-checked, not assumed correct.
+**Negative / risk:** Phase A items 3-4 (Contracts, L3Out) and all of Phase B require new Nautobot data modeling decisions (custom models vs. Custom Fields vs. Relationships) that ADR-001/019 do not currently answer — each should get a short design note before implementation, not be improvised mid-PR. Phase B's Access Policy schema was drafted against an unverified provider version and must be re-checked, not assumed correct — **item 1's experience confirms this concern was warranted**: the older doc's VRF/BD field names and the real provider's differed in several places.
 
 **Explicitly out of scope for this ADR:** Fabric-wide POD policies (NTP/DNS/SNMP) — lowest business value for a Tenant-scoped automation platform; revisit only if a concrete need arises.
+
