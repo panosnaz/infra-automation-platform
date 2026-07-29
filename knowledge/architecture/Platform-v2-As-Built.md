@@ -4,7 +4,7 @@ domain: platform
 status: active
 tags: [platform-v2, as-built]
 owner: platform-engineering-team
-last_updated: 2026-07-28
+last_updated: 2026-07-29
 ---
 
 # Platform v2 — As-Built Record
@@ -13,7 +13,7 @@ last_updated: 2026-07-28
 
 **Document Type:** As-Built (implementation record)
 
-**Status:** Live — Phase 1 infrastructure implemented and validated
+**Status:** Live — Phase 1 infrastructure implemented and validated; gitlab-runner and MinIO status corrected 2026-07-29 (both were already in active use, this doc had not been updated since Execution Framework Milestones 1-4 shipped)
 
 **Owner:** Platform Engineering Team
 
@@ -33,16 +33,16 @@ last_updated: 2026-07-28
 | `vault` | Core (existing) | ✅ Deployed, healthy | Stale compose-project path reconciled this phase; no content change |
 | `opa` | Core (existing) | ✅ Deployed, running (no healthcheck — image has no shell, documented precedent) | Unchanged |
 | `gitlab` | New — Core | ✅ Deployed, healthy | Two Omnibus config errors found and fixed (§2) |
-| `gitlab-runner` | New — Core | ⏳ Compose file created, **not started** | Deliberately deferred — needs a GitLab registration token (Phase 2) |
-| `mcp-server` | New — Core | ❌ Not built | Phase 2/3 scope — this is the biggest remaining gap vs. the reference architecture |
+| `gitlab-runner` | New — Core | ✅ Registered and online (`phase2-shared-runner`) | Registered during Milestone 1 (Execution-Framework.md); this row predates that and was never updated |
+| `mcp-server` | New — Core | ❌ Not built | Milestone 5 scope (Execution-Framework.md §6) — this is the biggest remaining gap vs. the reference architecture |
 | `prometheus` | New — Reusable | ✅ Deployed, healthy | Scrape targets for `nautobot`/`platform-api` are configured but **down** — see §3 |
 | `grafana` | New — Reusable | ✅ Deployed, healthy | Datasources provisioned and health-checked OK |
 | `loki` | New — Reusable | ✅ Deployed, running | Healthcheck removed (image has no shell/wget — §2.2); subnet fixed after causing an external connectivity regression (§4) |
-| `minio` | New — Optional | ✅ Deployed, healthy | No buckets in use yet — not wired to anything (expected; Phase 2 scope) |
+| `minio` | New — Optional | ✅ Deployed, healthy, **in active use** | `knowledge-capture` bucket holds real Execution Framework Milestone 4 Knowledge Capture JSONL records (see Execution-Framework.md §6) |
 | `traefik` | New — Optional | ✅ Deployed, running | 4/4 routes verified; no healthcheck defined yet (`/ping` not configured) |
 | `docs` (MkDocs) | New — Optional, low priority | ❌ Not built | Unchanged from reference architecture (still low priority) |
 
-**Overall:** 11 of 14 reference-architecture services are deployed and healthy. `mcp-server` and `docs` are not yet built (expected — out of Phase 1 scope). `gitlab-runner` is intentionally staged but not started.
+**Overall:** 12 of 14 reference-architecture services are deployed and healthy or in active use. `mcp-server` and `docs` are not yet built (expected — Milestone 5+ and low-priority scope respectively). `gitlab-runner` is registered and online (updated 2026-07-29; this table previously said "not started", which was stale as of Milestone 1).
 
 ---
 
@@ -98,9 +98,11 @@ Consistent with ADR-016's "replacement, not migration" framing and this phase's 
 
 # 6. Summary of Remaining Gaps vs. Reference Architecture
 
-1. `mcp-server` — not built (largest gap; Phase 2/3 scope per Roadmap).
-2. `gitlab-runner` — created but not registered/started.
+> **Updated 2026-07-29:** items 2 and 4 below were stale — both are now resolved (see the corrected component table in §1 and §4's own "no longer a deviation" note). Left below with strikethrough-equivalent annotations rather than deleted, so the history of what was closed and when stays visible.
+
+1. `mcp-server` — not built (largest gap; Milestone 5+ scope per Execution-Framework.md §6).
+2. ~~`gitlab-runner` — created but not registered/started.~~ **Resolved:** registered and online (`phase2-shared-runner`) since Milestone 1.
 3. Prometheus scrape targets for `nautobot`/`platform-api` — configured but non-functional (no metrics endpoints exposed).
-4. Three named networks (`app-net`/`obs-net`/`proxy-net`) — not adopted; per-service default networks used instead, with one subnet pinned manually after a collision.
+4. ~~Three named networks (`app-net`/`obs-net`/`proxy-net`) — not adopted.~~ **Resolved:** see §4 — implemented via the root `docker/docker-compose.yml`'s `include:`.
 5. `docs` (MkDocs) — not built (still explicitly low priority in the reference architecture itself).
 6. Traefik `/ping` healthcheck and `*.lab.local` `/etc/hosts` entries — not yet added.

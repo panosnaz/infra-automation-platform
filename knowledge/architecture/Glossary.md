@@ -122,6 +122,8 @@ Within this platform, Cisco NetAsCode fulfils this role for Cisco ACI.
 
 ## Canonical Intent
 
+> **Update (2026-07-29):** this entry describes the original Platform v1 framing (a Platform-API-owned Intent Translation Layer producing a dedicated schema). Per [ADR-018](../adr/ADR-018-NetAsCode-Centric-Execution-Framework.md), the Execution Framework does **not** use a separate Canonical Intent schema at all — NetAsCode YAML is the one authoritative intent artifact. Per [ADR-019](../adr/ADR-019-Three-Truths-Principle.md), the *business intent* concept this entry gestures at ("why was this requested") is now Truth #1, owned by a future AI/LangGraph reasoning layer, not by a Platform API component. The contrast table below is kept for historical grounding of the Canonical-Intent-vs-Canonical-Engineering-Model distinction, which remains conceptually useful even though the left-hand column's implementation plan changed.
+
 The domain-agnostic, fully validated and policy-checked representation of a request produced by the Platform API's Intent Translation Layer, *before* it is written to Nautobot.
 
 Canonical Intent exists to normalise diverse input formats (natural language, Jira tickets, REST payloads, Git commits, portal forms) into one internal shape, regardless of which infrastructure domain (Cisco ACI, VXLAN EVPN, Azure, future domains) the request ultimately targets.

@@ -4,7 +4,7 @@ domain: platform
 status: active
 tags: [platform-v2, execution-framework, roadmap]
 owner: platform-engineering-team
-last_updated: 2026-07-28
+last_updated: 2026-07-29
 ---
 
 # Execution Framework
@@ -13,11 +13,11 @@ last_updated: 2026-07-28
 
 **Document Type:** Architecture — Execution Lifecycle Design
 
-**Status:** Approved — design complete, implementation not yet started (Phase 2)
+**Status:** Approved — design complete; Milestones 1-4 (of 6) implemented and verified against live infrastructure (see §6). Milestones 5-6 (MCP Server, AI Agents) not yet started.
 
 **Owner:** Platform Engineering Team
 
-**Date:** 2026-07-28
+**Date:** 2026-07-28 (implementation status last updated 2026-07-28)
 
 > **Decision records:** [ADR-017](../adr/ADR-017-Execution-Framework.md) (the seven-stage lifecycle) and [ADR-018](../adr/ADR-018-NetAsCode-Centric-Execution-Framework.md) (rescopes Stage 1/2's artifact to NetAsCode YAML, not a Pydantic `CanonicalIntent`). **Supersedes** the framing of Phase 2 as "GitLab CI" in [`Roadmap.md`](Roadmap.md). **Depends on:** [`Platform-v2-Reference-Architecture.md`](Platform-v2-Reference-Architecture.md) for component definitions, [`Platform-v2-As-Built.md`](Platform-v2-As-Built.md) for what is actually deployed today. **Companion:** [`../ai/Future-AI-Integration-Design.md`](../ai/Future-AI-Integration-Design.md) maps the future AI/reasoning layer onto this same lifecycle.
 
