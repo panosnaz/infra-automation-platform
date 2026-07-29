@@ -17,6 +17,8 @@ last_updated: 2026-07-28
 
 **Owner:** Platform Engineering Team
 
+> **Update (2026-07-29):** the "Platform API Security" section below describes the original Platform v1 single-entry-point model (Platform API + n8n + GitHub Actions). Per [ADR-016](../adr/ADR-016-Platform-v2-Replacement-Architecture.md), the Platform API is legacy/replaced — the MCP Server is now the single entry point for AI agents (see [`Platform-v2-Reference-Architecture.md`](Platform-v2-Reference-Architecture.md) §1), and GitLab CE/CI (not GitHub Actions/n8n) is the execution engine. This document's underlying security principles (least privilege, AI never gets direct execution-engine access, secrets centralized in Vault) remain valid and unchanged — only the specific component names are outdated.
+
 ---
 
 # Purpose

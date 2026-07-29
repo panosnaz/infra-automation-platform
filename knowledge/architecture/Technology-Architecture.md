@@ -17,6 +17,8 @@ last_updated: 2026-07-28
 
 **Owner:** Platform Engineering Team
 
+> **Update (2026-07-29):** the Platform API row (FastAPI), Workflow Orchestration row (n8n), and CI/CD row (GitHub Actions) below describe the original Platform v1 technology choices. Per [ADR-016](../adr/ADR-016-Platform-v2-Replacement-Architecture.md), the Platform API is replaced (not migrated) by the MCP Server + Nautobot + GitLab, and GitLab CE/CI is the execution engine actually built and running today (not GitHub Actions) — see [`Platform-v2-Reference-Architecture.md`](Platform-v2-Reference-Architecture.md) for the current technology decisions. The rest of this document's alternatives-considered rationale remains useful context.
+
 ---
 
 # Purpose

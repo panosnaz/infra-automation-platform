@@ -15,6 +15,8 @@ last_updated: 2026-07-28
 **Document Type:** Project Charter
 **Last Updated:** June 2026
 
+> **Update (2026-07-29):** references to the Platform API and n8n below describe the original Platform v1 charter. Per [ADR-016](../adr/ADR-016-Platform-v2-Replacement-Architecture.md), the Platform API is replaced by the MCP Server + Nautobot + GitLab; see [`Platform-v2-Reference-Architecture.md`](Platform-v2-Reference-Architecture.md) and [`Execution-Framework.md`](Execution-Framework.md) for the current architecture and build status. The charter's mission, scope, and objectives below remain valid.
+
 ---
 
 # 1. Executive Summary

@@ -17,6 +17,8 @@ last_updated: 2026-07-28
 
 **Owner:** Platform Engineering Team
 
+> **Update (2026-07-29):** the Platform API reference below describes the original Platform v1 model. Per [ADR-016](../adr/ADR-016-Platform-v2-Replacement-Architecture.md), lifecycle-state ownership described here (e.g. `ExecutionState.lifecycle_state`) is superseded by Nautobot custom fields written by GitLab CI's `write_results` job (Execution Framework Stage 6 — see [`Execution-Framework.md`](Execution-Framework.md) §6's Milestone 4 evidence). The lifecycle-state concepts themselves remain valid.
+
 ---
 
 # Purpose

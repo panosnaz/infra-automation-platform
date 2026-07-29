@@ -17,6 +17,8 @@ last_updated: 2026-07-28
 
 **Owner:** Platform Engineering Team
 
+> **Update (2026-07-29):** the "Workflow Orchestration: n8n" and "Platform API" references below describe the original Platform v1 model. Day-2 operations (`ansible-playbook verify-tenants.yml`/`day2-epg.yml`) are proven and unchanged; per [ADR-016](../adr/ADR-016-Platform-v2-Replacement-Architecture.md), their *trigger* is now a GitLab CI `ansible_configure` stage (see [`Execution-Framework.md`](../architecture/Execution-Framework.md)), not the Platform API/n8n.
+
 ---
 
 # Purpose

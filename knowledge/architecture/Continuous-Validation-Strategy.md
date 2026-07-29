@@ -17,6 +17,8 @@ last_updated: 2026-07-28
 
 **Owner:** Platform Engineering Team
 
+> **Update (2026-07-29):** the Platform API and Workflow Engine (n8n) sections below describe the original Platform v1 validation-trigger model. Per [ADR-016](../adr/ADR-016-Platform-v2-Replacement-Architecture.md) and the [Execution Framework](Execution-Framework.md), validation (pyATS) is now triggered as a GitLab CI stage, not by the Platform API/n8n. The validation principles and tiering described below remain valid.
+
 ---
 
 # Purpose

@@ -17,6 +17,8 @@ last_updated: 2026-07-28
 
 **Owner:** Platform Engineering Team
 
+> **Update (2026-07-29):** "Platform API" throughout this document is the original Platform v1 name for "the platform's single entry point." Per [ADR-016](../adr/ADR-016-Platform-v2-Replacement-Architecture.md), that role is now the **MCP Server** (see [`Platform-v2-Reference-Architecture.md`](../architecture/Platform-v2-Reference-Architecture.md) §1) — the principle ("AI reasons, the platform executes"; AI never bypasses the single entry point) is unchanged and still fully in force, only the component name changed. See [`Future-AI-Integration-Design.md`](Future-AI-Integration-Design.md) for how this maps onto the current Execution Framework.
+
 ---
 
 # Purpose
