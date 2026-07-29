@@ -144,6 +144,42 @@ locals {
       }
     )
   ]...)
+
+  # ADR-020 Phase A item 4 -- Flat map of all L3Outs (logical-only MVP: no
+  # physical fabric attachment, see main.tf's aci_l3_outside comment for why):
+  # "tenant/l3out" => {...}
+  l3outs = merge([
+    for tn, t in local.tenants : {
+      for l3out in lookup(t, "l3outs", []) :
+      "${tn}/${l3out.name}" => merge(l3out, {
+        tenant_name = tn
+        l3out_name  = l3out.name
+      })
+    }
+  ]...)
+
+  # Flat map of all External EPGs: "tenant/l3out/epg" => {...}
+  external_epgs = merge([
+    for l3out_key, l3out in local.l3outs : {
+      for epg in lookup(l3out, "external_epgs", []) :
+      "${l3out_key}/${epg.name}" => merge(epg, {
+        tenant_name = l3out.tenant_name
+        l3out_name  = l3out.l3out_name
+      })
+    }
+  ]...)
+
+  # Flat map of all External EPG subnets: "tenant/l3out/epg/ip" => {...}
+  external_epg_subnets = merge([
+    for epg_key, epg in local.external_epgs : {
+      for sn in lookup(epg, "subnets", []) :
+      "${epg_key}/${sn.ip}" => merge(sn, {
+        tenant_name = epg.tenant_name
+        l3out_name  = epg.l3out_name
+        epg_name    = epg.name
+      })
+    }
+  ]...)
 }
 
 # ---------------------------------------------------------------------------
@@ -325,4 +361,60 @@ resource "aci_epg_to_contract" "this" {
   application_epg_dn = aci_application_epg.this["${each.value.tenant_name}/${each.value.ap_name}/${each.value.epg_name}"].id
   contract_dn        = aci_contract.this["${each.value.tenant_name}/${each.value.contract_name}"].id
   contract_type      = each.value.contract_type
+}
+
+# ---------------------------------------------------------------------------
+# L3Out (ADR-020 Phase A item 4 -- logical-only MVP)
+#
+# Scope deliberately excludes physical fabric attachment (Logical Node/
+# Interface Profiles, routed interfaces, OSPF/BGP protocol config): Nautobot's
+# DCIM has zero leaf/spine devices synced today (only the APIC controller
+# itself), so a real node/interface path can't be sourced from actual fabric
+# inventory yet (that's Phase B's problem -- see ADR-020). This reserves the
+# L3Out object, its VRF association, External EPGs, and their
+# subnets/contract references -- enough to bind Contracts to external
+# traffic classification, but NOT enough alone to pass real external traffic
+# without additional manual interface/routing configuration in the APIC.
+# ---------------------------------------------------------------------------
+resource "aci_l3_outside" "this" {
+  for_each = local.l3outs
+
+  tenant_dn   = aci_tenant.this[each.value.tenant_name].id
+  name        = each.value.name
+  description = lookup(each.value, "description", null)
+
+  # Required relation to the L3Out's VRF -- referencing the VRF's own .id
+  # (rather than the raw YAML string) creates the implicit dependency edge,
+  # same pattern as relation_to_vrf/relation_to_bridge_domain above.
+  relation_l3ext_rs_ectx = aci_vrf.this["${each.value.tenant_name}/${each.value.vrf}"].id
+}
+
+resource "aci_external_network_instance_profile" "this" {
+  for_each = local.external_epgs
+
+  l3_outside_dn = aci_l3_outside.this["${each.value.tenant_name}/${each.value.l3out_name}"].id
+  name          = each.value.name
+  description   = lookup(each.value, "description", null)
+
+  # Direct Set-of-Contract-DN attributes, same simple pattern as
+  # aci_contract_subject.relation_vz_rs_subj_filt_att (item 3) -- no nested
+  # relation blocks needed for this MVP scope.
+  relation_fv_rs_prov = [
+    for c in lookup(each.value, "provided_contracts", []) :
+    aci_contract.this["${each.value.tenant_name}/${c}"].id
+  ]
+  relation_fv_rs_cons = [
+    for c in lookup(each.value, "consumed_contracts", []) :
+    aci_contract.this["${each.value.tenant_name}/${c}"].id
+  ]
+}
+
+resource "aci_l3_ext_subnet" "this" {
+  for_each = local.external_epg_subnets
+
+  external_network_instance_profile_dn = aci_external_network_instance_profile.this["${each.value.tenant_name}/${each.value.l3out_name}/${each.value.epg_name}"].id
+  ip                                   = each.value.ip
+
+  scope     = lookup(each.value, "scope", null)
+  aggregate = lookup(each.value, "aggregate", null)
 }

@@ -410,3 +410,58 @@ def test_epg_provided_and_consumed_contracts_emitted_only_when_set():
     assert "provided_contracts" not in epgs["db-epg"]
     assert "provided_contracts" not in epgs["no-contracts-epg"]
     assert "consumed_contracts" not in epgs["no-contracts-epg"]
+
+
+def test_baseline_output_has_no_l3outs_when_custom_field_unset():
+    """Regression guard: tenants without the aci_l3outs custom field must
+    not get an l3outs key."""
+    tenants = [_tenant("ACI:acme", vrfs=[{"name": "acme-vrf"}])]
+
+    result = build_netascode_yaml(tenants, prefixes=[])
+
+    assert "l3outs" not in result["apic"]["tenants"][0]
+
+
+def test_l3outs_emitted_from_custom_field():
+    tenants = [
+        _tenant_with_contracts(
+            "ACI:acme",
+            aci_contracts=None,
+        )
+    ]
+    tenants[0]["_custom_field_data"] = {
+        "aci_l3outs": {
+            "l3outs": [
+                {
+                    "name": "l3out-internet",
+                    "vrf": "acme-vrf",
+                    "description": "Internet L3Out",
+                    "external_epgs": [
+                        {
+                            "name": "ext-epg-internet",
+                            "provided_contracts": ["web-to-db"],
+                            "subnets": [{"ip": "0.0.0.0/0", "scope": ["import-security"], "aggregate": "shared-rtctrl"}],
+                        }
+                    ],
+                }
+            ]
+        }
+    }
+
+    result = build_netascode_yaml(tenants, prefixes=[])
+
+    tenant = result["apic"]["tenants"][0]
+    assert tenant["l3outs"] == [
+        {
+            "name": "l3out-internet",
+            "vrf": "acme-vrf",
+            "description": "Internet L3Out",
+            "external_epgs": [
+                {
+                    "name": "ext-epg-internet",
+                    "provided_contracts": ["web-to-db"],
+                    "subnets": [{"ip": "0.0.0.0/0", "scope": ["import-security"], "aggregate": "shared-rtctrl"}],
+                }
+            ],
+        }
+    ]

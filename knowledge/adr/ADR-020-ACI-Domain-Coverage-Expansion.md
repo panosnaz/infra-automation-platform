@@ -124,9 +124,24 @@ A materially different engineering problem from Phase A: these objects map to Na
   4. A follow-up targeted `terraform plan` showed **"No changes. Your infrastructure matches the configuration."**
   5. `terraform destroy` (same 7 targets) — **`Destroy complete! Resources: 7 destroyed`** — then deleted the test VLAN from Nautobot, cleared `web-tenant`'s `aci_contracts` custom field back to `null`, regenerated `tenants.yaml`, and confirmed it reports `vlans=0` with no `application_profiles`/`filters`/`contracts` keys for `web-tenant`, matching the pre-test baseline.
 
-## Remaining Phase A items (not started)
+## Phase A item 4 — L3Out ✅ Complete, logical-only MVP scope (2026-07-29)
 
-4. L3Out (new design, deferred to end of phase)
+* **Scope-narrowing discovery before implementation:** checked Nautobot's DCIM directly (`GET /api/dcim/devices/`) and found **zero leaf/spine devices synced — only the APIC controller itself (`apic1`)**. A real L3Out's physical interface attachment (Logical Node Profile + Logical Interface Profile + routed interface path, e.g. node 101 `eth1/1`) fundamentally requires real fabric node/interface inventory, which does not exist in this Nautobot instance today (that's Phase B's problem — VLAN pools, domains, AEPs, interface policy groups all map to the same missing DCIM data). This is a bigger gap than ADR-020's original item 4 note anticipated ("L3Out's Nautobot modeling questions... are non-trivial") — it isn't just a modeling question, the underlying data doesn't exist at all yet.
+* **User decision (asked directly given the scope impact):** proceed with a **logical-only L3Out MVP** — the L3Out object, its VRF association, External EPGs, and their subnets/contract references, explicitly excluding physical fabric attachment, OSPF/BGP protocol config, and Logical Node/Interface Profiles. This reserves the L3Out and lets Contracts bind to it, but does **not** by itself pass real external traffic in a real APIC without additional manual interface/routing configuration — documented as a known, deliberate limitation, not an oversight.
+* Confirmed real `CiscoDevNet/aci` 2.20.0 resource names via `terraform providers schema -json` and Registry docs: `aci_l3_outside` (the L3Out object; required `relation_l3ext_rs_ectx` VRF relation), `aci_external_network_instance_profile` (the External EPG — chosen over the newer `aci_external_epg` nested-relation-block resource specifically because `aci_l3_ext_subnet`'s own official example only documents attaching via `external_network_instance_profile_dn`, and its direct `relation_fv_rs_prov`/`relation_fv_rs_cons` Set-of-DN attributes match this module's existing simple-relation convention from item 3's Contract Subject), `aci_l3_ext_subnet` (the External EPG subnet, e.g. `0.0.0.0/0`).
+* Same Custom-Field-JSON approach as item 3: new `aci_l3outs` (JSON) on `tenancy.tenant`: `{"l3outs": [{"name", "vrf", "description", "external_epgs": [{"name", "provided_contracts": [...], "consumed_contracts": [...], "subnets": [{"ip", "scope": [...], "aggregate"}]}]}]}`. No `client.py` changes needed (tenant `_custom_field_data` already fetched since item 3).
+* Extended `transformer.py` (`_build_l3outs()`, wired into `build_netascode_yaml()`) and `main.tf` (`local.l3outs`/`local.external_epgs`/`local.external_epg_subnets` flat maps + `aci_l3_outside`/`aci_external_network_instance_profile`/`aci_l3_ext_subnet` resources, same `for_each`-flat-map convention as items 1-3).
+* Added 2 new unit tests (baseline unchanged when `aci_l3outs` unset, L3Out/External EPG/Subnet correctly emitted from the JSON custom field). Full suite: 61/61 passing.
+* **Verified live with a real `apply`+`destroy`:** set `aci_l3outs` on `web-tenant` (one L3Out `l3out-internet` on `web-vrf`, one External EPG `ext-epg-internet` with a `0.0.0.0/0` subnet).
+  1. Regenerated `tenants.yaml` — generator correctly emitted the `l3outs` structure exactly matching the JSON custom field.
+  2. `terraform plan` (targeted at the 3 new resource addresses) showed **`Plan: 3 to add`**, with `aci_l3_outside`'s `relation_l3ext_rs_ectx` correctly resolving to `uni/tn-web-tenant/ctx-web-vrf`.
+  3. `terraform apply` (same targets) — **`Apply complete! Resources: 3 added`** — all created successfully in the real APIC.
+  4. A follow-up targeted `terraform plan` showed **"No changes. Your infrastructure matches the configuration."**
+  5. `terraform destroy` (same 3 targets) — **`Destroy complete! Resources: 3 destroyed`** — then cleared `web-tenant`'s `aci_l3outs` custom field back to `null`, regenerated `tenants.yaml`, and confirmed no `l3outs` key remained for `web-tenant`, matching the pre-test baseline.
+
+## Phase A — ✅ All items complete (2026-07-29)
+
+Items 1-4 are all implemented, unit-tested, and live-verified against the real ACI simulator. Item 4's logical-only L3Out scope is the one deliberate, documented gap — full physical L3Out attachment (routed interfaces, OSPF/BGP) is blocked on Phase B's Device/Interface data-modeling work (see Phase B section above), not on anything specific to Tenant Policy Depth. Phase B (Access and Fabric Policies) has not been started.
 
 ---
 

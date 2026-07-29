@@ -102,6 +102,10 @@ def build_netascode_yaml(
         if contracts:
             entry["contracts"] = contracts
 
+        l3outs = _build_l3outs(tenant.get("_custom_field_data") or {})
+        if l3outs:
+            entry["l3outs"] = l3outs
+
         aci_tenants.append(entry)
 
     return {"apic": {"tenants": aci_tenants}}
@@ -270,6 +274,26 @@ def _build_contracts_and_filters(tenant_cf: dict[str, Any]) -> tuple[list[dict[s
     filters = list(data.get("filters") or [])
     contracts = list(data.get("contracts") or [])
     return filters, contracts
+
+
+def _build_l3outs(tenant_cf: dict[str, Any]) -> list[dict[str, Any]]:
+    """Build apic.tenants[].l3outs[] from a tenant's ``aci_l3outs`` JSON
+    Custom Field (ADR-020 Phase A item 4, logical-only MVP scope).
+
+    Scope deliberately excludes physical fabric attachment (Logical Node/
+    Interface Profiles, routed interfaces, OSPF/BGP protocol config): as of
+    this item's implementation, Nautobot's DCIM has zero leaf/spine devices
+    synced (only the APIC controller itself), so a real interface path
+    (node ID + port) cannot be sourced from actual fabric inventory. This
+    emits the L3Out object, its VRF association, External EPGs, and their
+    subnets/contract references only -- enough to reserve the L3Out and
+    bind Contracts to it, but NOT enough alone to pass external traffic in
+    a real APIC without additional manual interface/routing configuration.
+    Same pass-through convention as `_build_contracts_and_filters()`: no
+    local validation of e.g. ``scope``/``aggregate`` strings.
+    """
+    data = tenant_cf.get("aci_l3outs") or {}
+    return list(data.get("l3outs") or [])
 
 
 def _parse_bd_name(description: str) -> str | None:
