@@ -109,3 +109,16 @@ A materially different engineering problem from Phase A: these objects map to Na
 
 **Explicitly out of scope for this ADR:** Fabric-wide POD policies (NTP/DNS/SNMP) — lowest business value for a Tenant-scoped automation platform; revisit only if a concrete need arises.
 
+---
+
+# Phase A Item 1 — Live Verification (2026-07-29)
+
+VRF and Bridge Domain attribute depth (Custom Fields, generator, and Terraform changes) was implemented, then verified against the real ACI simulator once it came back online (it had been unreachable earlier the same day — see Milestone 4/5's findings for this same recurring external-outage class):
+
+- `terraform plan` against the full live tenant set (30 tenants) with no test attributes set: **`Plan: 4 to add, 0 to change, 0 to destroy`** — the 4-to-add is pre-existing, unrelated drift (a `materialization-test-*` debris tenant already known from earlier sessions); critically, **0 to change** confirms the new optional attributes introduce no drift on any already-applied resource when left unset.
+- Set `aci_policy_control_enforcement_mode: "unenforced"` on `web-vrf` via a real Nautobot Custom Field write, regenerated the YAML, re-ran `terraform plan`: **`Plan: 4 to add, 1 to change, 0 to destroy`**, with the plan showing exactly `aci_vrf.this["web-tenant/web-vrf"] will be updated in-place`, `policy_control_enforcement_mode = "enforced" -> "unenforced"` — Terraform correctly read the live APIC's current value (`"enforced"`) and proposed exactly the intended change.
+- Reverted the test value, regenerated, re-ran `terraform plan`: back to `0 to change`, and `tenants.yaml` matched git HEAD exactly (no leftover diff).
+
+This closes Phase A item 1's live-verification gap noted when it was first implemented (the simulator was down at the time). No `terraform apply` was run — a plan-only proof is sufficient for a non-destructive attribute-depth addition, and applying would have changed live simulator state for a value that was only ever meant as a test, not deliberate configuration.
+
+
