@@ -232,3 +232,11 @@ Per [ADR-018](../adr/ADR-018-NetAsCode-Centric-Execution-Framework.md), Phase 2 
 * AI remains responsible for orchestration/reasoning (which tool to call, how to explain the result); NetAsCode YAML remains the authoritative Cisco intent model throughout — AI never bypasses it, never generates it directly, and never touches Terraform/Vault/GitLab credentials.
 * **Gate:** an AI agent completes one full business operation ("create a Tenant") end-to-end through the MCP Server with no manual pipeline triggering.
 
+---
+
+# 7. Domain Coverage — a Separate Axis from These Milestones
+
+Milestones 1-6 above prove the *lifecycle mechanism* (Intent → ... → Knowledge Capture) works end-to-end. They say nothing about how much of a real ACI deployment that mechanism actually covers — as of Milestone 5, the honest answer is: Tenant, VRF, Bridge Domain, and Subnet only (verified directly against `platform/python/generator/transformer.py` and `platform/terraform/aci/main.tf`). Application Profiles/EPGs, Contracts, L3Outs, and all Access/Fabric Policies (VLAN pools, domains, AEPs, interface policies, leaf/spine staging) are not yet covered by the pipeline at all.
+
+Expanding that coverage is tracked separately as [ADR-020](../adr/ADR-020-ACI-Domain-Coverage-Expansion.md) (Tenant Policy Depth, then Access/Fabric Policies) — it reuses every stage and gate defined in this document unchanged; it is deliberately not numbered as a Milestone 7, since it is orthogonal to (not a continuation of) proving the Execution Framework's mechanism.
+
