@@ -212,6 +212,26 @@ locals {
     for g in lookup(lookup(local.nac.apic, "access_policies", {}), "leaf_interface_policy_groups", []) :
     g.name => g
   }
+
+  # ADR-020 Phase C -- POD-wide NTP/DNS/SNMP. Scoped to ACI's real singleton
+  # default POD policies only (this lab has one POD) -- see main.tf's
+  # aci_rest_managed resources below for the confirmed-live DNs/attributes.
+  fabric_pod_policies = lookup(local.nac.apic, "fabric_policies", {})
+  ntp_policy          = lookup(local.fabric_pod_policies, "ntp", {})
+  ntp_servers = {
+    for s in lookup(local.ntp_policy, "servers", []) :
+    s.address => s
+  }
+  dns_policy = lookup(local.fabric_pod_policies, "dns", {})
+  dns_servers = {
+    for s in lookup(local.dns_policy, "servers", []) :
+    s.address => s
+  }
+  dns_domains = {
+    for d in lookup(local.dns_policy, "domains", []) :
+    d.name => d
+  }
+  snmp_policy = lookup(local.fabric_pod_policies, "snmp", {})
 }
 
 # ---------------------------------------------------------------------------
@@ -528,3 +548,125 @@ resource "aci_leaf_access_port_policy_group" "this" {
     : null
   )
 }
+
+# ---------------------------------------------------------------------------
+# Fabric Policies: POD-wide NTP/DNS/SNMP (ADR-020 Phase C)
+#
+# Targets ACI's real singleton default POD policies -- confirmed live
+# against the real simulator (not guessed): `uni/fabric/time-default`,
+# `uni/fabric/dnsp-default`, `uni/fabric/snmppol-default` all exist by
+# default in every ACI fabric. Managed via the generic `aci_rest_managed`
+# resource since the CiscoDevNet/aci provider (v2.20.0, confirmed via
+# `terraform providers schema -json`) has no dedicated typed resource for
+# NTP/DNS Profile -- only `aci_snmp_community`/`aci_snmp_user` exist as
+# typed children for SNMP, attached via `parent_dn`. Attribute names
+# (`datetimeNtpProv.name`/`preferred`/`minPoll`/`maxPoll`,
+# `dnsProv.addr`/`preferred`, `dnsDomain.name`/`isDefault`) were confirmed
+# by live-creating and deleting real test objects against the simulator,
+# not assumed from documentation. Scoped to the single default POD Policy
+# Group only (this lab has one POD) -- custom-named alternate policies with
+# explicit POD Policy Group assignment are out of scope.
+#
+# CRITICAL -- `content_on_destroy` is mandatory on all three resources
+# below: `aci_rest_managed`'s default destroy behavior deletes the entire
+# target DN, not just the attributes/children this resource added. These
+# three DNs are mandatory ACI system singletons that always exist in every
+# fabric -- a plain `terraform destroy` was confirmed live to actually
+# delete them from the real simulator (not just disable/reset them),
+# requiring manual recreation to restore the pre-existing baseline. Never
+# remove `content_on_destroy` from these three resources.
+# ---------------------------------------------------------------------------
+resource "aci_rest_managed" "ntp_policy" {
+  count = length(local.ntp_policy) > 0 ? 1 : 0
+
+  dn         = "uni/fabric/time-default"
+  class_name = "datetimePol"
+  content = {
+    adminSt = lookup(local.ntp_policy, "admin_state", "enabled")
+  }
+  # Resets to this lab's confirmed original defaults on destroy/removal --
+  # never deletes the mandatory singleton object itself.
+  content_on_destroy = {
+    adminSt = "enabled"
+  }
+
+  dynamic "child" {
+    for_each = local.ntp_servers
+    content {
+      rn         = "ntpprov-${child.value.address}"
+      class_name = "datetimeNtpProv"
+      content = {
+        name      = child.value.address
+        preferred = lookup(child.value, "preferred", false) ? "yes" : "no"
+        minPoll   = tostring(lookup(child.value, "min_poll", 4))
+        maxPoll   = tostring(lookup(child.value, "max_poll", 6))
+      }
+    }
+  }
+}
+
+resource "aci_rest_managed" "dns_profile" {
+  count = length(local.dns_policy) > 0 ? 1 : 0
+
+  dn         = "uni/fabric/dnsp-default"
+  class_name = "dnsProfile"
+  content    = {}
+  # Resets to this lab's confirmed original default on destroy/removal --
+  # never deletes the mandatory singleton object itself.
+  content_on_destroy = {
+    IPVerPreference = "IPv4"
+  }
+
+  dynamic "child" {
+    for_each = local.dns_servers
+    content {
+      rn         = "prov-[${child.value.address}]"
+      class_name = "dnsProv"
+      content = {
+        addr      = child.value.address
+        preferred = lookup(child.value, "preferred", false) ? "yes" : "no"
+      }
+    }
+  }
+
+  dynamic "child" {
+    for_each = local.dns_domains
+    content {
+      rn         = "dom-${child.value.name}"
+      class_name = "dnsDomain"
+      content = {
+        name      = child.value.name
+        isDefault = lookup(child.value, "is_default", false) ? "yes" : "no"
+      }
+    }
+  }
+}
+
+resource "aci_rest_managed" "snmp_policy" {
+  count = length(local.snmp_policy) > 0 ? 1 : 0
+
+  dn         = "uni/fabric/snmppol-default"
+  class_name = "snmpPol"
+  content = {
+    adminSt = lookup(local.snmp_policy, "admin_state", "enabled")
+    contact = lookup(local.snmp_policy, "contact", null)
+    loc     = lookup(local.snmp_policy, "location", null)
+  }
+  # Resets to this lab's confirmed original defaults on destroy/removal --
+  # never deletes the mandatory singleton object itself.
+  content_on_destroy = {
+    adminSt = "disabled"
+    contact = ""
+    loc     = ""
+  }
+}
+
+resource "aci_snmp_community" "this" {
+  for_each = length(local.snmp_policy) > 0 ? { for c in lookup(local.snmp_policy, "communities", []) : c.name => c } : {}
+
+  parent_dn = "uni/fabric/snmppol-default"
+  name      = each.value.name
+
+  depends_on = [aci_rest_managed.snmp_policy]
+}
+

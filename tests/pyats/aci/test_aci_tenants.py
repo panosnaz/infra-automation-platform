@@ -3,7 +3,7 @@
 Independent of Terraform and Ansible — connects directly to the APIC REST API
 via pyATS' generic rest.connector (there is no dedicated ACI connector class
 in this pyATS distribution beyond rest.connector.libs.apic; see
-docs/01-Vision/01-Current-State.md Open Question Q3, resolved 2026-07-04).
+knowledge/architecture/archive/Current-State-v1.md Open Question Q3, resolved 2026-07-04).
 
 Run via:
     export VAULT_ADDR=http://localhost:8200

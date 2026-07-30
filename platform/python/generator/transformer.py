@@ -314,7 +314,7 @@ def _build_fabric_and_access_policies(
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Build apic.fabric_policies and apic.access_policies from each
     Location's ``aci_fabric_policies`` JSON Custom Field (ADR-020 Phase B,
-    logical-only scope).
+    logical-only scope; Phase C adds POD-wide NTP/DNS/SNMP -- ADR-020 Phase C).
 
     VLAN Pools/Physical Domains/AEPs/Leaf Interface Policy Groups are
     fabric-wide (not Tenant-scoped) objects with no natural Nautobot home,
@@ -328,11 +328,23 @@ def _build_fabric_and_access_policies(
     with "node marked unavailable"). Same pass-through convention as
     `_build_contracts_and_filters()`/`_build_l3outs()`: no local validation
     of value strings.
+
+    Phase C's `ntp`/`dns`/`snmp` keys target ACI's real singleton default
+    POD policies (`uni/fabric/time-default`, `uni/fabric/dnsp-default`,
+    `uni/fabric/snmppol-default`) -- confirmed via direct APIC queries
+    against the real simulator (not guessed), including live-creating and
+    deleting a real `datetimeNtpProv`/`dnsProv`/`dnsDomain` to confirm their
+    exact attribute names. Scoped to the single default POD Policy Group
+    only (this lab has one POD) -- custom-named alternate policies with
+    explicit POD Policy Group assignment are out of scope.
     """
     vlan_pools: list[dict[str, Any]] = []
     physical_domains: list[dict[str, Any]] = []
     aeps: list[dict[str, Any]] = []
     leaf_interface_policy_groups: list[dict[str, Any]] = []
+    ntp: dict[str, Any] = {}
+    dns: dict[str, Any] = {}
+    snmp: dict[str, Any] = {}
 
     for location in locations:
         cf = location.get("_custom_field_data") or {}
@@ -341,10 +353,26 @@ def _build_fabric_and_access_policies(
         physical_domains.extend(data.get("physical_domains") or [])
         aeps.extend(data.get("aeps") or [])
         leaf_interface_policy_groups.extend(data.get("leaf_interface_policy_groups") or [])
+        # POD-wide policies are singletons -- last Location with the field
+        # set wins, rather than merged/appended like the list-shaped keys
+        # above (multiple Locations setting conflicting NTP/DNS/SNMP config
+        # would be a real modeling conflict, not a valid multi-site case).
+        if data.get("ntp"):
+            ntp = data["ntp"]
+        if data.get("dns"):
+            dns = data["dns"]
+        if data.get("snmp"):
+            snmp = data["snmp"]
 
     fabric_policies: dict[str, Any] = {}
     if vlan_pools:
         fabric_policies["vlan_pools"] = vlan_pools
+    if ntp:
+        fabric_policies["ntp"] = ntp
+    if dns:
+        fabric_policies["dns"] = dns
+    if snmp:
+        fabric_policies["snmp"] = snmp
 
     access_policies: dict[str, Any] = {}
     if physical_domains:
