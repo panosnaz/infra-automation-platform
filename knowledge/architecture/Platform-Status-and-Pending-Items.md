@@ -1,0 +1,70 @@
+---
+title: "Platform Status and Pending Items"
+description: "Single, current source of truth for what's resolved, what's pending, and what's blocked across the platform -- for AI agents and engineers to check before starting new work."
+type: architecture
+domain: platform
+status: active
+tags: [status, pending-items]
+owner: platform-engineering-team
+last_updated: 2026-07-30
+---
+
+# Platform Status and Pending Items
+
+This is the **current, authoritative status tracker** for the Network Platform Engineering Platform. It exists so an AI agent (or engineer) starting a new session can quickly answer: *what's already done, what's known-broken, what's intentionally deferred, and what needs a decision before proceeding?*
+
+> **Supersedes [`Current-State-v1.md`](archive/Current-State-v1.md) for status purposes.** That document is dated 2026-07-04 and describes Platform v1 (Platform API, n8n orchestration, no MCP Server, no Execution Framework) — it predates [ADR-016](../adr/ADR-016-Platform-v2-Replacement-Architecture.md) through [ADR-021](../adr/ADR-021-VXLAN-EVPN-Domain-Expansion.md) entirely and should not be trusted as current. It has been moved to `architecture/archive/` alongside the other superseded Platform v1 documents, not deleted. This document is updated instead, going forward.
+
+> **Per [`knowledge/README.md`](../README.md)'s rule, this vault never contains live infrastructure state** — no live tenant counts, object UUIDs, or point-in-time snapshots. Everything below is a durable fact about the platform's *build status*, not a data export. For live counts/IDs, query Nautobot/GitLab directly.
+
+---
+
+## 1. What's Complete
+
+- **Execution Framework** ([`Execution-Framework.md`](Execution-Framework.md)) — all 6 milestones complete: GitLab CI pipeline (Validate → Policy → Approval → Execution → Verification → Knowledge Capture), Nautobot→NetAsCode generator, MCP Server, and an AI agent (VS Code Copilot Agent) completing a full business operation end-to-end with no manual pipeline triggering.
+- **ACI domain coverage** ([ADR-020](../adr/ADR-020-ACI-Domain-Coverage-Expansion.md)) — Tenant/VRF/Bridge-Domain/Subnet, Application Profiles/EPGs, Contracts/Filters/Subjects, L3Out (logical-only), Access Policies (logical-only), and fabric-wide POD Policies (NTP/DNS/SNMP, Phase C, no scope limitation) all implemented and live-verified against the real ACI simulator.
+- **MCP Server tool catalogue**: `create_tenant`, `create_vrf`, `create_bridge_domain`, `create_epg`, `create_contract`, `create_l3out`, `show_status` — all live-verified over the real MCP protocol.
+- **Custom agent persona**: `.github/agents/network-platform-operator.agent.md` — a tool-restricted business-operator persona (MCP tools + read/search only, no terminal access — see §3 for why terminal access was removed).
+- **Platform-Administration-Guide.md** (repo root) — operational handbook for every running container.
+- **EVPN domain expansion, live verification achieved** ([ADR-021](../adr/ADR-021-VXLAN-EVPN-Domain-Expansion.md)) — generator, Terraform module (now including `nxos_bgp`/`nxos_svi_interface`), Nautobot Custom Fields, OPA policy (`vxlan_evpn`, tested with real `opa eval`), and 3 MCP tools (`create_evpn_tenant`/`create_evpn_vrf`/`create_evpn_bridge_domain`, live-verified over the real MCP protocol) are all built and verified. **A real `terraform apply`/`plan`/`destroy` cycle succeeded (2026-07-30) against a genuine Nexus 9000v device** (`DC1-Leaf` on a real CML instance, `172.30.46.250`) via a jump host inside the lab network — this closes ADR-021's original "no live verification possible" gap. A real destroy-safety bug was found in the process (see §2). See §2 for what's still pending.
+
+---
+
+## 2. Known Pending Items (need a decision or further work)
+
+| Item | Status | Notes |
+|---|---|---|
+| EVPN live verification (`terraform apply`, pyATS) | **Achieved (2026-07-30), one node remaining** | A real CML instance (`172.30.46.250`, 128 GB RAM after an upgrade) with a running `VXLAN-EVPN-MultiSite` lab (4 real Nexus 9000v nodes) was found. 3 of 4 nodes have `mgmt0`/NX-API configured and confirmed live (`DC1-Leaf`/`DC2-Leaf`/`DC2-BGW`); `DC1-BGW` still pending (blocked by an unrelated stuck console pager). A real `terraform init`/`plan`/`apply`/`destroy` cycle succeeded against `DC1-Leaf` via an `alpine` jump host inside the lab network (Bridge-mode external connectivity from outside CML remains broken and unexplained, but was successfully sidestepped). The `nxos` provider binary was transferred via CML's own SCP/SFTP dropfolder (reachable both externally and from inside the lab via the NAT gateway address `192.168.255.1`) since `registry.terraform.io`/`github.com` are both blocked from the lab's network egress. `pipelines/evpn.gitlab-ci.yml` remains not wired into the root `.gitlab-ci.yml` — pyATS testing and the remaining 3 nodes still need the same jump-host treatment before that's worth doing. |
+| `nxos_feature` resource does not actually revert device state on `terraform destroy` | **New, confirmed bug, not yet fixed** | Live-tested on `DC1-Leaf`: `terraform destroy` reported `Resources: 1 destroyed`, but two independent NX-API queries afterward showed `bgp`/`interface-vlan` still `enabled` on the real device. Manually reverted via direct NX-API `cli_conf` calls. Same class of finding as ADR-020 Phase C's `aci_rest_managed` destroy bug (a Terraform-reported-successful destroy that doesn't actually undo device state) — needs investigation into whether `nxos_feature` supports a `content_on_destroy`-equivalent safeguard, or whether an explicit destroy-time provisioner is needed. Real safety hazard for shared lab devices if not fixed before this module sees wider use. |
+| EVPN BGP peer/neighbor configuration | **Deferred** | `nxos_bgp`'s ASN + address-family enablement is in place, but actual neighbor/peer config (`vrfs.default.peers`/`interface_peers`) needs Nautobot Interface/Cable data that doesn't exist yet for this domain (mirrors ADR-020 Phase B's same limitation for ACI). |
+| EVPN SVI IP addressing | **Deferred** | SVI interfaces exist and are bound to the right VLAN/VRF, but their gateway IP isn't configured yet — needs `nxos_ipv4` schema research (not done in this pass). |
+| Leftover debris test tenants in Nautobot (`materialization-test-*`, `real-tf-test-*` prefixes) | **Pending cleanup** | Accumulated from earlier sessions' live-verification testing. Not actively breaking anything today, but has twice caused real pipeline failures (duplicate VRF names, a policy-violating tenant name) that took investigation to trace back to stale debris rather than a real platform bug. Recommend a cleanup pass before the next round of domain-expansion testing. |
+| Custom agent `PreToolUse` hook mechanism | **Unresolved root cause** | A hook meant to block destructive terminal commands (`.github/agents/scripts/block-destructive-commands.sh`) passed when tested in isolation (piping JSON directly into the script) but did **not** fire during a live agent run via `runSubagent` — the agent executed `docker compose down` unblocked, causing a real incident (recovered, zero data loss). Root cause not conclusively diagnosed (candidates: hooks may not apply to `runSubagent`-invoked agents, `${workspaceFolder}` may not resolve in the hook `command:`, or the payload shape assumption may be wrong). **Fix applied**: `execute` (terminal access) removed from the agent's tool list entirely — a real, structural guarantee, not a hook. Do not re-add terminal access to that agent based on the hook alone; verify with a harmless canary command first if this is revisited. |
+| LangGraph reasoning / multi-domain business-operation layer | **Not started** | [ADR-019](../adr/ADR-019-Three-Truths-Principle.md) explicitly leaves this as future work — a layer that sequences multiple MCP tool calls across domains for business-intent-level operations (e.g. spanning ACI + EVPN + Fortinet in one request). Today, sequencing is done ad hoc by whichever AI agent/persona is active. |
+| Claude Desktop as a second MCP client | **Not started, optional** | VS Code Copilot Agent already proved the MCP mechanism (Milestone 6). Adding Claude Desktop is a smaller, lower-priority follow-on, not a blocker for anything else. |
+| Physical Access Policy interface/port bindings (ACI) | **Permanently blocked by simulator, not a gap** | Confirmed via direct APIC API queries: this lab's ACI simulator has zero real leaf/spine interface data (no `l1PhysIf` objects). Logical-only scope (VLAN Pools, Physical/VMM Domains, AEPs, Leaf Interface Policy Groups) is the ceiling until real hardware or a more capable simulator is available. |
+| L3Out physical attachment (routed interfaces, OSPF/BGP peering) | **Permanently blocked by simulator, not a gap** | Same root cause as the item above — no real leaf/spine interface data exists on this simulator. L3Out is logical-only (object, VRF relation, External EPG, subnets) per ADR-020 Phase A item 4. |
+| Fabric Policies beyond NTP/DNS/SNMP defaults (BGP Route Reflector, COOP Group, ISIS, named Pod Policy Groups/Pod Profiles) | **Not started** | ADR-020 Phase C only covers the three default POD singleton objects (`uni/fabric/time-default`/`dnsp-default`/`snmppol-default`), matching this lab's single-POD topology. Multi-POD fabrics need named (non-default) policies bound via Pod Policy Groups/Profiles — genuinely different Terraform resources and Nautobot data modeling, not yet designed. |
+| VMM Domain integration (VMware/Kubernetes) | **Not started** | Only Physical Domains are modeled (ADR-020 Phase B). VMM domains need a different `aci_vmm_domain`-family resource set and a VMM controller integration this lab doesn't have. |
+| Multi-Site / Nexus Dashboard Orchestrator (NDO) | **Not started, out of scope** | Never designed or discussed — this platform targets single-fabric ACI via APIC directly, not cross-site NDO policy templates. |
+| RBAC / Security Domains / Local Users, Syslog/Fault/Health monitoring policies | **Not started** | No coverage at all today — this platform manages network/application policy (Tenants through Fabric Policies), not APIC platform administration or observability policy. |
+
+---
+
+## 3. Operational Hazards to Remember
+
+These are hard-won lessons from real incidents this platform has hit — repeated here (not just in agent memory) so any reader, human or AI, sees them before touching infrastructure.
+
+1. **Never run `docker compose down` (even with a matching `-p <project>`) from a subdirectory whose compose file is one piece of the shared `infra-automation-lab` project.** Compose reconciles *all* resources sharing that project label, not just the current file's services — this has caused two full-stack outages in this lab's history (recovered both times with zero data loss, since `down` without `-v` never deletes named volumes). Use the root `docker/docker-compose.yml` + `--no-deps <service>` for single-service work — see [`Platform-Administration-Guide.md`](../../Platform-Administration-Guide.md) §1.2.
+2. **When recreating any container after an incident, cross-check GitLab's stored CI/CD project variables for that service's real credentials** before choosing placeholder values — a MinIO recovery once used different placeholder credentials than GitLab CI expected, silently breaking the `knowledge_capture` pipeline job until diagnosed.
+3. **Never trust a safety hook (or any enforcement mechanism) just because it passes in isolated testing.** A `PreToolUse` hook that correctly denied a command when tested by piping JSON directly into the script completely failed to fire during a real agent run. Validate any new hook with a harmless canary command first, in the real runtime, before relying on it for anything destructive.
+4. **The generator bundles ALL tenants/objects for a domain into one YAML file.** A single bad object elsewhere (a policy-violating name, a duplicate VRF) can fail `policy_check`/`terraform_plan` for the *entire* pipeline, even for changes about something unrelated. When a pipeline fails, check whether the failure is actually about what you changed before assuming a platform bug.
+5. **Any generic "manage any object" Terraform resource (`aci_rest_managed` and equivalents in other providers) defaults to deleting the entire target DN/object on destroy, not just the attributes/children that resource added.** Confirmed live in ADR-020 Phase C: destroying `aci_rest_managed` resources targeting ACI's mandatory system singleton objects (`uni/fabric/time-default`, `uni/fabric/dnsp-default`, `uni/fabric/snmppol-default`) actually deleted them from the real simulator, requiring manual recreation. Fix: always set `content_on_destroy` explicitly to safe/original content when targeting a singleton object with a generic REST-managed resource — never rely on the default destroy behavior. Only caught because destroy was actually tested live, not assumed safe after a successful apply.
+
+---
+
+## 4. How to Keep This Doc Useful
+
+- Update this file whenever a pending item is resolved, a new one is discovered, or a real incident happens — move resolved items out of §2 (a one-line mention in §1 or a git history reference is enough; don't let this file grow into a changelog).
+- Do not add live infrastructure data here (tenant counts, object IDs, pipeline numbers) — those go stale immediately and belong in Nautobot/GitLab themselves, not this vault.
+- If this file conflicts with a source document (an ADR, `Execution-Framework.md`), the source document wins for design/architecture questions — this file is for status and pending work only.
