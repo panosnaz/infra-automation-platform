@@ -1,0 +1,76 @@
+---
+services:
+  platform-api:
+    labels:
+      com.unisystems.lab.name: "infra-automation-lab"
+      com.unisystems.lab.scope: "nautobot-infra-automation"
+      com.unisystems.lab.role: "platform-api"
+    build:
+      context: "."
+      dockerfile: "Dockerfile"
+      additional_contexts:
+        canonical_intent_src: "../../platform/canonical_intent"
+        generator_src: "../../platform/python"
+    image: "infra-automation-lab/platform-api:local"
+    container_name: "infra-automation-lab-platform-api"
+    ports:
+      - "8000:8000"
+    environment:
+      # Docker Desktop resolves host.docker.internal on all platforms (Windows,
+      # macOS, and Linux via the extra_hosts entry below), letting this
+      # container reach the Nautobot and Vault stacks exposed on the host.
+      VAULT_ADDR: "http://host.docker.internal:8200"
+      NAUTOBOT_URL: "http://host.docker.internal:8080"
+      NAUTOBOT_TOKEN: "${NAUTOBOT_TOKEN:?Set NAUTOBOT_TOKEN in the environment before starting this stack (see lab/README.md)}"
+      VAULT_TOKEN: "${VAULT_TOKEN:?Set VAULT_TOKEN in the environment before starting this stack (Milestone 6A needs it to read ACI credentials from secret/lab/platform)}"
+      OPA_URL: "http://opa:8181"
+      AUDIT_LOG_PATH: "/app/data/policy_denials.jsonl"
+      EXECUTION_STORE_PATH: "/app/data/execution_store.db"
+      KNOWLEDGE_CAPTURE_PATH: "/app/data/knowledge/deployments.jsonl"
+      TERRAFORM_DIR: "/app/terraform/aci"
+      NETASCODE_OUTPUT_DIR: "/app/netascode/aci"
+      GENERATOR_SRC_DIR: "/app/generator_src"
+      TERRAFORM_TIMEOUT_SECONDS: "180"
+      TERRAFORM_LOCK_TIMEOUT: "60s"
+    volumes:
+      - "./data:/app/data"
+      # Live bind mount (read-write), not a build-time copy: this is the
+      # exact host directory Phase 3 already ran `terraform apply` in by
+      # hand, including its existing .terraform/ cache and terraform.tfstate
+      # -- Terraform's own state persists here naturally across container
+      # restarts and rebuilds, with no separate volume/state-sync needed.
+      - "../../platform/terraform/aci:/app/terraform/aci"
+    depends_on:
+      - opa
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8000/health', timeout=2).raise_for_status()"]
+      interval: "10s"
+      timeout: "5s"
+      start_period: "10s"
+      retries: 5
+    restart: unless-stopped
+
+  opa:
+    labels:
+      com.unisystems.lab.name: "infra-automation-lab"
+      com.unisystems.lab.scope: "nautobot-infra-automation"
+      com.unisystems.lab.role: "opa"
+    image: "openpolicyagent/opa:latest"
+    container_name: "infra-automation-lab-opa"
+    command: ["run", "--server", "--addr=0.0.0.0:8181", "/policy"]
+    ports:
+      # Published so GitLab CI jobs (docker executor, network_mode=host per
+      # docker/other-containers/gitlab-runner/) can reach OPA directly at
+      # localhost:8181 for the Execution Framework's Policy stage.
+      - "8181:8181"
+    volumes:
+      - "./policy:/policy:ro"
+    # No healthcheck: the official OPA image has no shell, wget, or curl to
+    # run one with (confirmed by inspection, 2026-07-06). depends_on below
+    # only waits for the container to start, not for OPA to be ready to
+    # serve — technical_policy.py already fails closed on an unready OPA,
+    # so this is a correctness non-issue, not a gap silently accepted.
+    restart: unless-stopped
+
