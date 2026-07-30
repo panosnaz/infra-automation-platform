@@ -167,7 +167,7 @@ docker compose up -d --build
 ```
 
 The token is the same one Nautobot issues to its superuser account (see
-[`knowledge/architecture/Current-State.md`](../knowledge/architecture/Current-State.md)). Reading it from Vault at runtime,
+[`knowledge/architecture/archive/Current-State-v1.md`](../knowledge/architecture/archive/Current-State-v1.md)). Reading it from Vault at runtime,
 the way Terraform/Ansible already do, is a natural follow-up but not yet
 wired in — Milestone 1 only required the same round-trip proof those tools
 already established, not a new secrets-loading path.

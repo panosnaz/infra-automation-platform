@@ -9,17 +9,27 @@ A reusable engineering control plane that manages network infrastructure through
 
 **Current focus:** Cisco ACI vertical slice — Nautobot → NetAsCode YAML → GitLab CI → Terraform → Ansible → pyATS → Nautobot/MinIO knowledge capture
 
-**Status (2026-07-28):** the domain automation vertical slice (Nautobot generator → Terraform → Ansible → pyATS) is complete, and so are Milestones 1-4 of the [Execution Framework](knowledge/architecture/Execution-Framework.md)'s 7-stage lifecycle — a real GitLab CI pipeline now runs Validation → Policy → Approval → Execution → Verification → Knowledge Capture end-to-end against live Nautobot, the ACI simulator, and MinIO. Remaining work is Milestone 5 (MCP Server) and Milestone 6 (AI agents as MCP clients) — see [`knowledge/architecture/Execution-Framework.md` §6](knowledge/architecture/Execution-Framework.md) for the full milestone table and gate evidence, and [`knowledge/architecture/Platform-v2-As-Built.md`](knowledge/architecture/Platform-v2-As-Built.md) for the as-built infrastructure record.
+**Status (2026-07-29):** all 6 milestones of the [Execution Framework](knowledge/architecture/Execution-Framework.md)'s 7-stage lifecycle are complete. A real GitLab CI pipeline runs Validation → Policy → Approval → Execution → Verification → Knowledge Capture end-to-end against live Nautobot, the ACI simulator, and MinIO, and the MCP Server (`mcp-server/`) is live and callable over the real MCP protocol (`create_tenant`, `create_vrf`, `create_bridge_domain`, `create_epg`, `create_contract`, `create_l3out`, `show_status`). The VS Code Copilot Agent is wired as a real MCP client (`.vscode/mcp.json`) and has completed a full natural-language-driven business operation (create a Tenant + VRF + Bridge Domain) end-to-end with no manual pipeline triggering — see [`knowledge/architecture/Execution-Framework.md` §6](knowledge/architecture/Execution-Framework.md) for the full milestone table and gate evidence, and [`knowledge/architecture/Platform-v2-As-Built.md`](knowledge/architecture/Platform-v2-As-Built.md) for the as-built infrastructure record.
 
 ---
 
 ## Start here
 
-| First time? | Read [`knowledge/README.md`](knowledge/README.md) |
-|---|---|
-| Target architecture | [`knowledge/architecture/Platform-v2-Reference-Architecture.md`](knowledge/architecture/Platform-v2-Reference-Architecture.md) |
-| Build order / current status | [`knowledge/architecture/Execution-Framework.md`](knowledge/architecture/Execution-Framework.md) |
-| AI agent entry point | [`CLAUDE.md`](CLAUDE.md) |
+**New to this project? Read in this order:**
+
+1. [`README.md`](README.md) — this file: what the project is, the platform flow, how to run it
+2. [`knowledge/README.md`](knowledge/README.md) — map of the knowledge base (architecture, ADRs, runbooks) and the rules for how it's organized
+3. [`knowledge/architecture/Platform-v2-Reference-Architecture.md`](knowledge/architecture/Platform-v2-Reference-Architecture.md) — the target architecture and its non-negotiable design principles (MCP Server, Nautobot, GitLab roles)
+4. [`knowledge/adr/ADR-019-Three-Truths-Principle.md`](knowledge/adr/ADR-019-Three-Truths-Principle.md) — the core conceptual model: Business Intent / Desired State / Observed State are three distinct truths, never conflated. This explains *why* the platform is split the way it is.
+5. [`knowledge/adr/ADR-018-NetAsCode-Centric-Execution-Framework.md`](knowledge/adr/ADR-018-NetAsCode-Centric-Execution-Framework.md) — why NetAsCode YAML (not a custom MCP-owned schema) is the one artifact Terraform consumes
+6. [`knowledge/architecture/Execution-Framework.md`](knowledge/architecture/Execution-Framework.md) — the 7-stage lifecycle (Intent → Validation → Policy → Approval → Execution → Verification → Knowledge Capture), the 6 build milestones, and current status/gate evidence
+7. [`knowledge/adr/ADR-020-ACI-Domain-Coverage-Expansion.md`](knowledge/adr/ADR-020-ACI-Domain-Coverage-Expansion.md) — what's actually implemented today (Tenant/VRF/BD/EPG/Contract/L3Out) versus roadmap
+8. [`knowledge/architecture/Platform-Status-and-Pending-Items.md`](knowledge/architecture/Platform-Status-and-Pending-Items.md) — current status, known pending items, and hard-won operational lessons — check this before starting new work
+9. [`Platform-Administration-Guide.md`](Platform-Administration-Guide.md) — once the design makes sense, this is how to actually run it day-to-day (every container, credentials, troubleshooting)
+
+Other ADRs in [`knowledge/adr/`](knowledge/adr/) go deeper on individual decisions (Terraform's role, Ansible's role, secrets management, policy enforcement, etc.) — read the specific one relevant to what you're changing, once the above gives you the overall shape.
+
+**AI coding agent?** Read [`CLAUDE.md`](CLAUDE.md) instead/first — it has agent-specific operating instructions layered on top of this same reading order.
 
 `docs/` is reserved for future generated/customer-facing documentation only — it is not the knowledge base (see [`docs/README.md`](docs/README.md)).
 
@@ -27,9 +37,19 @@ A reusable engineering control plane that manages network infrastructure through
 
 ## Platform flow
 
+How this actually gets used: a person (or an AI agent acting on their behalf) makes a natural-language request. The AI agent decides which MCP tool to call and calls it; everything after that is native automation the agent never touches directly.
+
 ```
+User (natural language, e.g. "create a VRF for the finance tenant")
+    │
+    ▼  AI agent (VS Code Copilot Agent / Claude Desktop) picks a tool + arguments
+    ▼  MCP tool call (create_tenant / create_vrf / create_bridge_domain / create_epg / create_contract / create_l3out)
+MCP Server (mcp-server/, validates input, writes to Nautobot)
+    │
+    ▼  structured write (Tenant / VRF / Prefix, etc.)
 Nautobot (SoT)
     │
+    ▼  webhook fires automatically → triggers GitLab pipeline (no MCP involvement)
     ▼  generate_nac (platform/python/generate_aci.py, GitLab CI)
 NetAsCode YAML  (platform/netascode/aci/, committed by CI)
     │
@@ -45,7 +65,12 @@ Continuous validation
     │
     ▼  write_results / knowledge_capture
 Nautobot status write-back + MinIO/JSONL knowledge record
+    │
+    ▼  AI agent calls show_status → merges Nautobot custom_fields + live GitLab pipeline status
+User sees the result in plain language
 ```
+
+The MCP Server never sequences the pipeline itself — it only writes to Nautobot and later reads status back. Nautobot's own webhook is what starts the pipeline; GitLab is what runs it. See [Platform-v2-Reference-Architecture.md](knowledge/architecture/Platform-v2-Reference-Architecture.md) for the full design rationale.
 
 ---
 

@@ -27,6 +27,8 @@ It captures what exists today, what has been implemented, what is still pending,
 
 This document should be updated whenever the platform state changes significantly.
 
+> **⚠️ Superseded for status purposes (2026-07-30):** this document is dated 2026-07-04 and describes Platform v1 (Platform API, n8n orchestration) -- it predates [ADR-016](../adr/ADR-016-Platform-v2-Replacement-Architecture.md) through [ADR-021](../adr/ADR-021-VXLAN-EVPN-Domain-Expansion.md) entirely and does not reflect the Execution Framework, MCP Server, or domain expansion work. See [`Platform-Status-and-Pending-Items.md`](Platform-Status-and-Pending-Items.md) for current status. This file is left in place for history, not deleted or updated further for that purpose.
+
 > **Path note (2026-07-28):** this document predates the Phase 0 repository cleanup. Every `lab/docker/...` path referenced below (including in the commit-log entries, which are historical and left as originally written) now lives at `docker/...` — the `lab/` wrapper directory was removed. See [`ADR-016`](../adr/ADR-016-Platform-v2-Replacement-Architecture.md).
 
 ---

@@ -46,7 +46,7 @@ The Execution Framework's seven stages (Intent → Validation → Policy → App
 
 The MCP Server (Platform-v2-Reference-Architecture.md §7) already accepts tool calls from any AI agent, including a future LangGraph-based one — no new write path is invented for LangGraph. What LangGraph adds, when built, is the **reasoning layer that combines** three read sources the MCP Server does not itself combine today:
 
-1. **Semantic retrieval** from this knowledge base (architecture context, past decisions, prior incident write-ups like the [Phase 1 Infrastructure Validation Report](../runbooks/Phase1-Infrastructure-Validation-Report.md)).
+1. **Semantic retrieval** from this knowledge base (architecture context, past decisions, prior incident write-ups like the [Phase 1 Infrastructure Validation Report](../architecture/Phase1-Infrastructure-Validation-Report.md)).
 2. **Structured retrieval** from Nautobot (live current state).
 3. **Execution history** from GitLab (pipeline/job status) and the Knowledge Capture JSONL records (per-execution structured history).
 

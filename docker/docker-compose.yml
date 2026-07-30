@@ -14,7 +14,7 @@
 #
 # The nautobot/postgres/redis/celery stack (docker/nautobot/) IS included
 # below by reference only -- its files live in an independently-managed
-# nested git repository (see knowledge/architecture/Current-State.md) and
+# nested git repository (see knowledge/architecture/archive/Current-State-v1.md) and
 # are never edited from this repo, only pointed at. Including it (rather
 # than leaving it out) is deliberate: Compose reconciles ALL resources under
 # a shared project name during `up`/`down`, so a second, separate `docker
@@ -49,7 +49,7 @@ networks:
   # simulator (172.30.46.0/24) lives, and two separate incidents this phase
   # (Loki, then gitlab-runner) proved Docker will happily auto-allocate a
   # colliding subnet there. See knowledge/architecture/Platform-v2-As-Built.md §4
-  # and knowledge/runbooks/Phase1-Infrastructure-Validation-Report.md §9.
+  # and knowledge/architecture/Phase1-Infrastructure-Validation-Report.md §9.
   app-net:
     name: "infra-automation-lab_app-net"
     ipam:

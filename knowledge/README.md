@@ -13,9 +13,9 @@ It exists for two audiences at once: engineers reading it directly, and a future
 
 | Folder | Contents |
 |---|---|
-| `architecture/` | Reference architecture, principles, glossary, technology/validation/security/observability design, current state and roadmap. `architecture/archive/` holds superseded Platform v1 material and the retired Contracts #1-#3 — preserved for history, not deleted. |
+| `architecture/` | Reference architecture, principles, glossary, technology/security/observability design, current state and roadmap. **[`architecture/Platform-Status-and-Pending-Items.md`](architecture/Platform-Status-and-Pending-Items.md) is the current status/pending-items tracker** — check it before starting new work. `architecture/validation/` groups the validation/compliance document cluster (all share `tags: [validation]`). Domain-specific docs are prefixed with their domain (e.g. `ACI-Nautobot-NaC-Architecture.md`) — everything else here is `domain: platform`. `architecture/archive/` holds superseded Platform v1 material and the retired Contracts #1-#3 — preserved for history, not deleted. |
 | `adr/` | Architecture Decision Records. Each is one atomic file. `adr/archive/` holds ADRs superseded by the Platform v2 replacement decision (ADR-016). |
-| `runbooks/` | Operational procedures. Sparse today — grows as real runbooks are authored. |
+| `runbooks/` | Operational procedures — repeatable, step-by-step. Domain-specific runbooks are prefixed with their domain (`ACI-Day2-Operations.md`, `CML-EVPN-Lab-Jump-Host.md`). One-time validation reports (evidence collected on a specific date, not a repeatable procedure) belong in `architecture/` instead, not here. |
 | `ai/` | AI/agent-facing knowledge — the Knowledge Layer design and AI architecture. Agent instructions and guardrails will be added here as atomic notes when they're actually needed. |
 
 `standards/` and `scratch/` are reserved names, not yet created — they'll exist the day a real standard or scratch note is written, not before.

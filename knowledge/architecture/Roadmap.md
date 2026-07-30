@@ -224,6 +224,7 @@ The platform is designed to support multiple infrastructure domains.
 ## Phase 2
 
 - Cisco Nexus VXLAN EVPN
+- **Started 2026-07-29** ([ADR-021](../adr/ADR-021-VXLAN-EVPN-Domain-Expansion.md)): generator (`generate_evpn.py`), Nautobot data model (Custom Fields on VRF/VLAN/Device), Terraform module (`platform/terraform/evpn/`, real `CiscoDevNet/nxos` provider), and Ansible/pipeline scaffolding are in place and verified end-to-end against real Nautobot data (`terraform validate`/`plan` against the real provider schema succeed). **Live verification (`terraform apply`, pyATS) is blocked** on no Nexus 9Kv (or equivalent) simulator existing in this lab yet -- tracked as separate infrastructure work, not a code gap.
 
 ---
 

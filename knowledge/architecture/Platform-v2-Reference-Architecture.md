@@ -6,7 +6,7 @@ domain: platform
 status: active
 tags: [platform-v2, mcp, gitlab, nautobot]
 owner: platform-engineering-team
-last_updated: 2026-07-28
+last_updated: 2026-07-29
 ---
 
 **Project:** Network Platform Engineering Platform
@@ -15,7 +15,7 @@ last_updated: 2026-07-28
 
 **Version:** 2.0
 
-**Status:** Approved — replacement architecture; Phase 1 infrastructure implemented and validated (see [`Platform-v2-As-Built.md`](Platform-v2-As-Built.md) and the [Phase 1 Infrastructure Validation Report](../runbooks/Phase1-Infrastructure-Validation-Report.md)); MCP Server not yet built
+**Status:** Approved — replacement architecture; Phase 1 infrastructure implemented and validated (see [`Platform-v2-As-Built.md`](Platform-v2-As-Built.md) and the [Phase 1 Infrastructure Validation Report](Phase1-Infrastructure-Validation-Report.md)); MCP Server built and live (Execution-Framework.md Milestone 5, 2026-07-29) — no AI agent connected as a client yet (Milestone 6, not started)
 
 **Owner:** Platform Engineering Team
 

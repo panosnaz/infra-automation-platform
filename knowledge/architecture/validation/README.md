@@ -92,10 +92,11 @@ The Validation Layer follows these principles:
 
 # Related Documents
 
-* 01-Schema-Validation.md
-* 02-Infrastructure-Validation.md
-* 03-Service-Validation.md
-* 04-Continuous-Compliance.md
+* [Schema-Validation.md](Schema-Validation.md)
+* [Infrastructure-Validation.md](Infrastructure-Validation.md)
+* [Service-Validation.md](Service-Validation.md)
+* [Continuous-Compliance.md](Continuous-Compliance.md)
+* [Continuous-Validation-Strategy.md](Continuous-Validation-Strategy.md)
 
 ---
 

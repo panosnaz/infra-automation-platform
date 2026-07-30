@@ -31,7 +31,7 @@ last_updated: 2026-07-28
 
 # Context
 
-Phase 1 delivered the infrastructure substrate for Platform v2: GitLab CE, GitLab Runner (staged), Prometheus, Grafana, Loki, MinIO, and Traefik, alongside the already-proven Nautobot/Vault/OPA/Platform-API stack (see [`Platform-v2-As-Built.md`](../architecture/Platform-v2-As-Built.md) and the [Phase 1 Infrastructure Validation Report](../runbooks/Phase1-Infrastructure-Validation-Report.md)).
+Phase 1 delivered the infrastructure substrate for Platform v2: GitLab CE, GitLab Runner (staged), Prometheus, Grafana, Loki, MinIO, and Traefik, alongside the already-proven Nautobot/Vault/OPA/Platform-API stack (see [`Platform-v2-As-Built.md`](../architecture/Platform-v2-As-Built.md) and the [Phase 1 Infrastructure Validation Report](../architecture/Phase1-Infrastructure-Validation-Report.md)).
 
 The original Roadmap ([`Roadmap.md`](../architecture/Roadmap.md)) and the Phase 1 handoff framed the next increment simply as "Phase 2 — GitLab CI": design pipeline YAML, wire Terraform and OPA together, register a runner, run a pipeline. Taken at face value, this risks jumping straight to implementation (`.gitlab-ci.yml` stage definitions) before the end-to-end **execution lifecycle** that GitLab CI is meant to serve has actually been designed.
 

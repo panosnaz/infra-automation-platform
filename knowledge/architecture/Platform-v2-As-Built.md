@@ -19,7 +19,7 @@ last_updated: 2026-07-29
 
 **Date:** 2026-07-28
 
-> **Relationship to other documents:** [`Platform-v2-Reference-Architecture.md`](Platform-v2-Reference-Architecture.md) is the **target** architecture — what should exist. This document is the **as-built** record — what actually exists today, what deviates from the target and why, and what evidence backs each claim. Validation evidence lives in [`../runbooks/Phase1-Infrastructure-Validation-Report.md`](../runbooks/Phase1-Infrastructure-Validation-Report.md). Where this document and the reference architecture disagree, the reference architecture still wins as the intended target — this document exists to make the gap visible, not to redefine the target.
+> **Relationship to other documents:** [`Platform-v2-Reference-Architecture.md`](Platform-v2-Reference-Architecture.md) is the **target** architecture — what should exist. This document is the **as-built** record — what actually exists today, what deviates from the target and why, and what evidence backs each claim. Validation evidence lives in [`Phase1-Infrastructure-Validation-Report.md`](Phase1-Infrastructure-Validation-Report.md). Where this document and the reference architecture disagree, the reference architecture still wins as the intended target — this document exists to make the gap visible, not to redefine the target.
 
 ---
 
@@ -86,7 +86,7 @@ The reference architecture's Docker Networking Diagram (§3) describes three exp
 1. **Project-name reconciliation risk.** Compose reconciles *all* resources sharing a project name during `up`/`down`, not just what's declared in the current invocation. An early attempt that didn't include Nautobot's files (while still using the same project name) caused Compose to treat Nautobot's network as orphaned and briefly disrupt it. Fixed by including Nautobot's existing files by reference.
 2. **Volume/network key collisions under `include:`.** Compose merges all included files' top-level `volumes:`/`networks:` keys into one flat namespace — generic local key names (e.g. `data`, `config`) used by multiple files collide, with one silently winning and unrelated services ending up mounted on the wrong volume (confirmed: MinIO briefly mounted onto GitLab's own data volume). Fixed by renaming every volume key to be globally unique (`grafana_data`, `gitlab_config`, `gitlab_runner_config`, etc.) — the external Docker volume `name:` values were never affected, only the local YAML keys.
 
-Full incident detail: [`Current-State.md`](Current-State.md)'s 2026-07-28 entries. **This closes the deviation this section used to describe as "worth revisiting in Phase 2" — it is no longer a deviation.**
+Full incident detail: [`Current-State-v1.md`](archive/Current-State-v1.md)'s 2026-07-28 entries. **This closes the deviation this section used to describe as "worth revisiting in Phase 2" — it is no longer a deviation.**
 
 ---
 
