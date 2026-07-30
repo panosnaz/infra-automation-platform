@@ -128,6 +128,63 @@ class NautobotClient:
             raise NautobotError(f"Nautobot unreachable or auth failed: {exc}") from exc
         return dict(prefix)
 
+    # ------------------------------------------------------------------
+    # VXLAN EVPN (ADR-021) -- separate methods, not a shared code path with
+    # the ACI methods above, since the underlying Nautobot object shapes
+    # differ: EVPN's Bridge Domain IS a VLAN directly (not a Prefix-
+    # description encoding), and VNIs are plain-integer Custom Fields set
+    # at creation time, not derived after the fact.
+    # ------------------------------------------------------------------
+
+    def create_evpn_vrf(self, tenant: str, name: str, l3_vni: int, description: str = "") -> dict:
+        """Create a VRF for the EVPN domain, with its L3 VNI set directly
+        via the `evpn_l3_vni` Custom Field (ADR-021 §2)."""
+        try:
+            tenant_obj = self._get_tenant_or_raise(tenant)
+            namespace_obj = self._get_or_create_namespace(tenant_obj.name)
+            vrf = self.api.ipam.vrfs.create(
+                name=name,
+                tenant=tenant_obj.id,
+                namespace=namespace_obj.id,
+                description=description,
+                custom_fields={"evpn_l3_vni": l3_vni},
+            )
+        except pynautobot.RequestError as exc:
+            raise NautobotError(f"Nautobot rejected VRF '{name}': {exc}") from exc
+        except NautobotError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise NautobotError(f"Nautobot unreachable or auth failed: {exc}") from exc
+        return dict(vrf)
+
+    def create_evpn_bridge_domain(
+        self, tenant: str, vrf: str, name: str, vlan_id: int, l2_vni: int, description: str = ""
+    ) -> dict:
+        """Create a Bridge Domain for the EVPN domain -- a Nautobot VLAN
+        object directly (ADR-021 §2), with its L2 VNI and VRF association
+        set via Custom Fields (`evpn_l2_vni`, `evpn_vrf`)."""
+        try:
+            tenant_obj = self._get_tenant_or_raise(tenant)
+            vrf_obj = self.api.ipam.vrfs.get(name=vrf, tenant_id=tenant_obj.id)
+            if vrf_obj is None:
+                raise NautobotError(f"VRF '{vrf}' not found in tenant '{tenant}'")
+            status_obj = self._get_status("ipam.vlan")
+            vlan = self.api.ipam.vlans.create(
+                name=name,
+                vid=vlan_id,
+                tenant=tenant_obj.id,
+                status=status_obj.id,
+                description=description,
+                custom_fields={"evpn_l2_vni": l2_vni, "evpn_vrf": vrf},
+            )
+        except pynautobot.RequestError as exc:
+            raise NautobotError(f"Nautobot rejected bridge domain '{name}': {exc}") from exc
+        except NautobotError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise NautobotError(f"Nautobot unreachable or auth failed: {exc}") from exc
+        return dict(vlan)
+
     def create_epg(
         self,
         tenant: str,

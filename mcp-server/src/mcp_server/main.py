@@ -23,6 +23,7 @@ from pydantic import ValidationError as PydanticValidationError
 # catalogue. tools/generic.py must never import tools/aci.py or vice versa
 # (Reference-Architecture.md §7.2) -- only this module, and only for wiring.
 import mcp_server.tools.aci  # noqa: F401
+import mcp_server.tools.evpn  # noqa: F401
 import mcp_server.tools.generic  # noqa: F401
 from mcp_server.clients.gitlab import GitLabClient
 from mcp_server.clients.nautobot import NautobotClient
