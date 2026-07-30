@@ -1,0 +1,36 @@
+{
+  "servers": {
+    "nautobot-aci-platform": {
+      "type": "http",
+      "url": "http://localhost:8071/mcp"
+    },
+    "cml": {
+      // CML's own native MCP server (CML 2.10+, not the third-party cml-mcp package).
+      // Confirmed live: https://172.30.46.250/api/v0/system_information reports version 2.10.0.
+      // Bridged via mcp-remote since VS Code's built-in "http" type doesn't support custom headers.
+      // Bare GET/POST https://172.30.46.250/mcp returns 502 without a valid X-Authorization header --
+      // do not treat that as the server being down, it means auth is missing/wrong.
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-remote",
+        "https://172.30.46.250/mcp",
+        "--header",
+        "X-Authorization:${CML_AUTH_HEADER}"
+      ],
+      "env": {
+        // CML_AUTH_HEADER must be "Basic <base64(username:password)>" -- e.g.
+        // echo -n 'admin:yourpassword' | base64
+        // RECOMMENDED over hand-building this: log into the CML UI, then GET
+        // /api/v0/ai/mcp/configuration (session-authenticated) returns the exact
+        // ready-to-use client config Cisco intends for this feature -- confirmed
+        // this endpoint exists (401 Unauthorized without a session, not 404).
+        "CML_AUTH_HEADER": "",
+        // Self-signed lab cert (confirmed via curl -k) -- lab-only, never do this against a
+        // production/public CML instance.
+        "NODE_TLS_REJECT_UNAUTHORIZED": "0"
+      }
+    }
+  }
+}
