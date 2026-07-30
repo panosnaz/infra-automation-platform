@@ -37,6 +37,32 @@ Additionally, while the current single-domain scope (Cisco ACI) is well-served b
 
 A network automation platform operates on three distinct truths. Conflating any two creates an architectural defect that compounds with every new domain.
 
+```mermaid
+flowchart LR
+    subgraph T1["1. Business Intent — WHY"]
+        direction TB
+        A1["Not yet owned by any\ncomponent today (implicit\nin commit messages/JSONL)"]
+        A2["Future home: MCP Server\nbusiness-operation tools +\nLangGraph reasoning"]
+    end
+    subgraph T2["2. Desired State — WHAT should exist"]
+        direction TB
+        B1["Nautobot — queryable\nnetwork inventory/topology\n(Tenant, VRF, Prefix, ...)"]
+        B2["NetAsCode YAML (Git) —\ndeterministic, auditable\nartifact Terraform consumes"]
+        B1 -- "generator reads Nautobot,\nwrites YAML (ADR-018)" --> B2
+    end
+    subgraph T3["3. Observed State — WHAT actually exists"]
+        direction TB
+        C1["Nautobot SSoT sync —\ndiscovers real infrastructure"]
+        C2["pyATS / validation —\nindependently verifies after execution"]
+    end
+    T1 -. "drives (future)" .-> T2
+    T2 -- "Terraform/Ansible apply" --> Infra["Live Infrastructure"]
+    Infra -. "observed via" .-> T3
+    T3 -. "evidence, never authoritative\nfor platform-managed objects" .-> T2
+```
+
+*Conflating any two boxes above is the exact defect this ADR prevents — e.g. treating Nautobot's SSoT-discovered "Observed State" as if it were "Desired State" would let brownfield drift silently overwrite intent.*
+
 ## 1. Business Intent — *Why* does this change exist?
 
 What outcome the change serves, what policy governs it, what approval it requires, and what business context surrounds it. Examples:

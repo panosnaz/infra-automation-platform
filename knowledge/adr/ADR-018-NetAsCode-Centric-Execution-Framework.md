@@ -52,6 +52,24 @@ The MCP Server's role is narrowed accordingly:
 
 This also resequences the Execution Framework's build order (ADR-017's original milestone-agnostic design is replaced by an explicit six-milestone sequence, recorded in [`Execution-Framework.md` §6](../architecture/Execution-Framework.md#6-implementation-milestones)): the GitLab pipeline, the Nautobot→NetAsCode generator, Policy/Approval, and Verification/Knowledge Capture are all built and proven using **existing, already-committed NetAsCode YAML** — with no AI or MCP Server involved at all — before the MCP Server is built, and AI agents are connected only in the final milestone. This is a deliberate de-risking order: the highest-value, most-proven part of the platform (Terraform/Ansible/pyATS against real NetAsCode YAML) is exercised through the full pipeline first; the newest, least-proven part (MCP Server, AI orchestration) is added last, against an already-working pipeline.
 
+```mermaid
+flowchart LR
+    subgraph Rejected["Rejected: MCP-owned intent schema"]
+        direction LR
+        AI1["AI Agent"] --> MCP1["MCP Server"]
+        MCP1 -- "CanonicalIntent\n(new generic schema)" --> Nautobot1["Nautobot"]
+    end
+    subgraph Chosen["Chosen: NetAsCode YAML stays authoritative"]
+        direction LR
+        AI2["AI Agent"] --> MCP2["MCP Server\n(thin per-tool schema only)"]
+        MCP2 -- "structured write\n(Tenant/VRF/Prefix)" --> Nautobot2["Nautobot"]
+        Nautobot2 -- "generator reads" --> YAML["NetAsCode YAML\n(Git, deterministic)"]
+        YAML --> TF["Terraform"]
+    end
+```
+
+*The rejected design would have made the MCP Server invent and own a second, parallel intent representation — duplicating exactly what ADR-016 already removed once. The chosen design keeps NetAsCode YAML as the one artifact Terraform ever consumes.*
+
 ---
 
 # Consequences
