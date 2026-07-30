@@ -1,0 +1,32 @@
+---
+# Read-only validation: assert that every tenant/VRF in the generated
+# fabric YAML (platform/netascode/evpn/fabric.yaml) exists on the device.
+# Day-2 health check only -- every task here queries, never provisions.
+#
+# ADR-021: cannot be run yet -- no Nexus 9Kv (or equivalent) simulator
+# exists in this lab. Scaffolded now so the pipeline shape matches ACI's
+# exactly; real execution is deferred to the simulator-gap resolution.
+
+- name: Verify EVPN fabric VRFs match Nautobot/generator intent
+  hosts: evpn
+  gather_facts: false
+  vars:
+    fabric_yaml_file: "{{ playbook_dir }}/../../../netascode/evpn/fabric.yaml"
+
+  tasks:
+    - name: Load EVPN fabric YAML (generator output)
+      ansible.builtin.set_fact:
+        fabric: "{{ lookup('file', fabric_yaml_file) | from_yaml }}"
+
+    - name: Extract expected VRF names
+      ansible.builtin.set_fact:
+        expected_vrfs: "{{ fabric.fabric.tenants | map(attribute='vrfs', default=[]) | flatten | map(attribute='name') | list }}"
+
+    - name: Query VRFs from the device
+      cisco.nxos.nxos_vrf:
+        state: query
+      register: nxos_vrf_result
+
+    - name: Report expected vs. actual (no assertion yet -- no device to compare against)
+      ansible.builtin.debug:
+        msg: "Expected VRFs: {{ expected_vrfs }}"

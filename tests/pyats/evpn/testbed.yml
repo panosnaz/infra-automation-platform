@@ -1,0 +1,18 @@
+testbed:
+  name: evpn-fabric
+
+devices:
+  # ADR-021: no Nexus 9Kv (or equivalent) simulator exists in this lab yet --
+  # this is a placeholder testbed, not a working one. Real pyATS EVPN tests
+  # are deferred until a device is reachable (see ADR-021's Context section).
+  leaf-a:
+    os: nxos
+    type: switch
+    connections:
+      cli:
+        protocol: ssh
+        ip: 0.0.0.0  # CHANGE-ME once a device exists
+    credentials:
+      default:
+        username: admin
+        password: CHANGE-ME

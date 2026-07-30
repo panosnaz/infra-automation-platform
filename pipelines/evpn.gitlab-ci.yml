@@ -1,0 +1,70 @@
+# VXLAN EVPN domain pipeline (ADR-021). Extends the same shared stage
+# templates in includes/common.gitlab-ci.yml that pipelines/aci.gitlab-ci.yml
+# uses -- per ADR-021's whole point, no pipeline logic changes for a new
+# domain, only new variables.
+#
+# NOT YET included from the root .gitlab-ci.yml (deliberately -- ADR-021's
+# simulator gap means terraform_plan/apply would fail on every single commit
+# against a nonexistent device if wired in now). Include this file from the
+# root .gitlab-ci.yml once a Nexus 9Kv (or equivalent) is reachable.
+
+include:
+  - local: "pipelines/includes/common.gitlab-ci.yml"
+
+variables:
+  NETASCODE_YAML: "platform/netascode/evpn/fabric.yaml"
+  POLICY_DOMAIN: "vxlan_evpn"
+  TERRAFORM_DIR: "platform/terraform/evpn"
+  ANSIBLE_DIR: "platform/ansible/evpn"
+  TERRAFORM_VERSION: "1.9.8"
+  KNOWLEDGE_CAPTURE_PATH: "knowledge_capture/evpn-deployments.jsonl"
+  CI_ENVIRONMENT_NAME: "lab"
+  NAUTOBOT_URL: "http://localhost:8080"
+  MINIO_ENDPOINT: "http://localhost:9000"
+  MINIO_KNOWLEDGE_BUCKET: "knowledge-capture"
+  MINIO_KNOWLEDGE_KEY: "evpn/deployments.jsonl"
+
+generate_nac:
+  extends: ".generate_nac"
+
+validate_nac:
+  extends: ".validate_nac"
+  needs: ["generate_nac"]
+
+policy_check:
+  extends: ".policy_check"
+  needs: ["validate_nac"]
+
+terraform_plan:
+  extends: ".terraform_plan"
+  needs: ["policy_check"]
+
+terraform_apply:
+  extends: ".terraform_apply"
+  needs: ["terraform_plan"]
+  environment:
+    name: "lab"
+
+ansible_configure:
+  extends: ".ansible_configure"
+  needs: ["terraform_apply"]
+
+pyats_verify:
+  extends: ".pyats_verify"
+  needs: ["ansible_configure"]
+
+write_results:
+  extends: ".write_results"
+  needs:
+    - job: "generate_nac"
+    - job: "pyats_verify"
+      optional: true
+
+knowledge_capture:
+  extends: ".knowledge_capture"
+  needs:
+    - job: "generate_nac"
+    - job: "pyats_verify"
+      optional: true
+    - job: "write_results"
+      optional: true
