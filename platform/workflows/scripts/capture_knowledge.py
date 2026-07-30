@@ -10,11 +10,11 @@ Appends one structured record per pipeline run to two places:
      already provisioned in Phase 1 for exactly this purpose (see
      knowledge/architecture/Platform-v2-Reference-Architecture.md §3.2).
 
-Reuses the generic append-only JSONL primitive already proven by
-docker/platform-api/app/jsonl_writer.py (ADR-009) -- reimplemented here
-rather than imported, since this script runs inside a CI job container with
-no access to the platform-api application package, not because the pattern
-changed.
+Reuses the generic append-only JSONL primitive already proven by Platform
+v1's `jsonl_writer.py` (ADR-009; now archived at
+archive/platform-v1/docker/platform-api/app/jsonl_writer.py) -- reimplemented
+here rather than imported, since this script runs inside a CI job container
+with no access to that application package, not because the pattern changed.
 
 Usage:
     python3 capture_knowledge.py <local-output-path.jsonl> <minio-bucket> <minio-object-key>
