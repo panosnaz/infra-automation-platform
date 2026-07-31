@@ -15,7 +15,7 @@ last_updated: 2026-07-29
 
 **Version:** 2.0
 
-**Status:** Approved — replacement architecture; Phase 1 infrastructure implemented and validated (see [`Platform-v2-As-Built.md`](Platform-v2-As-Built.md) and the [Phase 1 Infrastructure Validation Report](Phase1-Infrastructure-Validation-Report.md)); MCP Server built and live (Execution-Framework.md Milestone 5, 2026-07-29) — no AI agent connected as a client yet (Milestone 6, not started)
+**Status:** Approved — replacement architecture; Phase 1 infrastructure implemented and validated (see [`Platform-v2-As-Built.md`](Platform-v2-As-Built.md) and the [Phase 1 Infrastructure Validation Report](Phase1-Infrastructure-Validation-Report.md)); MCP Server built and live (Execution-Framework.md Milestone 5); the VS Code Copilot Agent is connected as a real MCP client and has completed full business operations end-to-end (Milestone 6, complete). A second domain (Cisco Nexus VXLAN EVPN) has since been built and live-verified against real hardware, proving this architecture's multi-domain design — see [ADR-021](../adr/ADR-021-VXLAN-EVPN-Domain-Expansion.md). Several "future"/`evpn.py`-as-placeholder references below predate that work and describe the design intent that EVPN has since realized — check [`Platform-Status-and-Pending-Items.md`](Platform-Status-and-Pending-Items.md) for what's actually live today.
 
 **Owner:** Platform Engineering Team
 

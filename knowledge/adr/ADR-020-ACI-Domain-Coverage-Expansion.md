@@ -9,7 +9,21 @@ last_updated: 2026-07-30
 
 # ADR-020 — ACI Domain Coverage Expansion (Tenant Policy Depth, then Access/Fabric Policies)
 
-**Status:** Accepted
+**Status:** Accepted — all phases complete and live-verified.
+
+## Summary (read this first — the Progress section below is a detailed, phase-by-phase implementation log)
+
+**What this ADR is:** a plan (and now a complete record) of expanding *how much of real ACI configuration* this platform can manage, beyond the original Tenant/VRF/Bridge-Domain basics. Three phases, each reusing the exact same pipeline mechanism (no new pipeline stages, ever — only new Terraform resources and generator logic):
+
+- **Phase A — Tenant Policy Depth**: VRF/Bridge-Domain attribute depth, Application Profiles/EPGs, Contracts/Filters/Subjects, and L3Out (external connectivity). All 4 items complete and live-verified with real `terraform apply`+`destroy` cycles against the ACI simulator.
+- **Phase B — Access Policies**: VLAN Pools, Physical Domains, AEPs, Leaf Interface Policy Groups — the fabric-wide objects that stage physical connectivity. Complete, but **logical-only**: this lab's ACI simulator has zero real leaf/spine interface data (confirmed directly via APIC API queries), so physical port/interface binding was never possible here — a permanent limitation of this specific simulator, not a gap in the design.
+- **Phase C — Fabric Policies**: POD-wide NTP/DNS/SNMP configuration. Complete, with no physical-interface limitation (this is logical, fabric-wide config). Along the way, this phase caught and fixed a real, generalizable Terraform safety bug — see below.
+
+**The one bug worth knowing about, even without reading the details:** `aci_rest_managed` (Terraform's generic "manage any ACI object" resource) deletes the entire target object on `terraform destroy` by default — which is dangerous when the target is a mandatory system object that can't actually be removed (like the fabric's default NTP/DNS/SNMP policies). This was caught live (a real destroy briefly deleted real fabric objects, then was recovered), and fixed by setting `content_on_destroy` to revert to safe defaults instead of deleting. Worth remembering for any future use of this resource type, or of any other provider's equivalent "manage anything" resource.
+
+**Everything in this ADR is done.** If you're looking for what's *not* done in ACI domain coverage, check [`Platform-Status-and-Pending-Items.md`](../architecture/Platform-Status-and-Pending-Items.md) instead of this file.
+
+---
 
 **Date:** 2026-07-29
 

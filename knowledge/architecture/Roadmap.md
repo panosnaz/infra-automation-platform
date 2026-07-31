@@ -4,7 +4,7 @@ domain: platform
 status: active
 tags: [roadmap]
 owner: platform-engineering-team
-last_updated: 2026-07-28
+last_updated: 2026-07-31
 ---
 
 # 12 – Platform Roadmap
@@ -224,7 +224,7 @@ The platform is designed to support multiple infrastructure domains.
 ## Phase 2
 
 - Cisco Nexus VXLAN EVPN
-- **Started 2026-07-29** ([ADR-021](../adr/ADR-021-VXLAN-EVPN-Domain-Expansion.md)): generator (`generate_evpn.py`), Nautobot data model (Custom Fields on VRF/VLAN/Device), Terraform module (`platform/terraform/evpn/`, real `CiscoDevNet/nxos` provider), and Ansible/pipeline scaffolding are in place and verified end-to-end against real Nautobot data (`terraform validate`/`plan` against the real provider schema succeed). **Live verification (`terraform apply`, pyATS) is blocked** on no Nexus 9Kv (or equivalent) simulator existing in this lab yet -- tracked as separate infrastructure work, not a code gap.
+- **Complete** ([ADR-021](../adr/ADR-021-VXLAN-EVPN-Domain-Expansion.md)): generator (`generate_evpn.py`), Nautobot data model (Custom Fields on VRF/VLAN/Device), Terraform module (`platform/terraform/evpn/`, real `CiscoDevNet/nxos` provider), and pyATS tests are in place. **Live-verified against real hardware** — a real CML lab with 4 genuine Nexus 9000v devices was found and used; all 4 now have a proven `terraform apply` cycle. What remains is wiring the EVPN pipeline into the root GitLab pipeline, which needs the lab's devices to be reachable from wherever the pipeline runs — a lab networking limitation, not a code gap. See [`Platform-Status-and-Pending-Items.md`](Platform-Status-and-Pending-Items.md) for the current state of that work.
 
 ---
 
