@@ -5,7 +5,10 @@ docker/nautobot/
 docker/vault/state/*.txt
 docker/vault/state/*.json
 
-# Platform API runtime data (audit log, etc.) — bind-mounted, not source
+# Legacy Platform v1 runtime data (execution_store.db, policy_denials.jsonl,
+# knowledge/) -- app code archived to archive/platform-v1/, but this
+# directory's contents are root-owned leftover container bind-mount data
+# that could not be removed without sudo. Never commit it.
 docker/platform-api/data/
 
 # Terraform
