@@ -4,7 +4,7 @@ domain: platform
 status: active
 tags: [platform-v2, as-built]
 owner: platform-engineering-team
-last_updated: 2026-07-29
+last_updated: 2026-08-01
 ---
 
 # Platform v2 — As-Built Record
@@ -34,7 +34,7 @@ last_updated: 2026-07-29
 | `opa` | Core (existing) | ✅ Deployed, running (no healthcheck — image has no shell, documented precedent) | Unchanged |
 | `gitlab` | New — Core | ✅ Deployed, healthy | Two Omnibus config errors found and fixed (§2) |
 | `gitlab-runner` | New — Core | ✅ Registered and online (`phase2-shared-runner`) | Registered during Milestone 1 (Execution-Framework.md); this row predates that and was never updated |
-| `mcp-server` | New — Core | ❌ Not built | Milestone 5 scope (Execution-Framework.md §6) — this is the biggest remaining gap vs. the reference architecture |
+| `mcp-server` | New — Core | ✅ Deployed, live | Built and callable over the real MCP protocol (Execution-Framework.md §6, Milestone 5); a real AI agent (VS Code Copilot Agent) is connected as a client and has completed full business operations end-to-end (Milestone 6). Tool catalogue now spans two domains, ACI and EVPN (ADR-021). |
 | `prometheus` | New — Reusable | ✅ Deployed, healthy | Scrape targets for `nautobot`/`platform-api` are configured but **down** — see §3 |
 | `grafana` | New — Reusable | ✅ Deployed, healthy | Datasources provisioned and health-checked OK |
 | `loki` | New — Reusable | ✅ Deployed, running | Healthcheck removed (image has no shell/wget — §2.2); subnet fixed after causing an external connectivity regression (§4) |
@@ -42,7 +42,7 @@ last_updated: 2026-07-29
 | `traefik` | New — Optional | ✅ Deployed, running | 4/4 routes verified; no healthcheck defined yet (`/ping` not configured) |
 | `docs` (MkDocs) | New — Optional, low priority | ❌ Not built | Unchanged from reference architecture (still low priority) |
 
-**Overall:** 12 of 14 reference-architecture services are deployed and healthy or in active use. `mcp-server` and `docs` are not yet built (expected — Milestone 5+ and low-priority scope respectively). `gitlab-runner` is registered and online (updated 2026-07-29; this table previously said "not started", which was stale as of Milestone 1).
+**Overall:** 13 of 14 reference-architecture services are deployed and healthy or in active use. `mcp-server` is built and live (updated 2026-08-01; this table previously said "Not built", which was stale as of Milestone 5). Only `docs` (MkDocs) remains unbuilt, which is expected — low-priority scope, not a gap.
 
 ---
 
@@ -98,9 +98,9 @@ Consistent with ADR-016's "replacement, not migration" framing and this phase's 
 
 # 6. Summary of Remaining Gaps vs. Reference Architecture
 
-> **Updated 2026-07-29:** items 2 and 4 below were stale — both are now resolved (see the corrected component table in §1 and §4's own "no longer a deviation" note). Left below with strikethrough-equivalent annotations rather than deleted, so the history of what was closed and when stays visible.
+> **Updated 2026-08-01:** items 1, 2, and 4 below were stale — all three are now resolved (see the corrected component table in §1 and §4's own "no longer a deviation" note). Left below with strikethrough-equivalent annotations rather than deleted, so the history of what was closed and when stays visible.
 
-1. `mcp-server` — not built (largest gap; Milestone 5+ scope per Execution-Framework.md §6).
+1. ~~`mcp-server` — not built (largest gap; Milestone 5+ scope per Execution-Framework.md §6).~~ **Resolved:** built and live, callable over the real MCP protocol, with a real AI agent connected as a client (Milestones 5 and 6) and a second domain's tools added (ADR-021).
 2. ~~`gitlab-runner` — created but not registered/started.~~ **Resolved:** registered and online (`phase2-shared-runner`) since Milestone 1.
 3. Prometheus scrape targets for `nautobot`/`platform-api` — configured but non-functional (no metrics endpoints exposed).
 4. ~~Three named networks (`app-net`/`obs-net`/`proxy-net`) — not adopted.~~ **Resolved:** see §4 — implemented via the root `docker/docker-compose.yml`'s `include:`.
