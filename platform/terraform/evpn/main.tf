@@ -38,6 +38,23 @@ locals {
     for d in lookup(local.nac.fabric, "devices", []) :
     d.name => d
   }
+
+  # Bridge Domains with a gateway IP configured -- these already have an SVI
+  # via nxos_svi_interface.fabric below; this subset also gets an address
+  # assignment via nxos_ipv4.fabric.
+  bds_with_gateway = {
+    for key, bd in local.bridge_domains :
+    key => bd
+    if try(bd.gateway_ip, null) != null
+  }
+
+  # nxos_ipv4's own grouping level is VRF name (matching nxos_vrf.fabric's
+  # plain on_device_name, not nxos_svi_interface's "sys/inst-<name>" DN
+  # format) -- defaults to "default" the same way nxos_svi_interface.fabric's
+  # vrf_dn lookup does.
+  ipv4_vrf_names = distinct([
+    for key, bd in local.bds_with_gateway : coalesce(bd.on_device_vrf_name, "default")
+  ])
 }
 
 # ---------------------------------------------------------------------------
@@ -210,11 +227,9 @@ resource "nxos_bgp" "fabric" {
 # VRF. Confirmed schema:
 # registry.terraform.io/providers/CiscoDevNet/nxos/latest/docs/resources/svi_interface
 #
-# Deliberately NOT included (ADR-021, honest scope limit): the SVI's actual
-# gateway IP address assignment. `nxos_svi_interface`'s own schema has no
-# IP-address attribute -- that's a separate `nxos_ipv4` resource, whose
-# schema was not researched in this pass. The SVI exists and is bound to
-# the correct VRF/VLAN; its IP address is not yet configured.
+# The SVI's gateway IP address itself is assigned separately by
+# nxos_ipv4.fabric below (nxos_svi_interface's own schema has no
+# IP-address attribute -- that's the distinct nxos_ipv4 resource).
 # ---------------------------------------------------------------------------
 resource "nxos_svi_interface" "fabric" {
   depends_on = [nxos_bgp.fabric]
@@ -227,6 +242,36 @@ resource "nxos_svi_interface" "fabric" {
       vrf_dn      = try("sys/inst-${bd.on_device_vrf_name}", null)
     }
     if try(bd.gateway_ip, null) != null
+  }
+}
+
+# ---------------------------------------------------------------------------
+# IPv4 addressing — assigns each SVI's gateway IP, grouped by VRF per the
+# resource's own schema (vrfs.<name>.interfaces.<interface_id>.addresses.
+# <address>, confirmed via the real provider schema -- terraform providers
+# schema -json against the CiscoDevNet/nxos v0.13.1 binary, no live device
+# needed for this structural confirmation). `interface_id` must match
+# nxos_svi_interface's own naming ("vlan<id>"). `addresses`' map key is the
+# address itself; bd.gateway_ip's existing "a.b.c.d/nn" format is used
+# as-is (schema only says "Address", format not live-verified this pass).
+# Confirmed schema: registry.terraform.io/providers/CiscoDevNet/nxos/latest/docs/resources/ipv4
+# ---------------------------------------------------------------------------
+resource "nxos_ipv4" "fabric" {
+  depends_on = [nxos_svi_interface.fabric]
+
+  vrfs = {
+    for vrf_name in local.ipv4_vrf_names :
+    vrf_name => {
+      interfaces = {
+        for key, bd in local.bds_with_gateway :
+        "vlan${bd.vlan_id}" => {
+          addresses = {
+            (bd.gateway_ip) = {}
+          }
+        }
+        if coalesce(bd.on_device_vrf_name, "default") == vrf_name
+      }
+    }
   }
 }
 
