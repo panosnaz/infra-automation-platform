@@ -142,7 +142,18 @@ Added `nxos_ipv4.fabric` to `main.tf`, grouping `local.bds_with_gateway` (Bridge
 
 ---
 
-# Consequences
+## 9. BGP peer/neighbor configuration — investigated, deferred (not the same as ACI's permanent block) (2026-07-31)
+
+Queried the real `nxos_bgp` schema (same method as §7/§8) for its two neighbor-configuration paths under `vrfs.<name>`:
+
+- **`peers`** — map keyed by **peer IP address**. Would need real point-to-point underlay IP addressing between devices, which doesn't exist in any data model this platform uses today.
+- **`interface_peers`** — map keyed by **`interface_id`**, with a direct `remote_asn` attribute. Far lower effort: needs only *which local interface connects to which neighbor device* — the neighbor's ASN is already available via the existing `Device.evpn_bgp_asn` Custom Field once the neighbor is known. No invented IP addressing required.
+
+Checked `platform/python/generator/` for existing Interface/Cable plumbing to build on: **none exists** — `client.py`/`transformer.py` document the identical gap for ACI's Phase B physical Access Policies (no real leaf/spine interface data available). Unlike that ACI gap (permanently blocked — the ACI simulator has zero real interface data, confirmed via direct APIC query, full stop), this EVPN gap is **solvable in principle**, just not from a session with no live Nautobot/lab access: it needs either real Interface/Cable objects modeled in Nautobot for the 4 EVPN devices, or a live check of the actual lab cabling topology, before any generator/Terraform code is written against it.
+
+**Decision: deferred, not designed speculatively.** Inventing a Nautobot data-model change (a new Custom Field or YAML section) without live Nautobot to validate it against would repeat the exact "verify before coding" violation this ADR series has otherwise avoided. **Recommendation for whoever picks this up next**: use `interface_peers`, not `peers` — it avoids inventing a P2P IP addressing scheme and reuses the `Device.evpn_bgp_asn` Custom Field that already exists.
+
+
 
 - **Proves the Execution Framework generalizes**, not just the ACI domain — the actual architectural point of building this platform this way. If EVPN needs new pipeline stages, new GitLab CI logic, or changes to the MCP Server's dispatcher, that would be a real finding contradicting ADR-018's design; the design predicts it will not. **Confirmed (2026-07-30)**: adding EVPN's MCP tools required zero changes to `main.py`'s dispatcher, `tools/registry.py`, or any GitLab CI shared stage template — only new files, exactly as ADR-018 predicted.
 - **New Nautobot Custom Fields required**: `VRF.evpn_l3_vni`, `VLAN.evpn_l2_vni`, `Device.evpn_bgp_asn`, `Device.evpn_role` — plain scalar fields, not JSON, unlike ACI's Contract/L3Out Custom Fields (those needed JSON because Contracts/L3Outs are nested structures; VNIs and ASNs are not).
