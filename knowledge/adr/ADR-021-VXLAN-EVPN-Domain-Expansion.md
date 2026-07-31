@@ -11,6 +11,25 @@ last_updated: 2026-07-31
 
 **Status:** Accepted — schema, generator, Terraform module, and Ansible playbooks are complete; **live verification achieved on all 4 real nodes** — real `terraform apply` cycles succeeded against genuine Nexus 9000v hardware on all 4: `DC1-Leaf` (2026-07-30, including a `destroy`), `DC1-BGW` (2026-07-31, §10), and `DC2-Leaf`/`DC2-BGW` (2026-07-31, §11). pyATS EVPN tests are written and mock-validated (§12). A working SSH-relay mechanism lets CI jobs reach the real lab devices despite the runner's own lack of network access — one real pipeline job uses it (§13), but its true reliability is now in question after re-testing (§14) and a planned file-transfer extension for `terraform_plan`/`apply` is blocked. A real destroy-safety bug was found in `nxos_feature` (see §6) and mitigated with `lifecycle { prevent_destroy = true }` (§7, 2026-07-31) — no attribute-level fix exists in the provider's real schema. Full pipeline wiring remains pending.
 
+## Summary (read this first — sections 1-14 below are a detailed implementation log, not required reading)
+
+**What this ADR is:** the platform's second network domain, Cisco Nexus VXLAN EVPN, built as a proof that the whole platform's automation mechanism (Nautobot → generator → GitLab CI → Terraform → Ansible → pyATS) works for a completely different vendor and protocol, not just Cisco ACI — with **zero changes to shared pipeline logic**, only new domain-specific files. That prediction (from ADR-018) has been confirmed true.
+
+**What's built and working:**
+- A Terraform module (`platform/terraform/evpn/`) targeting the real `CiscoDevNet/nxos` provider, and a matching Nautobot data model (VRFs, VLANs-as-Bridge-Domains, Custom Fields for VNIs/BGP ASN).
+- 3 MCP tools (`create_evpn_tenant`, `create_evpn_vrf`, `create_evpn_bridge_domain`), live-tested over the real MCP protocol.
+- **Real hardware verification**: all 4 Nexus 9000v devices in the lab (`DC1-Leaf`, `DC1-BGW`, `DC2-Leaf`, `DC2-BGW`) have a proven, working `terraform apply` cycle — not a simulator, not a mock.
+- pyATS tests for the EVPN domain, validated end-to-end (though not yet run against the real devices from an automated pipeline — see below).
+- A real bug found and fixed: `nxos_feature`'s `terraform destroy` doesn't actually revert device state. Mitigated with `prevent_destroy` since the provider has no proper fix available.
+
+**What's still open, and why (the short version):**
+- **The EVPN pipeline isn't wired into the main GitLab pipeline yet.** The reason is purely a networking limitation of this lab: the real devices are only reachable from inside the lab's own network, and the GitLab Runner (which executes pipeline jobs) isn't inside it. A partial workaround (relaying commands through a "jump host" inside the lab) was built and proven to work at least once, but turned out to be unreliable enough that it's not safe to build more automation on top of it yet.
+- **BGP neighbor configuration** is deferred — it needs real cabling/interface data that isn't modeled in Nautobot yet, and the team decided not to invent placeholder data just to make progress.
+
+**If you're picking this up next**, read §9 (BGP) and §14 (the pipeline/relay blocker) for the most actionable next steps, and check [`Platform-Status-and-Pending-Items.md`](../architecture/Platform-Status-and-Pending-Items.md) for the always-current summary of what's pending across the whole platform, not just this ADR.
+
+---
+
 **Date:** 2026-07-29
 
 **Decision Makers:** Platform Engineering Team
@@ -226,8 +245,6 @@ Attempted the file-transfer piece needed to relay `terraform_plan`/`apply` thems
 ---
 
 # Consequences
-
-
 
 - **Proves the Execution Framework generalizes**, not just the ACI domain — the actual architectural point of building this platform this way. If EVPN needs new pipeline stages, new GitLab CI logic, or changes to the MCP Server's dispatcher, that would be a real finding contradicting ADR-018's design; the design predicts it will not. **Confirmed (2026-07-30)**: adding EVPN's MCP tools required zero changes to `main.py`'s dispatcher, `tools/registry.py`, or any GitLab CI shared stage template — only new files, exactly as ADR-018 predicted.
 - **New Nautobot Custom Fields required**: `VRF.evpn_l3_vni`, `VLAN.evpn_l2_vni`, `Device.evpn_bgp_asn`, `Device.evpn_role` — plain scalar fields, not JSON, unlike ACI's Contract/L3Out Custom Fields (those needed JSON because Contracts/L3Outs are nested structures; VNIs and ASNs are not).
