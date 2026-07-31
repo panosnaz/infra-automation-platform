@@ -136,9 +136,9 @@ stages:
   before_script:
     - apt-get update -qq && apt-get install -y -qq curl >/dev/null
     - pip install --quiet --no-cache-dir -r tests/pyats/requirements.txt
-    - . tests/pyats/aci/scripts/load-vault-env.sh
+    - . "${PYATS_DIR}/scripts/load-vault-env.sh"
   script:
-    - pyats run job tests/pyats/aci/job.py --testbed-file tests/pyats/aci/testbed.yml --no-mail
+    - pyats run job "${PYATS_DIR}/job.py" --testbed-file "${PYATS_DIR}/testbed.yml" --no-mail
     # pyATS writes its archive to /root/.pyats/archive/, outside the job's
     # working directory -- GitLab CI artifacts must live inside it, so copy
     # the archive in rather than globbing an out-of-tree absolute path

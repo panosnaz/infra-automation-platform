@@ -16,6 +16,7 @@ variables:
   POLICY_DOMAIN: "vxlan_evpn"
   TERRAFORM_DIR: "platform/terraform/evpn"
   ANSIBLE_DIR: "platform/ansible/evpn"
+  PYATS_DIR: "tests/pyats/evpn"
   TERRAFORM_VERSION: "1.9.8"
   KNOWLEDGE_CAPTURE_PATH: "knowledge_capture/evpn-deployments.jsonl"
   CI_ENVIRONMENT_NAME: "lab"

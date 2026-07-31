@@ -17,6 +17,7 @@ variables:
   POLICY_DOMAIN: "cisco_aci"
   TERRAFORM_DIR: "platform/terraform/aci"
   ANSIBLE_DIR: "platform/ansible/aci"
+  PYATS_DIR: "tests/pyats/aci"
   TERRAFORM_VERSION: "1.9.8"
   KNOWLEDGE_CAPTURE_PATH: "knowledge_capture/aci-deployments.jsonl"
   CI_ENVIRONMENT_NAME: "lab"

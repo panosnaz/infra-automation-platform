@@ -1,18 +1,72 @@
 testbed:
-  name: evpn-fabric
+  name: evpn_lab_testbed
 
+# All 4 real Nexus 9000v nodes from the VXLAN-EVPN-MultiSite CML lab
+# (172.30.46.250), confirmed live via NX-API this session (ADR-021 §6/§10/§11).
+# NOTE: these hosts are only reachable from inside the CML lab network (via
+# the alpine jump host, per knowledge/runbooks/CML-EVPN-Lab-Jump-Host.md) --
+# NOT from wherever this pyATS job actually runs (this repo's dev host or a
+# GitLab Runner container), which has no route to 172.30.46.220-223 (Bridge-
+# mode external connectivity from outside CML is broken, root cause
+# unresolved -- ADR-021 §5). Run this job from inside the jump host, or once
+# that networking gap is fixed.
+#
+# Deliberately NOT using pyATS's built-in rest.connector.Rest/os: nxos plugin
+# (confirmed via its source, tests/pyats/evpn/scripts/ -- rest/connector/libs/
+# nxos/implementation.py only implements connect/disconnect against an
+# ACI-style DN-based REST API, aaaLogin.json/dn=, not the real NX-API
+# JSON-RPC ins_api convention these devices actually expose on
+# /ins). test_evpn_features.py makes its own `requests` calls instead,
+# reading connection info from each device's `custom` block below. The
+# `connections.rest` block exists only to satisfy pyATS's testbed schema
+# (which requires at least one connection) -- it is never actually connected.
 devices:
-  # ADR-021: no Nexus 9Kv (or equivalent) simulator exists in this lab yet --
-  # this is a placeholder testbed, not a working one. Real pyATS EVPN tests
-  # are deferred until a device is reachable (see ADR-021's Context section).
-  leaf-a:
+  dc1_leaf:
     os: nxos
     type: switch
     connections:
-      cli:
-        protocol: ssh
-        ip: 0.0.0.0  # CHANGE-ME once a device exists
-    credentials:
-      default:
-        username: admin
-        password: CHANGE-ME
+      rest:
+        class: rest.connector.Rest
+        ip: 127.0.0.1  # dummy placeholder, never connected -- schema requires it
+    custom:
+      nxapi_url: "%ENV{DC1_LEAF_URL}"
+      username: "%ENV{EVPN_USERNAME}"
+      password: "%ENV{EVPN_PASSWORD}"
+
+  dc1_bgw:
+    os: nxos
+    type: switch
+    connections:
+      rest:
+        class: rest.connector.Rest
+        ip: 127.0.0.1  # dummy placeholder, never connected -- schema requires it
+    custom:
+      nxapi_url: "%ENV{DC1_BGW_URL}"
+      username: "%ENV{EVPN_USERNAME}"
+      password: "%ENV{EVPN_PASSWORD}"
+
+  dc2_leaf:
+    os: nxos
+    type: switch
+    connections:
+      rest:
+        class: rest.connector.Rest
+        ip: 127.0.0.1  # dummy placeholder, never connected -- schema requires it
+    custom:
+      nxapi_url: "%ENV{DC2_LEAF_URL}"
+      username: "%ENV{EVPN_USERNAME}"
+      password: "%ENV{EVPN_PASSWORD}"
+
+  dc2_bgw:
+    os: nxos
+    type: switch
+    connections:
+      rest:
+        class: rest.connector.Rest
+        ip: 127.0.0.1  # dummy placeholder, never connected -- schema requires it
+    custom:
+      nxapi_url: "%ENV{DC2_BGW_URL}"
+      username: "%ENV{EVPN_USERNAME}"
+      password: "%ENV{EVPN_PASSWORD}"
+
+
