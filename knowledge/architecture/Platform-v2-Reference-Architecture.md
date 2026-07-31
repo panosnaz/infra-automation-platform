@@ -6,7 +6,7 @@ domain: platform
 status: active
 tags: [platform-v2, mcp, gitlab, nautobot]
 owner: platform-engineering-team
-last_updated: 2026-07-29
+last_updated: 2026-08-01
 ---
 
 **Project:** Network Platform Engineering Platform
@@ -47,7 +47,7 @@ GitLab CE + GitLab Runner own execution, approvals, retries, concurrency, resour
 
 ## 4. The proven domain automation is not redesigned
 
-`platform/python/` (generator, `generate_aci.py`, future `generate_evpn.py`), `platform/terraform/aci/` (future `evpn/`, `fortinet/`, `azure/`), `platform/ansible/aci/` (future `evpn/`, `fortinet/`, `azure/`), `tests/pyats/`, `tests/integration/` — none of these are rewritten. They are only adapted to a new execution environment (GitLab CI jobs instead of Python subprocess calls).
+`platform/python/` (generator, `generate_aci.py`, plus `generate_evpn.py` — built, ADR-021), `platform/terraform/aci/` (plus `evpn/` — built, ADR-021; `fortinet/`, `azure/` — future), `platform/ansible/aci/` (plus `evpn/` — built; `fortinet/`, `azure/` — future), `tests/pyats/`, `tests/integration/` — none of these are rewritten. They are only adapted to a new execution environment (GitLab CI jobs instead of Python subprocess calls).
 
 ## 5. The Platform API is replaced, not migrated
 
@@ -260,7 +260,7 @@ pipelines/
   includes/
     common.gitlab-ci.yml             # shared stage templates (generate/policy/plan/approval/apply/ansible/validate/write-results/knowledge/artifacts)
   aci.gitlab-ci.yml                  # includes common.yml, sets TERRAFORM_DIR=platform/terraform/aci, ANSIBLE_DIR=platform/ansible/aci, GENERATOR=generate_aci.py
-  evpn.gitlab-ci.yml                 # future — same shape, different variables
+  evpn.gitlab-ci.yml                 # built (ADR-021) -- same shape, different variables; not yet included from the root pipeline, see Platform-Status-and-Pending-Items.md
   fortinet.gitlab-ci.yml             # future
   azure.gitlab-ci.yml                # future
 ```
@@ -314,13 +314,14 @@ mcp-server/
         registry.py             # tool registration/dispatch — domain-agnostic, routes by tool name only
         generic.py                 # deploy, approve_change, deny_change, show_status, query_knowledge
         aci.py                       # create_tenant, create_vrf, create_bridge_domain, create_epg, create_contract, create_l3out
-        evpn.py                        # future
+        evpn.py                        # built (ADR-021) -- create_evpn_tenant, create_evpn_vrf, create_evpn_bridge_domain
         fortinet.py                      # future
         azure.py                           # future
       schemas/
         __init__.py
         common.py                # shared Pydantic conventions only (field-level helpers) -- NOT a cross-domain intent envelope; see ADR-018
         aci.py                       # ACI-specific per-tool request schemas (thin argument validation only -- create_tenant, create_vrf, etc.)
+        evpn.py                      # EVPN-specific per-tool request schemas, same thin-validation pattern (built, ADR-021)
   tests/
     unit/
     integration/
@@ -365,7 +366,9 @@ Per [ADR-018](../adr/ADR-018-NetAsCode-Centric-Execution-Framework.md), every to
 
 **Cisco ACI** (`tools/aci.py`): `create_tenant`, `create_vrf`, `create_bridge_domain`, `create_epg`, `create_contract`, `create_l3out`.
 
-**Future domains**, added the same way, never touching generic modules: `tools/evpn.py` (`create_fabric`, `create_vni`, `allocate_loopback`), `tools/fortinet.py`, `tools/azure.py`.
+**Cisco Nexus VXLAN EVPN** (`tools/evpn.py`, built per ADR-021): `create_evpn_tenant`, `create_evpn_vrf`, `create_evpn_bridge_domain`.
+
+**Future domains**, added the same way, never touching generic modules: `tools/fortinet.py`, `tools/azure.py`.
 
 ---
 
@@ -429,15 +432,15 @@ platform/
   python/
     generate_aci.py                   # unchanged
     generator/                          # unchanged
-    generate_evpn.py                     # future
+    generate_evpn.py                     # built (ADR-021)
   terraform/
     aci/                                # unchanged
-    evpn/                                 # future
+    evpn/                                 # built (ADR-021), live-verified against real hardware
     fortinet/                              # future
     azure/                                   # future
   ansible/
     aci/                                # unchanged
-    evpn/                                 # future
+    evpn/                                 # built (ADR-021)
     fortinet/                              # future
     azure/                                   # future
   netascode/                          # unchanged, generated artifact output
@@ -445,12 +448,12 @@ pipelines/
   includes/
     common.gitlab-ci.yml
   aci.gitlab-ci.yml
-  evpn.gitlab-ci.yml                  # future
+  evpn.gitlab-ci.yml                  # built (ADR-021), not yet included from the root pipeline -- see Platform-Status-and-Pending-Items.md
   fortinet.gitlab-ci.yml               # future
   azure.gitlab-ci.yml                    # future
 .gitlab-ci.yml
 tests/
-  pyats/                              # unchanged
+  pyats/                              # unchanged for ACI; evpn/ built (ADR-021)
   integration/                        # adapted trigger mechanism, assertions preserved
   unit/                               # split between mcp-server/tests and domain-automation tests
 docs/                                 # this document set
@@ -472,4 +475,4 @@ Because this is a replacement, the strategy is: **stand up v2 fully in parallel,
 
 **Phase 5 — Decommission Platform v1 outright. ✅ Complete (2026-07-30).** `docker/platform-api/app/` (`main.py`, `execution_store.py`, `approval_workflow.py`, `terraform_executor.py`, `validation_stub.py`, `nautobot_store.py`, `aci_materializer.py`, and the already-dead `terraform_stub.py`), `platform/canonical_intent/`, and their 7 unit test files were archived to [`archive/platform-v1/`](../../archive/platform-v1/README.md) (via `git mv`, not deleted, per this repo's archive-not-delete convention) once the MCP Server + Execution Framework had fully superseded them and nothing in the current architecture still referenced them. `docker/platform-api/policy/` (the OPA policies) stayed in place -- still actively used by the Execution Framework's Policy stage. No compatibility shim was built -- this was the explicit replacement, not a bridge.
 
-**Future domains (EVPN, Fortinet, Azure):** proven additive under this same structure — a new generator, a new Terraform module, a new Ansible tree, a new pipeline file including the same shared stage templates, and new MCP tools in their own module. No change to the MCP Server's dispatcher, the GitLab shared stage templates, or Nautobot's core setup is required.
+**A second domain, EVPN, has already proven this additive structure works** ([ADR-021](../adr/ADR-021-VXLAN-EVPN-Domain-Expansion.md)): a new generator, a new Terraform module (live-verified against real Nexus 9000v hardware), a new Ansible tree, a new pipeline file including the same shared stage templates, and new MCP tools in their own module — with zero changes to the MCP Server's dispatcher, the GitLab shared stage templates, or Nautobot's core setup. **Future domains (Fortinet, Azure)** are expected to follow the exact same pattern.
