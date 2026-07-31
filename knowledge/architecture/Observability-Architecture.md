@@ -4,7 +4,7 @@ domain: platform
 status: active
 tags: [observability]
 owner: platform-engineering-team
-last_updated: 2026-07-28
+last_updated: 2026-08-01
 ---
 
 # Observability Architecture
@@ -16,6 +16,8 @@ last_updated: 2026-07-28
 **Status:** Draft v1.0
 
 **Owner:** Platform Engineering Team
+
+> **Update (2026-08-01):** "Platform API" throughout this document is the original Platform v1 name for "the platform's single entry point." Per [ADR-016](../adr/ADR-016-Platform-v2-Replacement-Architecture.md), that role is now the **MCP Server** — the observability principles below (tracing a request through the full engineering lifecycle, etc.) are unchanged and still in force; only the component name changed.
 
 ---
 
