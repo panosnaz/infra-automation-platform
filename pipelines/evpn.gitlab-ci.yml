@@ -3,10 +3,17 @@
 # uses -- per ADR-021's whole point, no pipeline logic changes for a new
 # domain, only new variables.
 #
-# NOT YET included from the root .gitlab-ci.yml (deliberately -- ADR-021's
-# simulator gap means terraform_plan/apply would fail on every single commit
-# against a nonexistent device if wired in now). Include this file from the
-# root .gitlab-ci.yml once a Nexus 9Kv (or equivalent) is reachable.
+# NOT YET included from the root .gitlab-ci.yml. A working, tested relay
+# mechanism now exists (pipelines/scripts/cml-jump-relay.sh, ADR-021 §12)
+# that lets a CI job reach the real lab devices via the CML jump host, and
+# evpn_lab_connectivity_check below genuinely uses it and passes. But
+# terraform_plan/terraform_apply/ansible_configure/pyats_verify below are
+# still the unmodified shared templates -- they run directly in the
+# runner, which still has no network path to the devices, and will still
+# fail. Relaying those jobs' actual execution through the jump host (SCP
+# the rendered config over, run terraform/ansible/pyats there, retrieve
+# results) is real, separate follow-on work, not done in this pass. Do not
+# include this file from the root pipeline until that's done.
 
 include:
   - local: "pipelines/includes/common.gitlab-ci.yml"
@@ -36,9 +43,31 @@ policy_check:
   extends: ".policy_check"
   needs: ["validate_nac"]
 
+# EVPN-specific, not part of the shared stage templates (ADR-021 §12): the
+# real Nexus 9000v lab devices (172.30.46.220-223) are only reachable from
+# inside CML's own network, not from this pipeline's runner (confirmed --
+# Bridge-mode external connectivity from outside CML is broken, root cause
+# unresolved). This job relays a reachability check to all 4 devices via
+# the CML jump host (pipelines/scripts/cml-jump-relay.sh) as a real
+# pre-flight gate before terraform_plan attempts to reach them directly
+# (which will otherwise simply hang/fail with a much less clear error).
+evpn_lab_connectivity_check:
+  stage: plan
+  image: "python:3.12-slim"
+  before_script:
+    - apt-get update -qq && apt-get install -y -qq curl expect sshpass openssh-client >/dev/null
+  script:
+    - |
+      for ip in 172.30.46.220 172.30.46.221 172.30.46.222 172.30.46.223; do
+        echo "Checking NX-API reachability for ${ip} via jump host..."
+        pipelines/scripts/cml-jump-relay.sh VXLAN-EVPN-MultiSite jump-host \
+          "wget -q -O /dev/null -S --no-check-certificate --timeout=8 https://${ip}/ins 2>&1 | grep -q '401 Unauthorized'" 30
+      done
+  needs: ["policy_check"]
+
 terraform_plan:
   extends: ".terraform_plan"
-  needs: ["policy_check"]
+  needs: ["evpn_lab_connectivity_check"]
 
 terraform_apply:
   extends: ".terraform_apply"

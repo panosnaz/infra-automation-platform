@@ -1,0 +1,93 @@
+#!/usr/bin/env expect -f
+# cml-jump-relay.exp — run a single non-interactive shell command on a CML
+# lab's jump host via CML's SSH console-proxy ("open /<lab>/<node>/0"),
+# capturing just that command's stdout and exit code.
+#
+# Why this exists: the CML lab's simulated devices (172.30.46.220-223 for
+# the VXLAN-EVPN-MultiSite lab) are only reachable from inside CML's own
+# network -- neither this repo's dev host nor the gitlab-runner container
+# has a route to them (Bridge-mode external connectivity from outside CML
+# is broken, root cause unresolved -- ADR-021 SS5/SS12). The jump host
+# (an alpine node inside the lab) does have that route. This script lets a
+# CI job (which can reach the CML controller directly) relay individual
+# commands to the jump host instead, without needing its own network path
+# to the lab's OOB segment.
+#
+# The console-proxy is a raw serial-console session (not a normal SSH exec
+# channel), so ordinary `ssh host "command"` piping doesn't work -- this
+# script drives it the same way an interactive operator would: connect,
+# then immediately send the command wrapped in unique markers (confirmed
+# live: the console is responsive right after the "Connected to CML
+# terminalserver." banner, no separate wake-up phase needed -- an earlier
+# version of this script assumed one was required and that was the actual
+# bug), then wait for the markers to delimit the real output from console
+# noise/echo.
+#
+# Usage:
+#   expect cml-jump-relay.exp <cml_host> <cml_user> <cml_password> \
+#       <lab_name> <node_label> <command> <timeout_seconds>
+#
+# Exit code: the relayed command's own exit code (0-255), or 124 on
+# expect-level timeout/failure (never confused with a real command's exit
+# code, which CML/alpine's ash never exceeds). Connection establishment has
+# observed real intermittent flakiness (roughly 1 in 3 attempts in testing)
+# -- callers should retry on exit 124, see cml-jump-relay.sh.
+
+set cml_host    [lindex $argv 0]
+set cml_user    [lindex $argv 1]
+set cml_pass    [lindex $argv 2]
+set lab_name    [lindex $argv 3]
+set node_label  [lindex $argv 4]
+set command     [lindex $argv 5]
+set cmd_timeout [lindex $argv 6]
+
+set timeout $cmd_timeout
+log_user 0
+
+set marker_start "___RELAY_START_[pid]___"
+set marker_end   "___RELAY_END_[pid]___EXIT_"
+
+spawn sshpass -p $cml_pass ssh -tt -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null $cml_user@$cml_host "open /$lab_name/$node_label/0"
+
+expect {
+    "Connected to CML terminalserver." {
+        # console is immediately responsive here, confirmed live -- do not
+        # add a separate wake-up phase, it does not help and only adds
+        # latency (see this file's own history for why that was tried).
+    }
+    timeout {
+        puts stderr "RELAY-ERROR: timed out waiting for console connection"
+        exit 124
+    }
+}
+
+send "echo ${marker_start}; $command; echo \"${marker_end}\$?\"\r"
+
+# marker_start appears twice in the buffer: once in the console's echo of
+# the typed input line, once in the real command output. A naive greedy
+# regex anchors on the first (wrong) occurrence, prepending the tail of the
+# echoed input line to the captured output. Fixed by capturing broadly then
+# slicing from the LAST occurrence of marker_start with `string last`,
+# rather than relying on regex greediness to pick the right one.
+set pattern "${marker_start}(.*)${marker_end}(\[0-9\]+)"
+expect {
+    -re $pattern {
+        set raw_output $expect_out(1,string)
+        set exit_code $expect_out(2,string)
+        set last_start [string last $marker_start $raw_output]
+        if {$last_start >= 0} {
+            set output [string range $raw_output [expr {$last_start + [string length $marker_start]}] end]
+        } else {
+            set output $raw_output
+        }
+        puts [string trim $output "\r\n"]
+        send "\x1d"
+        catch {exp_close}
+        catch {wait}
+        exit $exit_code
+    }
+    timeout {
+        puts stderr "RELAY-ERROR: timed out waiting for command completion"
+        exit 124
+    }
+}
