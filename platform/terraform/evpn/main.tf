@@ -50,6 +50,18 @@ resource "nxos_feature" "fabric" {
   nv_overlay     = "enabled"
   vn_segment     = "enabled"
   interface_vlan = "enabled"
+
+  # Confirmed live (2026-07-30) and via the real provider schema (every
+  # attribute here is a plain enabled/disabled string -- no content_on_
+  # destroy-equivalent exists, unlike aci_rest_managed): `terraform destroy`
+  # reports success but does not actually disable these features on the
+  # device. prevent_destroy stops this module from silently no-op'ing a
+  # destroy on shared, foundational fabric state -- see
+  # Platform-Status-and-Pending-Items.md §2 for the manual NX-API revert
+  # procedure if these genuinely need disabling.
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 # ---------------------------------------------------------------------------

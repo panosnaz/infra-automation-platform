@@ -4,12 +4,12 @@ domain: vxlan_evpn
 status: active
 tags: [evpn, nexus, vxlan, domain-expansion, generator, terraform, nxos]
 owner: platform-engineering-team
-last_updated: 2026-07-30
+last_updated: 2026-07-31
 ---
 
 # ADR-021 — Domain Expansion Phase 2: Cisco Nexus VXLAN EVPN
 
-**Status:** Accepted — schema, generator, Terraform module, and Ansible playbooks are complete; **live verification achieved (2026-07-30)** — a real `terraform apply`/`plan`/`destroy` cycle succeeded against a genuine Nexus 9000v device (`DC1-Leaf`) via a jump host inside the CML lab network. 3 of 4 real nodes have working NX-API. A real destroy-safety bug was found in `nxos_feature` (see §6) and is tracked as a pending fix, not yet resolved.
+**Status:** Accepted — schema, generator, Terraform module, and Ansible playbooks are complete; **live verification achieved (2026-07-30)** — a real `terraform apply`/`plan`/`destroy` cycle succeeded against a genuine Nexus 9000v device (`DC1-Leaf`) via a jump host inside the CML lab network. 3 of 4 real nodes have working NX-API. A real destroy-safety bug was found in `nxos_feature` (see §6) and mitigated with `lifecycle { prevent_destroy = true }` (§7, 2026-07-31) — no attribute-level fix exists in the provider's real schema.
 
 **Date:** 2026-07-29
 
@@ -126,6 +126,14 @@ The full step-by-step procedure (building the OOB network, the jump host, transf
 
 ---
 
+## 7. `nxos_feature` destroy bug — investigated, mitigated with `prevent_destroy` (2026-07-31)
+
+Followed up on §6's finding by querying the real `CiscoDevNet/nxos` v0.13.1 provider schema directly (`terraform providers schema -json`, using the provider binary already cached locally from §6's mirror transfer, no network dependency): `nxos_feature` has **no `content_on_destroy`-equivalent attribute** — every one of its ~35 attributes (`bgp`, `evpn`, `interface_vlan`, etc.) is a plain `enabled`/`disabled` string, unlike `aci_rest_managed`'s generic-REST-object model that made ADR-020 Phase C's fix possible. There is no Terraform-attribute-level fix available for this resource as currently designed by the provider.
+
+**Mitigation applied**: added `lifecycle { prevent_destroy = true }` to `nxos_feature.fabric` in `main.tf`. This does not fix the provider's destroy behavior — it stops the module from allowing a destroy that's now confirmed to silently no-op on shared, foundational fabric state (feature flags every other resource in this module depends on). A genuine fix would require either an upstream provider fix or a destroy-time provisioner issuing the `no feature ...` NX-API calls directly (not attempted here — out of scope without live device access to verify against in this session).
+
+---
+
 # Consequences
 
 - **Proves the Execution Framework generalizes**, not just the ACI domain — the actual architectural point of building this platform this way. If EVPN needs new pipeline stages, new GitLab CI logic, or changes to the MCP Server's dispatcher, that would be a real finding contradicting ADR-018's design; the design predicts it will not. **Confirmed (2026-07-30)**: adding EVPN's MCP tools required zero changes to `main.py`'s dispatcher, `tools/registry.py`, or any GitLab CI shared stage template — only new files, exactly as ADR-018 predicted.
@@ -133,6 +141,6 @@ The full step-by-step procedure (building the OOB network, the jump host, transf
 - **`VLAN` is now used by the platform's generator tooling for the first time** — ACI's generator only ever read `Tenant`/`VRF`/`Prefix` (Bridge Domains) and `VLAN` for EPGs (ADR-020 Phase A item 2, read-only association). EVPN's generator reads `VLAN` as the primary Bridge-Domain-equivalent object. No conflict: ACI and EVPN Tenants are disjoint (different name prefixes), so the same Nautobot instance safely holds both domains' data.
 - **Terraform module deepened (2026-07-30)**: added `nxos_bgp` (global ASN + default VRF's `l2vpn-evpn` address-family + each tenant VRF's `ipv4-ucast` address-family with `advertise_l2vpn_evpn` — the actual EVPN control-plane piece that was missing from the first pass) and `nxos_svi_interface` (SVI existence + VRF binding per Bridge Domain). Both confirmed against the real provider schema (`terraform validate` + `terraform plan`, resource count went from 5 to 7 with no errors). **Still deliberately out of scope, not invented**: actual BGP neighbor/peer configuration (no Nautobot Interface/Cable data model exists yet to source real peer IPs from — inventing them would violate this ADR's own "verify before coding" discipline) and SVI IP-address assignment (`nxos_ipv4`'s schema was not researched in this pass).
 - **OPA policy written and tested (2026-07-30)**: `docker/platform-api/policy/vxlan_evpn/tenant_naming.rego` — tenant naming convention (same as `cisco_aci`), VNI range validation (1-16777214, matching `nxos_nvo`'s confirmed schema), and VNI global-uniqueness checking (VNIs are globally unique on a single NX-OS device, unlike ACI's per-tenant VRF names — a real, distinct failure mode from ADR-020's `web-vrf`/`new-app-vrf` duplicate-VRF incident). Verified with the real `opa eval` CLI (via the `openpolicyagent/opa` image already used by this lab) against 4 scenarios (valid, bad name, duplicate VNI, out-of-range VNI) — a real Rego compile bug (`var vni declared above`, from reusing one variable name across two `some ... in` clauses) was caught and fixed during this verification, not left undiscovered.
-- **Live verification achieved (2026-07-30)**: a real `terraform apply`/`plan`/`destroy` cycle succeeded against genuine Nexus 9000v hardware via a jump host inside the CML lab network (see §6) — this closes the core gap this ADR opened with. A real destroy-safety bug was found in `nxos_feature` (destroy doesn't actually revert device state) and is tracked as a pending fix, the same class of finding as ADR-020 Phase C's `aci_rest_managed` bug.
+- **Live verification achieved (2026-07-30)**: a real `terraform apply`/`plan`/`destroy` cycle succeeded against genuine Nexus 9000v hardware via a jump host inside the CML lab network (see §6) — this closes the core gap this ADR opened with. A real destroy-safety bug was found in `nxos_feature` (destroy doesn't actually revert device state), confirmed via the real provider schema to have no attribute-level fix available, and mitigated with `lifecycle { prevent_destroy = true }` (see §7) rather than left unaddressed.
 - **OPA policy** (`data.platform.vxlan_evpn.decision`) needs its own Rego package once real policy rules are identified for this domain — not written in this ADR, since no naming/attribute conventions exist yet to write meaningful rules against (unlike `cisco_aci`'s tenant-naming rule, which came from real debris encountered in this lab).
 - **Pending, tracked separately**: standing up a Nexus 9Kv (or equivalent) simulator is real infrastructure work, not a documentation or code task — it is not scoped by this ADR and should be tracked as its own decision (VM sizing, image licensing/availability, network placement) when someone is ready to unblock live verification.
