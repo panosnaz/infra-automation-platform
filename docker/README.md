@@ -1,7 +1,16 @@
 # Docker
 
-Local lab environment for the Nautobot ACI Infrastructure Automation project.
-All services run as Docker containers managed by Docker Compose and the `invoke` task runner.
+Local lab environment for the Network Platform Engineering Platform. All services run as
+Docker containers, most managed by Docker Compose directly, with the Nautobot stack also
+using the `invoke` task runner.
+
+**This file covers directory layout and the Nautobot stack in detail (the original,
+Phase-1 content). For every other service (Vault, GitLab, GitLab Runner, OPA, MCP Server,
+Prometheus, Grafana, Loki, MinIO, Traefik) — ports, credentials, startup/restart
+procedures, and troubleshooting — see
+[`Platform-Administration-Guide.md`](../Platform-Administration-Guide.md), the
+authoritative operational reference for the whole lab. This file does not duplicate that
+content.**
 
 ---
 
@@ -10,30 +19,45 @@ All services run as Docker containers managed by Docker Compose and the `invoke`
 ```
 docker/
 ├── README.md
-├── nautobot/                        # Nautobot stack (primary)
-│   ├── pyproject.toml               # Python dependencies (nautobot-ssot[aci], invoke)
-│   ├── tasks.py                     # Invoke task runner entry point
-│   ├── invoke.example.yml           # Default invoke configuration reference
-│   ├── config/
-│   │   └── nautobot_config.py       # Nautobot config (bind-mounted into containers)
-│   ├── jobs/                        # Nautobot jobs (bind-mounted into containers)
-│   └── environments/
-│       ├── Dockerfile               # Custom Nautobot image build definition
-│       ├── docker-compose.base.yml  # Service definitions (nautobot, celery, redis)
-│       ├── docker-compose.postgres.yml  # Postgres service + volume
-│       ├── docker-compose.local.yml # Local dev overrides (ports, bind mounts)
-│       ├── local.env                # Non-secret environment variables
-│       ├── local.example.env        # Reference template for local.env
-│       ├── creds.env                # Secrets (passwords, API tokens, ACI credentials)
-│       └── creds.example.env        # Reference template for creds.env
-└── other-containers/                # Placeholder for future additional services
+├── docker-compose.yml                # root entry point: shared project name + networks via `include:` -- see below
+├── nautobot/                        # Nautobot stack (nested git repo, see below)
+├── vault/                            # HashiCorp Vault -- secrets for Terraform/Ansible/pyATS/MCP Server
+├── mcp-server/                       # MCP Server container
+├── platform-api/                     # OPA only today -- the legacy platform-api app is archived, see below
+└── other-containers/
+    ├── gitlab/                       # GitLab CE -- the execution engine
+    ├── gitlab-runner/                # GitLab Runner
+    ├── prometheus/                   # Metrics
+    ├── grafana/                      # Dashboards
+    ├── loki/                         # Log aggregation
+    ├── minio/                        # S3-compatible Knowledge Capture storage
+    └── traefik/                      # Reverse proxy
 ```
+
+## Starting the whole lab
+
+From `docker/`, `docker compose up -d` (or `down`) at the root starts/stops every service
+under one shared Compose project (`infra-automation-lab`) via `include:` — see the comment
+block at the top of `docker/docker-compose.yml` for why the Nautobot stack is included by
+reference rather than owned here, and the operational hazards in
+[`Platform-Status-and-Pending-Items.md`](../knowledge/architecture/Platform-Status-and-Pending-Items.md)
+§3 for why `docker compose down` should never be run scoped to a single service's own
+subdirectory. Required environment variables and the full startup sequence are in
+[`Platform-Administration-Guide.md`](../Platform-Administration-Guide.md) §1.8.
 
 ---
 
-## Docker Compose Stack
+## Nautobot stack
 
-The stack is composed of three merged Compose files. Together they define the
+The rest of this document covers the Nautobot stack specifically, since it's managed
+differently from every other service (its own nested git repository, `invoke` task runner
+instead of plain `docker compose`, and a custom-built image).
+
+---
+
+## Nautobot's Compose files
+
+The Nautobot stack is composed of three merged Compose files. Together they define the
 `infra-automation-lab` project:
 
 | Compose file | Purpose |
@@ -153,22 +177,20 @@ The APIC endpoint and other connection details are configured inside Nautobot it
 
 ---
 
-## Platform API (`docker/platform-api/`)
+## Platform API (`docker/platform-api/`) — legacy app archived, OPA remains
 
-Vertical Slice v0.1's Intent Lifecycle implementation (see
-[`docs/05-Operations/14-Vertical-Slice-v0.1-Roadmap.md`](../docs/05-Operations/14-Vertical-Slice-v0.1-Roadmap.md)).
-Requires `NAUTOBOT_TOKEN` to be exported before starting the stack — the
-compose file fails fast with a clear error if it's missing:
+The original Platform v1 Intent Lifecycle app that used to live here (`app/`, its own
+`Dockerfile`, `docker-compose.yml` with a `platform-api` service) is **archived** at
+[`archive/platform-v1/docker/platform-api/`](../archive/platform-v1/docker/platform-api/)
+per [ADR-016](../knowledge/adr/ADR-016-Platform-v2-Replacement-Architecture.md)'s
+replacement (not migration) decision — its responsibilities moved to the MCP Server,
+Nautobot, and GitLab. Do not follow old instructions referencing a `platform-api`
+container or a `NAUTOBOT_TOKEN`-gated `docker compose up -d --build` here; that app is not
+run today.
 
-```bash
-export NAUTOBOT_TOKEN=<nautobot-superuser-api-token>
-cd docker/platform-api
-docker compose up -d --build
-```
-
-The token is the same one Nautobot issues to its superuser account (see
-[`knowledge/architecture/archive/Current-State-v1.md`](../knowledge/architecture/archive/Current-State-v1.md)). Reading it from Vault at runtime,
-the way Terraform/Ansible already do, is a natural follow-up but not yet
-wired in — Milestone 1 only required the same round-trip proof those tools
-already established, not a new secrets-loading path.
+What's still live in `docker/platform-api/` today is only
+[`policy/`](platform-api/policy/) (the OPA Rego policies the GitLab CI `policy_check` job
+uses) and a `docker-compose.yml` containing just the `opa` service. See
+[`Platform-Administration-Guide.md`](../Platform-Administration-Guide.md) for how OPA is
+run and administered.
 
