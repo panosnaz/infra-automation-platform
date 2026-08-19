@@ -4,7 +4,7 @@ domain: platform
 status: active
 tags: [knowledge, ai]
 owner: platform-engineering-team
-last_updated: 2026-07-28
+last_updated: 2026-08-19
 ---
 
 # Knowledge Layer
@@ -53,6 +53,14 @@ Instead, engineering knowledge becomes a managed platform asset.
 The Knowledge Layer is the **Engineering Memory** of the platform.
 
 It receives continuously from every major platform event and capability, not just at the end of a workflow.
+
+> **Implementation note (updated 2026-08-19):** "Platform API" and "Workflow Engine" in the
+> diagram below are the original Platform v1 names. Per
+> [ADR-016](../adr/ADR-016-Platform-v2-Replacement-Architecture.md), those roles are now the
+> MCP Server and GitLab CI respectively — see [`Execution-Framework.md`](../architecture/Execution-Framework.md).
+> The actual, built Knowledge Capture path is the `capture_knowledge` GitLab CI job writing to
+> MinIO (`s3://knowledge-capture/`), described further down in this document's 2026-07-29
+> update note, not the generic per-component arrows shown below.
 
 ```text
 Platform API ──────────────────────────────────────────────► Knowledge Layer
