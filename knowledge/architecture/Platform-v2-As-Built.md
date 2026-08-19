@@ -66,14 +66,15 @@ Removed in GitLab 17.0, replaced by `sidekiq['concurrency']`. Omnibus reconfigur
 
 ---
 
-# 3. Prometheus — Scrape Target Gap
+# 3. Prometheus — Scrape Target Gap (resolved 2026-08-19)
 
-The reference architecture's networking diagram (§3, §4) shows Prometheus scraping `app-net` targets including implicitly Nautobot and Platform API. In practice:
+The reference architecture's networking diagram (§3, §4) shows Prometheus scraping `app-net` targets including implicitly Nautobot and Platform API. **This gap is now closed:**
 
-* Neither `nautobot` nor `platform-api` currently expose a Prometheus-format `/metrics` endpoint (`nautobot` returns `406 Not Acceptable`; `platform-api` returns `404 Not Found`).
-* Prometheus's own scrape of itself (`localhost:9090/metrics`) is healthy.
+* **Nautobot:** its `/metrics` endpoint (`nautobot.core.views.NautobotMetricsView`, a DRF `APIView`) returned `406 Not Acceptable` against Prometheus's real, versioned default `Accept` header (`application/openmetrics-text;version=1.0.0,text/plain;version=0.0.4;q=0.5,*/*;q=0.1`) — confirmed live to be a genuine incompatibility between Nautobot 3.1.4's content negotiation/versioning (`PlainTextRenderer` + a custom `PrometheusVersioning` class) and that header, not a Nautobot misconfiguration on this repo's side (`NAUTOBOT_METRICS_ENABLED=True` was already set). **Fix:** `docker/other-containers/prometheus/prometheus.yml`'s `nautobot` job now overrides the request's `Accept` header to a bare `*/*` via Prometheus's `http_headers` scrape option, which Nautobot's negotiation accepts. Confirmed live: target `health: up`, real metrics (`django_db_new_connections_total`, `health_check_*`, etc.) flowing.
+* **`platform-api`:** this scrape target was already stale by the time it was investigated — the legacy FastAPI app it pointed at is archived (`archive/platform-v1/`); only OPA runs in that directory today. **Fix:** replaced the `platform-api` job with an `opa` job — OPA exposes real Prometheus metrics natively at `/metrics`, no extra config needed. Confirmed live: target `health: up`.
+* Prometheus's own scrape of itself (`localhost:9090/metrics`) remains healthy, as before.
 
-This is a genuine implementation gap versus the target, not a Prometheus configuration problem — see the validation report §2 for full evidence, and §10's action items.
+See [ADR-013](../adr/ADR-013-Observability.md) for the decision-record-level update. **Loki was also confirmed to have no log shipper at all** (an adjacent, equally real gap this investigation surfaced) — fixed by adding a `promtail` service (`docker/other-containers/loki/docker-compose.yml`) using Docker service discovery; confirmed live via a direct Loki query returning real, labeled log lines from a running container.
 
 ---
 
@@ -102,7 +103,7 @@ Consistent with ADR-016's "replacement, not migration" framing and this phase's 
 
 1. ~~`mcp-server` — not built (largest gap; Milestone 5+ scope per Execution-Framework.md §6).~~ **Resolved:** built and live, callable over the real MCP protocol, with a real AI agent connected as a client (Milestones 5 and 6) and a second domain's tools added (ADR-021).
 2. ~~`gitlab-runner` — created but not registered/started.~~ **Resolved:** registered and online (`phase2-shared-runner`) since Milestone 1.
-3. Prometheus scrape targets for `nautobot`/`platform-api` — configured but non-functional (no metrics endpoints exposed).
+3. ~~Prometheus scrape targets for `nautobot`/`platform-api` — configured but non-functional (no metrics endpoints exposed).~~ **Resolved (2026-08-19):** see §3 — `nautobot` now scraped successfully via an `Accept: */*` header override; the stale `platform-api` target replaced with a working `opa` target. Loki's missing log shipper (found during the same investigation) also fixed via a new `promtail` service.
 4. ~~Three named networks (`app-net`/`obs-net`/`proxy-net`) — not adopted.~~ **Resolved:** see §4 — implemented via the root `docker/docker-compose.yml`'s `include:`.
 5. `docs` (MkDocs) — not built (still explicitly low priority in the reference architecture itself).
 6. Traefik `/ping` healthcheck and `*.lab.local` `/etc/hosts` entries — not yet added.

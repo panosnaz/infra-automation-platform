@@ -7,11 +7,31 @@ scrape_configs:
       - targets: ["localhost:9090"]
 
   - job_name: "nautobot"
-    metrics_path: "/metrics"
+    metrics_path: "/metrics/"
+    # Nautobot's /metrics view (nautobot.core.views.NautobotMetricsView) is a
+    # DRF APIView whose only renderer is a plain "text/plain" (no version
+    # parameter) PlainTextRenderer, versioned via a custom PrometheusVersioning
+    # class. Prometheus's real scrape request sends a versioned Accept header
+    # (e.g. "application/openmetrics-text;version=1.0.0,text/plain;version=0.0.4;
+    # q=0.5,*/*;q=0.1") -- confirmed live (2026-08-19) that DRF's content
+    # negotiation/versioning rejects every entry in that header except a bare
+    # "*/*" with a 406. Overriding the Accept header sent to this target to a
+    # plain "*/*" is the workaround; the underlying incompatibility is between
+    # Nautobot 3.1.4's NautobotMetricsView and modern Prometheus client Accept
+    # headers, not something fixable from this repo.
+    http_headers:
+      Accept:
+        values: ["*/*"]
     static_configs:
       - targets: ["host.docker.internal:8080"]
 
-  - job_name: "platform-api"
+  - job_name: "opa"
+    # The legacy "platform-api" FastAPI app this job used to target is
+    # archived (archive/platform-v1/) -- only OPA now runs in that directory
+    # (docker/platform-api/docker-compose.yml). OPA exposes real Prometheus
+    # metrics natively at /metrics with no extra config, confirmed live
+    # (2026-08-19): `curl http://localhost:8181/metrics` returns Go runtime +
+    # OPA metrics, HTTP 200, no Accept-header workaround needed.
     metrics_path: "/metrics"
     static_configs:
-      - targets: ["host.docker.internal:8000"]
+      - targets: ["host.docker.internal:8181"]
