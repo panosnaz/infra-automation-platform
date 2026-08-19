@@ -4,7 +4,7 @@ domain: platform
 status: active
 tags: [netascode]
 owner: platform-engineering-team
-last_updated: 2026-07-28
+last_updated: 2026-08-19
 ---
 
 # ADR-007 — Cisco NetAsCode as the Canonical Engineering Model
@@ -17,14 +17,20 @@ last_updated: 2026-07-28
 
 > **Naming clarification:** "NetAsCode" refers to the canonical engineering model (this ADR's subject) — a YAML schema describing tenants/VRFs/bridge domains, produced by `platform/python/generate_aci.py`. It is unrelated to the `netascode/aci` Terraform provider name. The platform's Terraform implementation ([`ADR-002`](ADR-002-Terraform-Desired-State.md)) uses the `CiscoDevNet/aci` provider, chosen during Phase 3 implementation for broader version compatibility with APIC 6.2(1g). The provider is simply the tool that consumes NetAsCode YAML; it does not itself need to be "the NetAsCode provider."
 
+> **Implementation note (updated 2026-08-19):** ADR-004 (Platform API), ADR-005
+> (Workflow Orchestration), and ADR-006 (Platform Control Plane), listed below, are
+> archived and superseded by [ADR-016](ADR-016-Platform-v2-Replacement-Architecture.md) —
+> see [`Execution-Framework.md`](../architecture/Execution-Framework.md) for what replaced
+> each. This ADR's decision (NetAsCode as the canonical engineering model) is unchanged.
+
 **Related ADRs:**
 
 - ADR-001 — Nautobot as the Source of Truth
 - ADR-002 — Terraform Owns Desired State Provisioning
 - ADR-003 — Ansible Owns Day-2 Operations
-- ADR-004 — Platform API as the Unified Platform Interface
-- ADR-005 — Workflow Orchestration
-- ADR-006 — Platform Control Plane as the Single Orchestration Layer
+- ADR-004 — Platform API as the Unified Platform Interface (archived)
+- ADR-005 — Workflow Orchestration (archived)
+- ADR-006 — Platform Control Plane as the Single Orchestration Layer (archived)
 
 ---
 

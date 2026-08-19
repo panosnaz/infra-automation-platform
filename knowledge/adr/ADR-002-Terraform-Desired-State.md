@@ -4,7 +4,7 @@ domain: platform
 status: active
 tags: [terraform]
 owner: platform-engineering-team
-last_updated: 2026-07-28
+last_updated: 2026-08-19
 ---
 
 # ADR-002 – Terraform as the Declarative Provisioning Engine
@@ -14,6 +14,15 @@ last_updated: 2026-07-28
 **Date:** 2026-06-28
 
 **Decision Makers:** Platform Engineering Team
+
+> **Implementation note (updated 2026-08-19):** "Platform API" and "Workflow Engine"
+> mentioned in this document's diagrams/tables are the original Platform v1 names for
+> components archived and superseded by
+> [ADR-016](ADR-016-Platform-v2-Replacement-Architecture.md) — the MCP Server and GitLab CI
+> respectively. This ADR's actual decision (Terraform owns desired-state provisioning) is
+> unchanged and fully in force; see [`Execution-Framework.md`](../architecture/Execution-Framework.md)
+> for how Terraform is invoked today (a `terraform_plan`/`terraform_apply` GitLab CI stage,
+> not a Workflow Engine call).
 
 ---
 

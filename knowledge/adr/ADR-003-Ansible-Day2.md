@@ -4,7 +4,7 @@ domain: platform
 status: active
 tags: [ansible, day2]
 owner: platform-engineering-team
-last_updated: 2026-07-28
+last_updated: 2026-08-19
 ---
 
 # ADR-003 — Ansible Owns Day-2 Operations
@@ -14,6 +14,14 @@ last_updated: 2026-07-28
 **Date:** 2026-06-29
 
 **Decision Makers:** Platform Engineering Team
+
+> **Implementation note (updated 2026-08-19):** "Platform Control Plane" and "Workflow
+> Engine (n8n)" mentioned in this document are the original Platform v1 names for
+> components archived and superseded by
+> [ADR-016](ADR-016-Platform-v2-Replacement-Architecture.md) — GitLab CI plays that
+> orchestration role today (see [`Execution-Framework.md`](../architecture/Execution-Framework.md)).
+> This ADR's actual decision (Ansible owns Day-2 operations) is unchanged and fully in
+> force; Ansible is now triggered by an `ansible_configure` GitLab CI stage, not n8n.
 
 **Related ADRs:**
 

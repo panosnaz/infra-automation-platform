@@ -4,7 +4,7 @@ domain: platform
 status: active
 tags: [secrets, vault]
 owner: platform-engineering-team
-last_updated: 2026-07-28
+last_updated: 2026-08-19
 ---
 
 # ADR-012 — Centralized Secrets Management
@@ -15,14 +15,22 @@ last_updated: 2026-07-28
 
 **Decision Makers:** Platform Engineering Team
 
+> **Implementation note (updated 2026-08-19):** ADR-004 (Platform API), ADR-005
+> (Workflow Orchestration), and ADR-006 (Platform Control Plane), listed below, are
+> archived and superseded by [ADR-016](ADR-016-Platform-v2-Replacement-Architecture.md) —
+> see [`Execution-Framework.md`](../architecture/Execution-Framework.md) for what replaced
+> each. This ADR's decision (Vault as centralized secrets management) is unchanged and
+> fully in force — Terraform/Ansible/pyATS/the MCP Server all read secrets from Vault
+> today, exactly as this ADR specifies.
+
 **Related ADRs:**
 
 - ADR-001 — Nautobot as the Source of Truth
 - ADR-002 — Terraform Owns Desired State Provisioning
 - ADR-003 — Ansible Owns Day-2 Operations
-- ADR-004 — Platform API
-- ADR-005 — Workflow Orchestration
-- ADR-006 — Platform Control Plane
+- ADR-004 — Platform API (archived)
+- ADR-005 — Workflow Orchestration (archived)
+- ADR-006 — Platform Control Plane (archived)
 - ADR-007 — Cisco NetAsCode as the Canonical Engineering Model
 - ADR-008 — Validation as an Independent Platform Capability
 - ADR-009 — Knowledge Layer as the Engineering Memory of the Platform
