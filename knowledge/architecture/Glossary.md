@@ -4,7 +4,7 @@ domain: platform
 status: active
 tags: [glossary]
 owner: platform-engineering-team
-last_updated: 2026-07-28
+last_updated: 2026-08-19
 ---
 
 # 03a – Platform Glossary
@@ -417,6 +417,12 @@ The logical interface through which all platform capabilities interact.
 
 The Platform API abstracts implementation details from engineers and automation components.
 
+> **Implementation note:** the original Platform v1 component named "Platform API" is
+> archived, superseded by [ADR-016](../adr/ADR-016-Platform-v2-Replacement-Architecture.md).
+> The **MCP Server** fills this role today — see
+> [`Platform-v2-Reference-Architecture.md`](Platform-v2-Reference-Architecture.md) §1. The
+> concept (a single logical entry point) remains valid; only the component name changed.
+
 ---
 
 ## Platform Capability
@@ -449,6 +455,11 @@ Responsibilities include:
 * API integration
 
 Infrastructure execution should occur only through the Platform Control Plane.
+
+> **Implementation note:** the original Platform v1 "Platform Control Plane" (ADR-006) is
+> archived, superseded by [ADR-016](../adr/ADR-016-Platform-v2-Replacement-Architecture.md).
+> GitLab CI fills this coordination role today — see
+> [`Execution-Framework.md`](Execution-Framework.md).
 
 ---
 
@@ -529,7 +540,12 @@ Typical responsibilities include:
 * Notifications
 * Pipeline orchestration
 
-n8n is the preferred implementation within the current platform architecture.
+**GitLab CI is the implementation today** — n8n was the original Platform v1 choice
+(ADR-005), now archived and superseded by
+[ADR-016](../adr/ADR-016-Platform-v2-Replacement-Architecture.md). n8n was never actually
+built/run in production for this platform; see
+[`Execution-Framework.md`](Execution-Framework.md) for how GitLab CI's job graph fills this
+role.
 
 ---
 
