@@ -4,7 +4,7 @@ domain: platform
 status: active
 tags: [ai]
 owner: platform-engineering-team
-last_updated: 2026-07-28
+last_updated: 2026-08-19
 ---
 
 # ADR-010 — AI as an Engineering Assistant
@@ -15,14 +15,26 @@ last_updated: 2026-07-28
 
 **Decision Makers:** Platform Engineering Team
 
+> **Implementation note (updated 2026-08-19):** ADR-004 (Platform API), ADR-005
+> (Workflow Orchestration), and ADR-006 (Platform Control Plane) — referenced below and
+> in the Related ADRs list — are archived and superseded by
+> [ADR-016](ADR-016-Platform-v2-Replacement-Architecture.md). Their responsibilities now
+> live in the MCP Server (replacing the Platform API) and GitLab CI (replacing the
+> Workflow Engine) — see [`Execution-Framework.md`](../architecture/Execution-Framework.md).
+> This ADR's decision — that AI acts through the same interface engineers use, never as a
+> privileged internal component — remains valid; the AI Agents now integrate as MCP
+> clients of the MCP Server, per [ADR-018](ADR-018-NetAsCode-Centric-Execution-Framework.md)
+> and `Execution-Framework.md` §6's Milestone 6 evidence. Only the component names below
+> are historical.
+
 **Related ADRs:**
 
 - ADR-001 — Nautobot as the Source of Truth
 - ADR-002 — Terraform Owns Desired State Provisioning
 - ADR-003 — Ansible Owns Day-2 Operations
-- ADR-004 — Platform API as the Unified Platform Interface
-- ADR-005 — Workflow Orchestration
-- ADR-006 — Platform Control Plane as the Single Orchestration Layer
+- ADR-004 — Platform API as the Unified Platform Interface (archived)
+- ADR-005 — Workflow Orchestration (archived)
+- ADR-006 — Platform Control Plane as the Single Orchestration Layer (archived)
 - ADR-007 — Cisco NetAsCode as the Canonical Engineering Model
 - ADR-008 — Validation as an Independent Platform Capability
 

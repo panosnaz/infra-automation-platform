@@ -4,7 +4,7 @@ domain: platform
 status: active
 tags: [policy, opa]
 owner: platform-engineering-team
-last_updated: 2026-07-28
+last_updated: 2026-08-19
 ---
 
 # ADR-014 — Technical Policy Enforcement (OPA)
@@ -15,12 +15,22 @@ last_updated: 2026-07-28
 
 **Decision Makers:** Platform Engineering Team
 
+> **Implementation note (updated 2026-08-19):** ADR-004 (Platform API), ADR-005
+> (Workflow Orchestration), and ADR-006 (Platform Control Plane) — referenced below and
+> in the Related ADRs list — are archived and superseded by
+> [ADR-016](ADR-016-Platform-v2-Replacement-Architecture.md). This ADR's actual decision —
+> policy evaluation stays external to whatever orchestrates it, via OPA — is exactly what
+> got built: the `policy_check` GitLab CI job calls OPA directly, with no Platform API in
+> between. See [`Execution-Framework.md`](../architecture/Execution-Framework.md) and
+> [ADR-018](ADR-018-NetAsCode-Centric-Execution-Framework.md). Only the "Platform API
+> orchestrates the call" framing below is historical — GitLab CI plays that role today.
+
 **Related ADRs:**
 
 - ADR-001 — Nautobot as the Source of Truth
-- ADR-004 — Platform API as the Unified Platform Interface
-- ADR-005 — Workflow Orchestration
-- ADR-006 — Platform Control Plane as the Single Orchestration Layer
+- ADR-004 — Platform API as the Unified Platform Interface (archived)
+- ADR-005 — Workflow Orchestration (archived)
+- ADR-006 — Platform Control Plane as the Single Orchestration Layer (archived)
 - ADR-007 — Cisco NetAsCode as the Canonical Engineering Model
 - ADR-011 — Event-Driven Automation
 - ADR-015 — Deployment Approval as a Distinct Capability from Technical Policy
