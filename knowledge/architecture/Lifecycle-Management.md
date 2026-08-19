@@ -4,7 +4,7 @@ domain: platform
 status: active
 tags: [lifecycle]
 owner: platform-engineering-team
-last_updated: 2026-07-28
+last_updated: 2026-08-19
 ---
 
 # 13 – Platform Lifecycle Management
@@ -106,10 +106,10 @@ Current domains:
 
 - Cisco ACI
 - Cisco Nexus VXLAN EVPN
-- Azure Networking
 
 Future domains:
 
+- Azure Networking
 - SD-WAN
 - Firewalls
 - Kubernetes Networking

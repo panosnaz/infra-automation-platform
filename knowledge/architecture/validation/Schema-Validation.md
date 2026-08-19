@@ -4,7 +4,7 @@ domain: platform
 status: active
 tags: [validation]
 owner: platform-engineering-team
-last_updated: 2026-07-28
+last_updated: 2026-08-19
 ---
 
 # 01 – Schema Validation
@@ -18,6 +18,15 @@ It prevents invalid requests from reaching Terraform, Ansible or infrastructure 
 ---
 
 # Position in the Workflow
+
+> **Implementation note:** the diagram below shows the original Platform v1 target design
+> (Nautobot → Schema Validation → Workflow Engine). Per
+> [ADR-016](../../adr/ADR-016-Platform-v2-Replacement-Architecture.md) and the
+> [Execution Framework](../Execution-Framework.md), there is no separate Workflow Engine —
+> schema validation runs as the `validate_nac` GitLab CI job (see
+> `platform/workflows/scripts/validate_nac.py`), and the pipeline proceeds directly to the
+> `policy_check` (OPA) and `terraform_plan` stages. The validation principles below remain
+> valid.
 
 ```text
 Engineer
