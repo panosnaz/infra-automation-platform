@@ -67,17 +67,66 @@ resource "nxos_feature" "fabric" {
   nv_overlay     = "enabled"
   vn_segment     = "enabled"
   interface_vlan = "enabled"
+}
 
-  # Confirmed live (2026-07-30) and via the real provider schema (every
-  # attribute here is a plain enabled/disabled string -- no content_on_
-  # destroy-equivalent exists, unlike aci_rest_managed): `terraform destroy`
-  # reports success but does not actually disable these features on the
-  # device. prevent_destroy stops this module from silently no-op'ing a
-  # destroy on shared, foundational fabric state -- see
-  # Platform-Status-and-Pending-Items.md §2 for the manual NX-API revert
-  # procedure if these genuinely need disabling.
-  lifecycle {
-    prevent_destroy = true
+# ---------------------------------------------------------------------------
+# ADR-021 §7/§15: `terraform destroy` on nxos_feature.fabric used to report
+# success without actually disabling anything on the device (confirmed live
+# against DC1-Leaf, 2026-07-30) -- the CiscoDevNet/nxos v0.13.1 schema has no
+# content_on_destroy-equivalent attribute to fix this at the attribute level
+# (every attribute is a plain enabled/disabled string). A destroy-time
+# provisioner can only reference `self`/`count.index`/`each.key` (confirmed
+# via `terraform validate`, not assumed) -- it cannot read `var.*` directly,
+# so credentials are threaded through this null_resource's own `triggers`
+# instead, the standard workaround for this exact limitation. This does mean
+# these values are stored in Terraform state via `triggers`, same as they
+# already are via the `nxos` provider block itself -- not a new exposure.
+#
+# Issues the same real NX-API cli_conf commands used to manually revert
+# DC1-Leaf in §6. `evpn`/`vn_segment` are deliberately NOT included -- §10
+# found neither appears as a distinct row in this platform's `show feature`
+# output, so a `no feature evpn`/`no feature vn-segment-vlan-based` command
+# would very likely fail with an invalid-feature-name error and abort the
+# whole destroy for no benefit.
+#
+# Not live-`destroy`-tested against a real device this pass (no lab access
+# this session) -- `terraform validate` confirmed only.
+# ---------------------------------------------------------------------------
+resource "null_resource" "revert_nxos_feature_on_destroy" {
+  depends_on = [nxos_feature.fabric]
+
+  triggers = {
+    nxos_url      = var.nxos_url
+    nxos_username = var.nxos_username
+    nxos_password = var.nxos_password
+    nxos_insecure = tostring(var.nxos_insecure)
+  }
+
+  provisioner "local-exec" {
+    when = destroy
+
+    # Credentials come from `self.triggers`, not interpolated into
+    # `command`, so they aren't captured in Terraform's own logs (matches
+    # Terraform's documented guidance for passing secrets to local-exec).
+    environment = {
+      NXOS_URL      = self.triggers.nxos_url
+      NXOS_USERNAME = self.triggers.nxos_username
+      NXOS_PASSWORD = self.triggers.nxos_password
+      NXOS_CURL_TLS = self.triggers.nxos_insecure == "true" ? "-k" : ""
+    }
+
+    command = <<-EOT
+      set -euo pipefail
+      response=$(curl -sS $NXOS_CURL_TLS -u "$NXOS_USERNAME:$NXOS_PASSWORD" \
+        -H "Content-Type: application/json" \
+        -d '{"ins_api":{"version":"1.0","type":"cli_conf","chunk":"0","sid":"1","input":"no feature bgp ; no feature interface-vlan ; no feature nv overlay","output_format":"json"}}' \
+        "$NXOS_URL/ins")
+      echo "$response"
+      if echo "$response" | grep -Eqi '"code":[[:space:]]*"[45][0-9]{2}"'; then
+        echo "nxos_feature destroy-time revert failed against $NXOS_URL: $response" >&2
+        exit 1
+      fi
+    EOT
   }
 }
 

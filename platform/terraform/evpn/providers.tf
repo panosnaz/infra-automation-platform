@@ -5,6 +5,13 @@ terraform {
       source  = "CiscoDevNet/nxos"
       version = "~> 0.13"
     }
+    # ADR-021 §15: backs the null_resource that carries the nxos_feature
+    # destroy-time revert provisioner (destroy-time provisioners can't
+    # reference `var.*` directly, only `self`/`count.index`/`each.key`).
+    null = {
+      source  = "hashicorp/null"
+      version = "~> 3.2"
+    }
   }
 }
 
