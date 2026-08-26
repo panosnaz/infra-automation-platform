@@ -39,6 +39,33 @@ locals {
     d.name => d
   }
 
+  # This workspace's own device entry (ADR-021 §23) -- looked up by
+  # var.device_name, the same fabric.yaml/Nautobot Device this provider
+  # block's nxos_url actually points at. Empty map if the device hasn't
+  # been onboarded into fabric.yaml yet (e.g. a fresh device with no
+  # evpn_bgp_asn/evpn_role Custom Fields set), so every reference below
+  # degrades gracefully rather than erroring on `try(...)`/`lookup(...)`.
+  this_device = lookup(local.devices, var.device_name, {})
+
+  # var.bgp_asn is an explicit override for local testing; the real,
+  # end-to-end path is Nautobot's Device.evpn_bgp_asn -> generator ->
+  # fabric.yaml -> here, closing the gap Platform-Status-and-Pending-Items.md
+  # used to track ("no real Nautobot-sourced ASN exists").
+  resolved_asn = coalesce(var.bgp_asn, try(tostring(local.this_device.bgp_asn), null))
+
+  # This device's real, directly-connected eBGP neighbors (peer IP + remote
+  # ASN), sourced from Nautobot's evpn_bgp_peers Custom Field via the
+  # generator -- ADR-021 §23. Keyed by peer_ip per nxos_bgp's own schema
+  # (vrfs.<name>.peers.<peer_ip>, confirmed via `terraform providers schema
+  # -json` against the real CiscoDevNet/nxos provider).
+  bgp_peers = {
+    for peer in try(local.this_device.bgp_peers, []) :
+    peer.peer_ip => {
+      remote_asn = tostring(peer.remote_asn)
+      description = try(peer.description, null)
+    }
+  }
+
   # Bridge Domains with a gateway IP configured -- these already have an SVI
   # via nxos_svi_interface.fabric below; this subset also gets an address
   # assignment via nxos_ipv4.fabric.
@@ -250,24 +277,63 @@ resource "nxos_evpn" "fabric" {
 # that VRF's local routes into EVPN). Confirmed schema:
 # registry.terraform.io/providers/CiscoDevNet/nxos/latest/docs/resources/bgp
 #
-# Deliberately NOT included (ADR-021, honest scope limit): actual BGP
-# neighbor/peer configuration (`vrfs.default.peers`/`interface_peers`).
-# Nautobot has no Interface/Cable data model wired up for this domain yet
-# (mirrors ADR-020 Phase B's same limitation for ACI Access Policies) --
-# peer IPs/interfaces would have to be invented, not sourced from real data.
+# BGP neighbor/peer configuration (ADR-021 §23, closing the honest scope
+# limit this resource used to document): `vrfs.default.peers`, keyed by
+# peer IP, each activating the l2vpn-evpn address-family -- confirmed via
+# `terraform providers schema -json` against the real provider, not
+# guessed. ASN and peer IPs are real, sourced from Nautobot's
+# evpn_bgp_asn/evpn_bgp_peers Custom Fields (verified live against all 4
+# real devices), not invented -- but the *design* itself (which ASN each
+# device gets, iBGP vs eBGP per peer) was corrected mid-implementation
+# after discovering this lab already had a partial day-0 BGP reference
+# design (site-shared ASN, loopback-based iBGP within a site + eBGP
+# between sites' BGWs) that revealed a real constraint: the loopback-based
+# iBGP sessions sit permanently Idle (no underlay IGP exists to route
+# loopback-to-loopback traffic), while the directly-connected BGW-to-BGW
+# eBGP session was ALREADY established and exchanging real EVPN routes.
+# This module's peers therefore all use directly-connected interface IPs
+# (never loopbacks) for both iBGP (site-local) and eBGP (multi-site)
+# sessions -- proven reachable without any underlay IGP, unlike the
+# loopback design. Adding a real underlay IGP for loopback reachability
+# is a distinct, larger scope item deliberately not invented here.
 # ---------------------------------------------------------------------------
 resource "nxos_bgp" "fabric" {
   depends_on = [nxos_evpn.fabric]
 
   admin_state          = "enabled"
   instance_admin_state = "enabled"
-  asn                  = var.bgp_asn
+  asn                  = local.resolved_asn
+
+  lifecycle {
+    precondition {
+      condition     = local.resolved_asn != null
+      error_message = "No BGP ASN resolved for device '${var.device_name}' -- set var.bgp_asn explicitly, or onboard this device into fabric.yaml (Nautobot Device.evpn_bgp_asn Custom Field)."
+    }
+  }
 
   vrfs = merge(
     {
       "default" = {
         address_families = {
           "l2vpn-evpn" = {}
+        }
+        peers = {
+          for peer_ip, peer in local.bgp_peers :
+          peer_ip => {
+            remote_asn  = peer.remote_asn
+            description = peer.description
+            peer_address_families = {
+              "l2vpn-evpn" = {
+                send_community_extended = "enabled"
+                # Rewrites the EVPN route-target's embedded ASN on routes
+                # exchanged with a different-AS peer (needed for RT
+                # matching across a multi-site eBGP link) -- confirmed
+                # against this lab's own already-established DC1-BGW <->
+                # DC2-BGW session, which uses this exact setting.
+                rewrite_rt_asn = peer.remote_asn != local.resolved_asn ? "enabled" : null
+              }
+            }
+          }
         }
       }
     },

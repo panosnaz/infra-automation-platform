@@ -40,9 +40,10 @@
 # downloaded from the corresponding "plan" run's GitLab job via `needs:`).
 #
 # Requires TF_VAR_nxos_url / TF_VAR_nxos_username / TF_VAR_nxos_password /
-# TF_VAR_nxos_insecure / TF_VAR_bgp_asn to already be exported by the
-# caller -- this script doesn't source device credentials itself (unlike
-# CML's own admin credentials, which it reads from Vault the same way
+# TF_VAR_device_name to already be exported by the caller (TF_VAR_nxos_insecure
+# and TF_VAR_bgp_asn are optional overrides -- see main.tf's local.resolved_asn,
+# ADR-021 §23) -- this script doesn't source device credentials itself
+# (unlike CML's own admin credentials, which it reads from Vault the same way
 # cml-jump-relay.sh does).
 set -euo pipefail
 
@@ -56,14 +57,18 @@ VAULT_ADDR="${VAULT_ADDR:-http://localhost:8200}"
 _HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REMOTE_WORKDIR="/home/cisco/ci-run"
 BUNDLE_NAME="tfbundle-$$.tar.gz"
-STATE_SLUG="$(echo "${TF_SUBDIR}" | tr '/' '_')"
+# Keyed by device_name too, not just TF_SUBDIR -- this module manages one
+# device per apply (ADR-021 §23's var.device_name), so two devices sharing
+# the same TF_SUBDIR (e.g. DC1-Leaf and DC1-BGW both under
+# platform/terraform/evpn) must not collide on the same persisted state.
+STATE_SLUG="$(echo "${TF_SUBDIR}_${TF_VAR_device_name:-nodevice}" | tr '/' '_')"
 PERSIST_DIR="/home/cisco/tf-state/${STATE_SLUG}"
 
 if [[ -z "${VAULT_TOKEN:-}" ]]; then
   echo "ERROR: VAULT_TOKEN is not set." >&2
   exit 1
 fi
-for v in TF_VAR_nxos_url TF_VAR_nxos_username TF_VAR_nxos_password TF_VAR_bgp_asn; do
+for v in TF_VAR_nxos_url TF_VAR_nxos_username TF_VAR_nxos_password TF_VAR_device_name; do
   if [[ -z "${!v:-}" ]]; then
     echo "ERROR: ${v} must be exported before calling this script." >&2
     exit 1
@@ -112,8 +117,13 @@ nxos_url      = "${TF_VAR_nxos_url}"
 nxos_username = "${TF_VAR_nxos_username}"
 nxos_password = "${TF_VAR_nxos_password}"
 nxos_insecure = ${TF_VAR_nxos_insecure:-true}
-bgp_asn       = "${TF_VAR_bgp_asn}"
+device_name   = "${TF_VAR_device_name}"
 EOF
+# bgp_asn is an explicit override only -- normally left unset so the ASN
+# resolves from fabric.yaml/Nautobot's Device.evpn_bgp_asn (ADR-021 §23).
+if [[ -n "${TF_VAR_bgp_asn:-}" ]]; then
+  echo "bgp_asn = \"${TF_VAR_bgp_asn}\"" >> "${STAGE}/${TF_SUBDIR}/terraform.tfvars"
+fi
 
 echo "[cml-terraform-run] bundling ${TF_SUBDIR} (+ ${NETASCODE_SUBDIR})..." >&2
 tar czf "${WORK}/${BUNDLE_NAME}" -C "${STAGE}" "${TF_SUBDIR}" "${NETASCODE_SUBDIR}"

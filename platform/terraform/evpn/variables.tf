@@ -28,6 +28,12 @@ variable "netascode_yaml_file" {
 }
 
 variable "bgp_asn" {
-  description = "BGP ASN of the device this Terraform workspace targets. Must match that device's Nautobot Device.evpn_bgp_asn value -- not looked up automatically since this module manages a single device per provider block (ADR-021)."
+  description = "Override for this device's BGP ASN. Normally left unset -- sourced automatically from local.devices[var.device_name].bgp_asn (fabric.yaml/Nautobot Device.evpn_bgp_asn), see ADR-021 §23."
+  type        = string
+  default     = null
+}
+
+variable "device_name" {
+  description = "Name of the fabric device (matching fabric.yaml's fabric.devices[].name / Nautobot Device.name) that this Terraform workspace/provider block targets -- used to look up this device's own BGP ASN and BGP peers. Must be set (ADR-021 §23)."
   type        = string
 }

@@ -16,6 +16,12 @@ Nautobot EVPN conventions established by ADR-021:
   - Devices carry `evpn_bgp_asn` / `evpn_role` Custom Fields -- genuinely
     per-device attributes (leaf/spine/border-leaf each may have distinct
     values), unlike ACI Phase B's fabric-wide Location-scoped policies.
+  - Devices also carry `evpn_bgp_peers` (JSON) -- a flat list of this
+    device's real, directly-connected eBGP neighbors (peer IP + remote
+    ASN), used to configure the actual EVPN control-plane peering
+    (ADR-021 §23). Recorded as JSON rather than derived from modeled
+    Interface/Cable objects, since Nautobot has no Interface/Cable data
+    model wired up for this domain yet (same limitation as ADR-020 Phase B).
 
 Output schema (feeds the nxos Terraform provider, ADR-021 §1):
   fabric:
@@ -23,6 +29,10 @@ Output schema (feeds the nxos Terraform provider, ADR-021 §1):
       - name: <device>
         bgp_asn: <int>
         role: <leaf|spine|border-leaf>
+        bgp_peers:
+          - peer_ip: <ip>
+            remote_asn: <int>
+            description: <string-or-omitted>
     tenants:
       - name: <tenant>
         vrfs:
@@ -193,6 +203,34 @@ def _build_devices(devices: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if role:
             entry["role"] = role
 
+        bgp_peers = _build_bgp_peers(cf.get("evpn_bgp_peers"))
+        if bgp_peers:
+            entry["bgp_peers"] = bgp_peers
+
+        result.append(entry)
+    return result
+
+
+def _build_bgp_peers(raw_peers: Any) -> list[dict[str, Any]]:
+    """Convert the evpn_bgp_peers JSON Custom Field into the fabric YAML shape.
+
+    ADR-021 SS23: real, directly-connected eBGP neighbors (peer IP + remote
+    ASN), sourced from each device's real interface addressing -- recorded
+    as a flat JSON list rather than derived from modeled Interface/Cable
+    objects, since Nautobot has no Interface/Cable data model wired up for
+    this domain yet (same limitation as ADR-020 Phase B).
+    """
+    if not raw_peers:
+        return []
+
+    result = []
+    for peer in raw_peers:
+        entry: dict[str, Any] = {
+            "peer_ip": peer["peer_ip"],
+            "remote_asn": int(peer["remote_asn"]),
+        }
+        if peer.get("description"):
+            entry["description"] = peer["description"]
         result.append(entry)
     return result
 

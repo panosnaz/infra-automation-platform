@@ -15,16 +15,28 @@
 #   export EVPN_TARGET_DEVICE=dc1_leaf   # optional, default shown
 #   source pipelines/scripts/load-vault-evpn-tf-creds.sh
 #
-# Known gap, not solved by this script: TF_VAR_bgp_asn has no source in
-# Vault or Nautobot today -- no EVPN Device objects with a populated
-# evpn_bgp_asn Custom Field were found in this lab's Nautobot instance
-# (confirmed via a direct API query, not assumed). Defaults to a clearly
-# placeholder ASN (65000) unless EVPN_BGP_ASN is set -- do not treat this
-# default as real fabric data.
+# ADR-021 §23: TF_VAR_bgp_asn is no longer forced to a placeholder -- the
+# real ASN now comes from fabric.yaml/Nautobot's Device.evpn_bgp_asn
+# Custom Field (main.tf's local.resolved_asn), looked up via the new
+# TF_VAR_device_name this script also exports (the fabric.yaml device name
+# matching EVPN_TARGET_DEVICE, e.g. dc1_leaf -> DC1-Leaf). Set EVPN_BGP_ASN
+# to override with an explicit ASN instead (e.g. for local testing before
+# a device has been onboarded into Nautobot).
 set -euo pipefail
 
 VAULT_ADDR="${VAULT_ADDR:-http://localhost:8200}"
 EVPN_TARGET_DEVICE="${EVPN_TARGET_DEVICE:-dc1_leaf}"
+
+case "${EVPN_TARGET_DEVICE}" in
+  dc1_leaf) _device_name="DC1-Leaf" ;;
+  dc1_bgw)  _device_name="DC1-BGW" ;;
+  dc2_leaf) _device_name="DC2-Leaf" ;;
+  dc2_bgw)  _device_name="DC2-BGW" ;;
+  *)
+    echo "ERROR: unknown EVPN_TARGET_DEVICE '${EVPN_TARGET_DEVICE}' (known: dc1_leaf, dc1_bgw, dc2_leaf, dc2_bgw)" >&2
+    return 1 2>/dev/null || exit 1
+    ;;
+esac
 
 if [[ -z "${VAULT_TOKEN:-}" ]]; then
   echo "ERROR: VAULT_TOKEN is not set. Export it before sourcing this script." >&2
@@ -53,7 +65,12 @@ print(f'export TF_VAR_nxos_password={json.dumps(data[\"password\"])}')
 
 eval "${_exports}"
 export TF_VAR_nxos_insecure="true"
-export TF_VAR_bgp_asn="${EVPN_BGP_ASN:-65000}"
+export TF_VAR_device_name="${_device_name}"
+if [[ -n "${EVPN_BGP_ASN:-}" ]]; then
+  export TF_VAR_bgp_asn="${EVPN_BGP_ASN}"
+else
+  unset TF_VAR_bgp_asn
+fi
 unset _secret_json _exports
 
-echo "[vault] Exported TF_VAR_nxos_* for ${EVPN_TARGET_DEVICE} from Vault (${VAULT_ADDR}); TF_VAR_bgp_asn=${TF_VAR_bgp_asn} (placeholder unless EVPN_BGP_ASN was set)"
+echo "[vault] Exported TF_VAR_nxos_* for ${EVPN_TARGET_DEVICE} (device_name=${TF_VAR_device_name}) from Vault (${VAULT_ADDR}); bgp_asn will resolve from fabric.yaml unless EVPN_BGP_ASN was set${TF_VAR_bgp_asn:+ (override active: ${TF_VAR_bgp_asn})}"

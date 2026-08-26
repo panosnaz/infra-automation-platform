@@ -1,2 +1,37 @@
 fabric:
   tenants: []
+  devices:
+  - name: DC1-BGW
+    bgp_asn: 65001
+    role: border-leaf
+    bgp_peers:
+    - peer_ip: 10.1.1.1
+      remote_asn: 65001
+      description: DC1-Leaf (site-local iBGP, direct link)
+    - peer_ip: 172.16.0.2
+      remote_asn: 65002
+      description: DC2-BGW (multi-site eBGP, direct link)
+  - name: DC1-Leaf
+    bgp_asn: 65001
+    role: leaf
+    bgp_peers:
+    - peer_ip: 10.1.1.2
+      remote_asn: 65001
+      description: DC1-BGW (site-local iBGP, direct link)
+  - name: DC2-BGW
+    bgp_asn: 65002
+    role: border-leaf
+    bgp_peers:
+    - peer_ip: 10.2.1.1
+      remote_asn: 65002
+      description: DC2-Leaf (site-local iBGP, direct link)
+    - peer_ip: 172.16.0.1
+      remote_asn: 65001
+      description: DC1-BGW (multi-site eBGP, direct link)
+  - name: DC2-Leaf
+    bgp_asn: 65002
+    role: leaf
+    bgp_peers:
+    - peer_ip: 10.2.1.2
+      remote_asn: 65002
+      description: DC2-BGW (site-local iBGP, direct link)
