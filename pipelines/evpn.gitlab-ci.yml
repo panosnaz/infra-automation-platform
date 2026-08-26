@@ -102,7 +102,14 @@ terraform_apply:
   allow_failure: false
 
 ansible_configure:
-  extends: ".ansible_configure"
+  stage: configure
+  image: "python:3.12-slim"
+  before_script:
+    - apt-get update -qq && apt-get install -y -qq curl expect sshpass openssh-client python3 >/dev/null
+    - . pipelines/scripts/load-vault-evpn-tf-creds.sh
+  script:
+    - pipelines/scripts/cml-provision-py-env.sh "VXLAN-EVPN-MultiSite" "jump-host"
+    - pipelines/scripts/cml-ansible-run.sh "VXLAN-EVPN-MultiSite" "jump-host" "." "${ANSIBLE_DIR}" "verify-fabric.yml"
   needs: ["terraform_apply"]
 
 pyats_verify:

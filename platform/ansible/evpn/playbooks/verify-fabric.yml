@@ -3,9 +3,11 @@
 # fabric YAML (platform/netascode/evpn/fabric.yaml) exists on the device.
 # Day-2 health check only -- every task here queries, never provisions.
 #
-# ADR-021: cannot be run yet -- no Nexus 9Kv (or equivalent) simulator
-# exists in this lab. Scaffolded now so the pipeline shape matches ACI's
-# exactly; real execution is deferred to the simulator-gap resolution.
+# ADR-021 §18: live-verified against real DC1-Leaf hardware (2026-08-26),
+# via cisco.nxos.nxos_vrf_global (not nxos_vrf -- that module's `state`
+# only supports present/absent, no read-only query mode, confirmed via its
+# real source; nxos_vrf_global's `state: gathered` is the resource-module
+# convention for a read-only fact query instead).
 
 - name: Verify EVPN fabric VRFs match Nautobot/generator intent
   hosts: evpn
@@ -23,10 +25,20 @@
         expected_vrfs: "{{ fabric.fabric.tenants | map(attribute='vrfs', default=[]) | flatten | map(attribute='name') | list }}"
 
     - name: Query VRFs from the device
-      cisco.nxos.nxos_vrf:
-        state: query
+      cisco.nxos.nxos_vrf_global:
+        state: gathered
       register: nxos_vrf_result
 
-    - name: Report expected vs. actual (no assertion yet -- no device to compare against)
-      ansible.builtin.debug:
-        msg: "Expected VRFs: {{ expected_vrfs }}"
+    - name: Extract actual VRF names from the device
+      ansible.builtin.set_fact:
+        actual_vrfs: "{{ nxos_vrf_result.gathered.vrfs | map(attribute='name') | list }}"
+
+    - name: Assert every expected VRF exists on the device
+      ansible.builtin.assert:
+        that:
+          - expected_vrf in actual_vrfs
+        fail_msg: "Expected VRF '{{ expected_vrf }}' not found on device (actual: {{ actual_vrfs }})"
+        success_msg: "VRF '{{ expected_vrf }}' confirmed present on device"
+      loop: "{{ expected_vrfs }}"
+      loop_control:
+        loop_var: expected_vrf
