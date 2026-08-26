@@ -2,18 +2,16 @@
 # templates in includes/common.gitlab-ci.yml that pipelines/aci.gitlab-ci.yml
 # uses for generate/validate/policy -- per ADR-021's whole point, no pipeline
 # logic changes for a new domain, only new variables. terraform_plan/
-# terraform_apply are the one deliberate exception (see below).
+# terraform_apply/ansible_configure/pyats_verify are deliberate exceptions
+# (see below) -- they relay through the CML jump host instead, since the
+# real devices have no network path from the runner at all.
 #
-# STILL NOT included from the root .gitlab-ci.yml. terraform_plan/
-# terraform_apply now relay the real Terraform module through the CML jump
-# host (pipelines/scripts/cml-terraform-run.sh, ADR-021 §17) and are
-# live-verified (a real `terraform plan` succeeded against DC1-Leaf,
-# `Plan: 9 to add`). But ansible_configure/pyats_verify below are still the
-# unmodified shared templates -- they run directly in the runner, which
-# still has no network path to the devices, and will still fail. Relaying
-# those too (same jump-host pattern, or a pyATS-specific variant) is real,
-# separate follow-on work, not done in this pass. Do not include this file
-# from the root pipeline until that's done.
+# Every job below is now real and live-verified against actual hardware
+# (ADR-021 §17/§18/§19) -- generate_nac through knowledge_capture, with no
+# remaining shared-template mismatches. This file is not yet included from
+# the root .gitlab-ci.yml -- that's a separate decision (it turns this into
+# a real, automatic CI pipeline running on every commit), not made in this
+# pass.
 
 include:
   - local: "pipelines/includes/common.gitlab-ci.yml"
@@ -112,8 +110,22 @@ ansible_configure:
     - pipelines/scripts/cml-ansible-run.sh "VXLAN-EVPN-MultiSite" "jump-host" "." "${ANSIBLE_DIR}" "verify-fabric.yml"
   needs: ["terraform_apply"]
 
+# ADR-021 §19: not the shared .pyats_verify template -- pyATS itself can't
+# run on this jump host at all (genie has no musllinux-compatible release
+# with a working dependency tree, confirmed via direct tracebacks across
+# three different invocation paths; a second, glibc-based jump host was
+# rejected since this lab's CML license caps at 5 concurrent nodes, already
+# fully used). Runs tests/pyats/evpn/verify_fabric_features.py instead -- a
+# plain-Python reimplementation of the same check with no pyATS/genie
+# dependency at all, via the already-provisioned jump host Python env.
 pyats_verify:
-  extends: ".pyats_verify"
+  stage: verify
+  image: "python:3.12-slim"
+  before_script:
+    - apt-get update -qq && apt-get install -y -qq curl expect sshpass openssh-client python3 >/dev/null
+    - . tests/pyats/evpn/scripts/load-vault-env.sh
+  script:
+    - pipelines/scripts/cml-verify-fabric-run.sh "VXLAN-EVPN-MultiSite" "jump-host" "tests/pyats/evpn/verify_fabric_features.py"
   needs: ["ansible_configure"]
 
 write_results:

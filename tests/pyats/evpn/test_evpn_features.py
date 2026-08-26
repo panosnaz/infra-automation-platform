@@ -8,6 +8,18 @@ real NX-API JSON-RPC endpoint (POST /ins with an ins_api envelope) via plain
 testbed.yml's own comment). Read-only: only issues `show` (cli_show) queries,
 never `configure terminal` (cli_conf).
 
+NOT RUN by pipelines/evpn.gitlab-ci.yml's pyats_verify job today. ADR-021
+§18/§19: pyATS's CLI/testbed-loading machinery has a hard, transitive
+dependency on `genie` (via pyats.clean, rest.connector, and unicon's plugin
+discovery), and no `genie` release combines a working dependency tree with
+a musllinux wheel -- confirmed via direct tracebacks, not assumed. A second,
+glibc-based jump host was considered and rejected (this lab's CML license
+caps at 5 concurrent nodes, already fully used by the 4 real devices + the
+existing jump host). `verify_fabric_features.py` (same directory) is a
+plain-Python reimplementation of this exact logic, without pyATS, and is
+what the pipeline actually runs. This file is left in place, unchanged, as
+the reference implementation for if/when the genie blocker is resolved.
+
 All 4 real Nexus 9000v nodes (DC1-Leaf, DC1-BGW, DC2-Leaf, DC2-BGW) were
 confirmed live via this exact query shape this session (ADR-021 SS6/SS10/SS11).
 These hosts are only reachable from inside the CML lab network (via the
