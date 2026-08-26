@@ -1,14 +1,24 @@
 ---
-# Root pipeline entrypoint. Includes the domain-specific pipeline for this
-# repo's single active domain (Cisco ACI). Per Execution-Framework.md, this
-# pipeline implements exactly Stage 5 (Execution) end-to-end, hosts Stage 4's
-# native Approval gate, and runs Stage 3 (Policy) and Stage 6/7
-# (Verification/Knowledge Capture) as jobs -- see
-# knowledge/architecture/Execution-Framework.md for the full stage design.
+# Root pipeline entrypoint. Includes each active domain's pipeline. Per
+# Execution-Framework.md, this pipeline implements exactly Stage 5
+# (Execution) end-to-end, hosts Stage 4's native Approval gate, and runs
+# Stage 3 (Policy) and Stage 6/7 (Verification/Knowledge Capture) as jobs --
+# see knowledge/architecture/Execution-Framework.md for the full stage design.
 #
-# Milestone 1 scope (knowledge/architecture/Execution-Framework.md §6):
-# input is the existing, already-committed platform/netascode/aci/tenants.yaml
-# -- no generator, no MCP Server, no AI involved yet.
+# Milestone 1 scope (knowledge/architecture/Execution-Framework.md §6): ACI's
+# input is the existing, already-committed
+# platform/netascode/aci/tenants.yaml -- no generator, no MCP Server, no AI
+# involved yet.
+#
+# EVPN (ADR-021 §17/§18/§19): every job is real and live-verified against
+# actual Nexus 9000v hardware via a CML jump-host relay mechanism, since the
+# runner has no network path to the lab devices at all. EVPN's job names are
+# all prefixed `evpn_` (see pipelines/evpn.gitlab-ci.yml) -- GitLab CI merges
+# every `include:`d file's jobs into one flat namespace, and ACI's/EVPN's
+# generator/Terraform/Ansible/pyATS jobs would otherwise share identical
+# names, silently overriding each other (the last include wins, not an
+# error) rather than running both domains independently.
 
 include:
   - local: "pipelines/aci.gitlab-ci.yml"
+  - local: "pipelines/evpn.gitlab-ci.yml"

@@ -30,16 +30,16 @@ variables:
   MINIO_KNOWLEDGE_BUCKET: "knowledge-capture"
   MINIO_KNOWLEDGE_KEY: "evpn/deployments.jsonl"
 
-generate_nac:
+evpn_generate_nac:
   extends: ".generate_nac"
 
-validate_nac:
+evpn_validate_nac:
   extends: ".validate_nac"
-  needs: ["generate_nac"]
+  needs: ["evpn_generate_nac"]
 
-policy_check:
+evpn_policy_check:
   extends: ".policy_check"
-  needs: ["validate_nac"]
+  needs: ["evpn_validate_nac"]
 
 # EVPN-specific, not part of the shared stage templates (ADR-021 §12): the
 # real Nexus 9000v lab devices (172.30.46.220-223) are only reachable from
@@ -61,7 +61,7 @@ evpn_lab_connectivity_check:
         pipelines/scripts/cml-jump-relay.sh VXLAN-EVPN-MultiSite jump-host \
           "wget -q -O /dev/null -S --no-check-certificate --timeout=8 https://${ip}/ins 2>&1 | grep -q '401 Unauthorized'" 30
       done
-  needs: ["policy_check"]
+  needs: ["evpn_policy_check"]
 
 # EVPN-specific, not the shared .terraform_plan/.terraform_apply templates
 # (ADR-021 §17): those run terraform directly in the runner, which has no
@@ -72,7 +72,7 @@ evpn_lab_connectivity_check:
 # which of the 4 real nodes this runs against, since the module manages one
 # device per provider block; defaults to dc1_leaf in
 # load-vault-evpn-tf-creds.sh.
-terraform_plan:
+evpn_terraform_plan:
   stage: plan
   image: "python:3.12-slim"
   before_script:
@@ -82,7 +82,7 @@ terraform_plan:
     - pipelines/scripts/cml-terraform-run.sh "VXLAN-EVPN-MultiSite" "jump-host" "." "${TERRAFORM_DIR}" "plan"
   needs: ["evpn_lab_connectivity_check"]
 
-terraform_apply:
+evpn_terraform_apply:
   stage: apply
   image: "python:3.12-slim"
   before_script:
@@ -90,7 +90,7 @@ terraform_apply:
     - . pipelines/scripts/load-vault-evpn-tf-creds.sh
   script:
     - pipelines/scripts/cml-terraform-run.sh "VXLAN-EVPN-MultiSite" "jump-host" "." "${TERRAFORM_DIR}" "apply"
-  needs: ["terraform_plan"]
+  needs: ["evpn_terraform_plan"]
   environment:
     name: "lab"
   # Same Stage 4 Approval gate as the shared .terraform_apply template
@@ -99,7 +99,7 @@ terraform_apply:
   when: manual
   allow_failure: false
 
-ansible_configure:
+evpn_ansible_configure:
   stage: configure
   image: "python:3.12-slim"
   before_script:
@@ -108,7 +108,7 @@ ansible_configure:
   script:
     - pipelines/scripts/cml-provision-py-env.sh "VXLAN-EVPN-MultiSite" "jump-host"
     - pipelines/scripts/cml-ansible-run.sh "VXLAN-EVPN-MultiSite" "jump-host" "." "${ANSIBLE_DIR}" "verify-fabric.yml"
-  needs: ["terraform_apply"]
+  needs: ["evpn_terraform_apply"]
 
 # ADR-021 §19: not the shared .pyats_verify template -- pyATS itself can't
 # run on this jump host at all (genie has no musllinux-compatible release
@@ -118,7 +118,7 @@ ansible_configure:
 # fully used). Runs tests/pyats/evpn/verify_fabric_features.py instead -- a
 # plain-Python reimplementation of the same check with no pyATS/genie
 # dependency at all, via the already-provisioned jump host Python env.
-pyats_verify:
+evpn_pyats_verify:
   stage: verify
   image: "python:3.12-slim"
   before_script:
@@ -126,20 +126,20 @@ pyats_verify:
     - . tests/pyats/evpn/scripts/load-vault-env.sh
   script:
     - pipelines/scripts/cml-verify-fabric-run.sh "VXLAN-EVPN-MultiSite" "jump-host" "tests/pyats/evpn/verify_fabric_features.py"
-  needs: ["ansible_configure"]
+  needs: ["evpn_ansible_configure"]
 
-write_results:
+evpn_write_results:
   extends: ".write_results"
   needs:
-    - job: "generate_nac"
-    - job: "pyats_verify"
+    - job: "evpn_generate_nac"
+    - job: "evpn_pyats_verify"
       optional: true
 
-knowledge_capture:
+evpn_knowledge_capture:
   extends: ".knowledge_capture"
   needs:
-    - job: "generate_nac"
-    - job: "pyats_verify"
+    - job: "evpn_generate_nac"
+    - job: "evpn_pyats_verify"
       optional: true
-    - job: "write_results"
+    - job: "evpn_write_results"
       optional: true
