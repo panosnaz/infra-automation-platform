@@ -1,0 +1,126 @@
+#!/usr/bin/env expect -f
+# cml-jump-push-file.exp — push a file FROM a CML lab's jump host TO CML's
+# own internal SFTP dropfolder, driven entirely from outside the jump host
+# (mirrors cml-jump-fetch-file.exp's fetch direction, reversed: `put`
+# instead of `get`). This is the missing half needed to shuttle a file
+# (e.g. a saved Terraform plan) off the jump host and back to a CI runner
+# or dev host, which can then pull it from the dropfolder's EXTERNAL
+# address the normal way (`curl -k sftp://.../filename`).
+#
+# Usage:
+#   expect cml-jump-push-file.exp <cml_host> <cml_user> <cml_password> \
+#       <lab_name> <node_label> <local_path_on_jump_host> \
+#       <dropfolder_filename> <timeout_seconds> [jh_user] [jh_pass]
+#
+# Exit code: 0 on a confirmed successful `put`, 124 on any connection/
+# timeout/transfer failure (same convention as cml-jump-fetch-file.exp).
+
+set cml_host          [lindex $argv 0]
+set cml_user          [lindex $argv 1]
+set cml_pass          [lindex $argv 2]
+set lab_name          [lindex $argv 3]
+set node_label        [lindex $argv 4]
+set local_path        [lindex $argv 5]
+set dropfolder_file   [lindex $argv 6]
+set cmd_timeout       [lindex $argv 7]
+set jh_user           [expr {[llength $argv] > 8 ? [lindex $argv 8] : "cisco"}]
+set jh_pass           [expr {[llength $argv] > 9 ? [lindex $argv 9] : "cisco"}]
+
+set timeout $cmd_timeout
+log_user 0
+# See cml-jump-relay.exp for why this is needed -- same buffer-truncation
+# risk applies here too.
+match_max 1000000
+
+spawn sshpass -p $cml_pass ssh -tt -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null $cml_user@$cml_host "open /$lab_name/$node_label/0"
+
+expect {
+    "Connected to CML terminalserver." {}
+    timeout {
+        puts stderr "RELAY-ERROR: timed out waiting for console connection"
+        exit 124
+    }
+}
+
+send "\r"
+set full_timeout $cmd_timeout
+set timeout 5
+expect {
+    -re {(?i)login:\s*$} {
+        send "$jh_user\r"
+        set timeout 10
+        expect {
+            -re {(?i)assword:\s*$} { send "$jh_pass\r" }
+            timeout {
+                puts stderr "RELAY-ERROR: timed out waiting for jump-host password prompt"
+                exit 124
+            }
+        }
+    }
+    timeout {}
+}
+set timeout $full_timeout
+
+# Same defensive "bye" as cml-jump-fetch-file.exp/cml-jump-relay.exp -- a
+# previous attempt's timeout can leave the console stuck inside a stale
+# nested sftp> sub-session.
+send "bye\r"
+sleep 1
+
+send "cd [file dirname $local_path] && sftp -o StrictHostKeyChecking=no $cml_user@192.168.255.1\r"
+
+expect {
+    -re {(?i)assword:\s*$} {
+        send "$cml_pass\r"
+    }
+    timeout {
+        puts stderr "RELAY-ERROR: timed out waiting for internal sftp password prompt"
+        exit 124
+    }
+}
+
+expect {
+    -re {sftp>\s*$} {
+        send "put [file tail $local_path] $dropfolder_file\r"
+    }
+    timeout {
+        puts stderr "RELAY-ERROR: timed out waiting for internal sftp prompt"
+        exit 124
+    }
+}
+
+expect {
+    -re {sftp>\s*$} {
+        send "bye\r"
+    }
+    -re {(?i)no such file|not found} {
+        puts stderr "RELAY-ERROR: local file '$local_path' not found on jump host"
+        exit 124
+    }
+    timeout {
+        puts stderr "RELAY-ERROR: timed out waiting for sftp put to complete"
+        exit 124
+    }
+}
+
+# Same fixed-pause-not-prompt-match reasoning as cml-jump-fetch-file.exp.
+sleep 1
+
+set marker_start "___PUSH_START_[pid]___"
+set marker_end   "___PUSH_END_[pid]___EXIT_"
+send "echo ${marker_start}; true; echo \"${marker_end}\$?\"\r"
+
+set pattern "${marker_start}(.*)${marker_end}(\[0-9\]+)"
+expect {
+    -re $pattern {
+        puts "OK: pushed $dropfolder_file"
+        send "\x1d"
+        catch {exp_close}
+        catch {wait}
+        exit 0
+    }
+    timeout {
+        puts stderr "RELAY-ERROR: timed out confirming push completion"
+        exit 124
+    }
+}

@@ -40,6 +40,9 @@ set jh_pass       [expr {[llength $argv] > 9 ? [lindex $argv 9] : "cisco"}]
 
 set timeout $cmd_timeout
 log_user 0
+# See cml-jump-relay.exp for why this is needed -- same buffer-truncation
+# risk applies here too (e.g. a large sftp `get` progress readout).
+match_max 1000000
 
 spawn sshpass -p $cml_pass ssh -tt -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null $cml_user@$cml_host "open /$lab_name/$node_label/0"
 

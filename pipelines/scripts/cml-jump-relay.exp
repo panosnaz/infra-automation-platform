@@ -54,6 +54,15 @@ set jh_pass     [expr {[llength $argv] > 8 ? [lindex $argv 8] : "cisco"}]
 
 set timeout $cmd_timeout
 log_user 0
+# Tcl expect's default match_max is 2000 bytes -- once the buffer between
+# the start/end markers exceeds that, older bytes are silently discarded
+# and the completion pattern never matches, even though the relayed
+# command actually finished (confirmed live 2026-08-26: `terraform init` +
+# `terraform plan` on a multi-resource EVPN config produces well over 2000
+# bytes of console output; the command completed and wrote a real tfplan
+# file on the jump host, but this script still reported RELAY-ERROR timing
+# out because it never saw the end marker inside the truncated buffer).
+match_max 1000000
 
 set marker_start "___RELAY_START_[pid]___"
 set marker_end   "___RELAY_END_[pid]___EXIT_"

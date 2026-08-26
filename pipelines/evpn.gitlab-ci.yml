@@ -102,6 +102,14 @@ evpn_terraform_plan:
   # post-wiring audit -- these custom jobs don't extend .terraform_plan, so
   # they never inherited its own resource_group either).
   resource_group: "evpn-jump-host-${CI_ENVIRONMENT_NAME}"
+  # ADR-021 §22: cml-terraform-run.sh now fetches the saved tfplan back
+  # from the jump host, so it can be a real artifact -- evpn_terraform_apply
+  # downloads it via `needs:` and executes this exact plan instead of
+  # silently recomputing its own.
+  artifacts:
+    paths:
+      - "${TERRAFORM_DIR}/tfplan"
+    expire_in: "1 week"
 
 evpn_terraform_apply:
   stage: apply
