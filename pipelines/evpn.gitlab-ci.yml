@@ -7,11 +7,20 @@
 # real devices have no network path from the runner at all.
 #
 # Every job below is now real and live-verified against actual hardware
-# (ADR-021 §17/§18/§19) -- generate_nac through knowledge_capture, with no
-# remaining shared-template mismatches. This file is not yet included from
-# the root .gitlab-ci.yml -- that's a separate decision (it turns this into
-# a real, automatic CI pipeline running on every commit), not made in this
-# pass.
+# (ADR-021 §17/§18/§19/§21) -- generate_nac through knowledge_capture, with
+# no remaining shared-template mismatches. Included from the root
+# .gitlab-ci.yml (ADR-021 §20).
+#
+# Known limitation, not yet fixed (ADR-021 §21): cml-terraform-run.sh wipes
+# the jump host's working directory on every single invocation, so
+# Terraform state is never persisted between the plan job and the later
+# apply job (or between separate pipeline runs) -- apply independently
+# re-plans and auto-applies from a blank state rather than executing the
+# exact plan the plan job computed. Harmless for these specific idempotent
+# resources, but a real gap against genuine Terraform CI/CD practice
+# (drift detection, guaranteed-same-plan apply). Fixing it needs a
+# persisted state location on the jump host plus a way to shuttle the
+# saved plan file back to the runner as an artifact -- not attempted here.
 
 include:
   - local: "pipelines/includes/common.gitlab-ci.yml"
@@ -49,6 +58,13 @@ evpn_policy_check:
 # the CML jump host (pipelines/scripts/cml-jump-relay.sh) as a real
 # pre-flight gate before terraform_plan attempts to reach them directly
 # (which will otherwise simply hang/fail with a much less clear error).
+#
+# `resource_group` here (and on every other job below that touches the
+# jump host) serializes them across the whole project, not just within one
+# pipeline run -- CML's console is a single, single-session resource
+# (confirmed live in ADR-021 §13: a stale session from one attempt blocked
+# a completely separate later one), so two concurrent pipeline runs
+# genuinely can't both use it at once, not just a Terraform-state concern.
 evpn_lab_connectivity_check:
   stage: plan
   image: "python:3.12-slim"
@@ -62,6 +78,7 @@ evpn_lab_connectivity_check:
           "wget -q -O /dev/null -S --no-check-certificate --timeout=8 https://${ip}/ins 2>&1 | grep -q '401 Unauthorized'" 30
       done
   needs: ["evpn_policy_check"]
+  resource_group: "evpn-jump-host-${CI_ENVIRONMENT_NAME}"
 
 # EVPN-specific, not the shared .terraform_plan/.terraform_apply templates
 # (ADR-021 §17): those run terraform directly in the runner, which has no
@@ -81,6 +98,10 @@ evpn_terraform_plan:
   script:
     - pipelines/scripts/cml-terraform-run.sh "VXLAN-EVPN-MultiSite" "jump-host" "." "${TERRAFORM_DIR}" "plan"
   needs: ["evpn_lab_connectivity_check"]
+  # Same jump-host lock as evpn_lab_connectivity_check above (found during a
+  # post-wiring audit -- these custom jobs don't extend .terraform_plan, so
+  # they never inherited its own resource_group either).
+  resource_group: "evpn-jump-host-${CI_ENVIRONMENT_NAME}"
 
 evpn_terraform_apply:
   stage: apply
@@ -93,6 +114,7 @@ evpn_terraform_apply:
   needs: ["evpn_terraform_plan"]
   environment:
     name: "lab"
+  resource_group: "evpn-jump-host-${CI_ENVIRONMENT_NAME}"
   # Same Stage 4 Approval gate as the shared .terraform_apply template
   # (Execution-Framework.md §2.4) -- not inherited via `extends` here since
   # this job no longer extends that template, so it's repeated explicitly.
@@ -109,6 +131,7 @@ evpn_ansible_configure:
     - pipelines/scripts/cml-provision-py-env.sh "VXLAN-EVPN-MultiSite" "jump-host"
     - pipelines/scripts/cml-ansible-run.sh "VXLAN-EVPN-MultiSite" "jump-host" "." "${ANSIBLE_DIR}" "verify-fabric.yml"
   needs: ["evpn_terraform_apply"]
+  resource_group: "evpn-jump-host-${CI_ENVIRONMENT_NAME}"
 
 # ADR-021 §19: not the shared .pyats_verify template -- pyATS itself can't
 # run on this jump host at all (genie has no musllinux-compatible release
@@ -127,6 +150,7 @@ evpn_pyats_verify:
   script:
     - pipelines/scripts/cml-verify-fabric-run.sh "VXLAN-EVPN-MultiSite" "jump-host" "tests/pyats/evpn/verify_fabric_features.py"
   needs: ["evpn_ansible_configure"]
+  resource_group: "evpn-jump-host-${CI_ENVIRONMENT_NAME}"
 
 evpn_write_results:
   extends: ".write_results"
