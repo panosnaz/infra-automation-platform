@@ -89,8 +89,9 @@ resource "nxos_feature" "fabric" {
 # would very likely fail with an invalid-feature-name error and abort the
 # whole destroy for no benefit.
 #
-# Not live-`destroy`-tested against a real device this pass (no lab access
-# this session) -- `terraform validate` confirmed only.
+# Live-verified end-to-end against real DC1-Leaf hardware (2026-08-26, §16):
+# apply -> plan (0 diff) -> destroy -> independent NX-API `show feature`
+# query confirmed bgp/interface-vlan/nve genuinely disabled post-destroy.
 # ---------------------------------------------------------------------------
 resource "null_resource" "revert_nxos_feature_on_destroy" {
   depends_on = [nxos_feature.fabric]
