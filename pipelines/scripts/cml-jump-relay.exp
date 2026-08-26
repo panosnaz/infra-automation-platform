@@ -16,16 +16,25 @@
 # The console-proxy is a raw serial-console session (not a normal SSH exec
 # channel), so ordinary `ssh host "command"` piping doesn't work -- this
 # script drives it the same way an interactive operator would: connect,
-# then immediately send the command wrapped in unique markers (confirmed
-# live: the console is responsive right after the "Connected to CML
-# terminalserver." banner, no separate wake-up phase needed -- an earlier
-# version of this script assumed one was required and that was the actual
-# bug), then wait for the markers to delimit the real output from console
-# noise/echo.
+# send a wake-up keypress, log in if a fresh boot demands it, then send the
+# command wrapped in unique markers and wait for them to delimit the real
+# output from console noise/echo. (An earlier version of this script
+# assumed the console was always responsive immediately after the
+# "Connected to CML terminalserver." banner with no wake-up or login step
+# needed -- true for a console still mid-session from an earlier
+# connection, confirmed false for a freshly-booted node: 2026-08-26 testing
+# against a cold-booted jump host showed it stays silent until sent a bare
+# `\r`, and may then show either a shell prompt or an OS "login:" prompt.)
 #
 # Usage:
 #   expect cml-jump-relay.exp <cml_host> <cml_user> <cml_password> \
-#       <lab_name> <node_label> <command> <timeout_seconds>
+#       <lab_name> <node_label> <command> <timeout_seconds> [jh_user] [jh_pass]
+#
+# jh_user/jh_pass (default cisco/cisco, confirmed from the alpine node's
+# day-0 config in knowledge/runbooks/CML-EVPN-Lab-Jump-Host.md SS4, not
+# guessed) log into the jump host's OS console after a cold boot -- a
+# freshly-started node sits at a "login:" prompt, not a shell prompt, and
+# earlier versions of this script assumed the latter unconditionally.
 #
 # Exit code: the relayed command's own exit code (0-255), or 124 on
 # expect-level timeout/failure (never confused with a real command's exit
@@ -40,6 +49,8 @@ set lab_name    [lindex $argv 3]
 set node_label  [lindex $argv 4]
 set command     [lindex $argv 5]
 set cmd_timeout [lindex $argv 6]
+set jh_user     [expr {[llength $argv] > 7 ? [lindex $argv 7] : "cisco"}]
+set jh_pass     [expr {[llength $argv] > 8 ? [lindex $argv 8] : "cisco"}]
 
 set timeout $cmd_timeout
 log_user 0
@@ -51,15 +62,49 @@ spawn sshpass -p $cml_pass ssh -tt -o StrictHostKeyChecking=no -o UserKnownHosts
 
 expect {
     "Connected to CML terminalserver." {
-        # console is immediately responsive here, confirmed live -- do not
-        # add a separate wake-up phase, it does not help and only adds
-        # latency (see this file's own history for why that was tried).
     }
     timeout {
         puts stderr "RELAY-ERROR: timed out waiting for console connection"
         exit 124
     }
 }
+
+# A wake-up keypress is required before the console produces anything at
+# all -- confirmed live (2026-08-26): a cold-booted jump host stays
+# completely silent after "Connected to CML terminalserver." until sent one,
+# contradicting an earlier version of this script's assumption that no
+# wake-up phase was needed (that assumption held for a console already
+# mid-session from a previous connection, not a fresh boot).
+send "\r"
+
+# A freshly-booted jump host then shows an OS "login:" prompt; a
+# still-running one from an earlier session goes straight to its shell
+# prompt (possibly preceded by escape-sequence noise, e.g. a cursor-position
+# query some shells emit while drawing their prompt -- harmless to ignore,
+# since the marker-based command below tolerates arbitrary leading noise and
+# doesn't depend on matching the prompt text itself). A short, dedicated
+# timeout here distinguishes "no login prompt showed up" from a hang.
+set full_timeout $cmd_timeout
+set timeout 5
+expect {
+    -re {(?i)login:\s*$} {
+        send "$jh_user\r"
+        set timeout 10
+        expect {
+            -re {(?i)assword:\s*$} {
+                send "$jh_pass\r"
+            }
+            timeout {
+                puts stderr "RELAY-ERROR: timed out waiting for jump-host password prompt"
+                exit 124
+            }
+        }
+    }
+    timeout {
+        # no login prompt within 5s -- already at a shell prompt
+    }
+}
+set timeout $full_timeout
 
 send "echo ${marker_start}; $command; echo \"${marker_end}\$?\"\r"
 

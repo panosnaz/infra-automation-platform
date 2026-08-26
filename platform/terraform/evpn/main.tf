@@ -112,14 +112,27 @@ resource "null_resource" "revert_nxos_feature_on_destroy" {
       NXOS_URL      = self.triggers.nxos_url
       NXOS_USERNAME = self.triggers.nxos_username
       NXOS_PASSWORD = self.triggers.nxos_password
-      NXOS_CURL_TLS = self.triggers.nxos_insecure == "true" ? "-k" : ""
+      NXOS_WGET_TLS = self.triggers.nxos_insecure == "true" ? "--no-check-certificate" : ""
     }
 
+    # Uses wget, not curl -- confirmed live (2026-08-26) that `terraform
+    # destroy` can run from a host with no curl at all (this ADR's own
+    # jump host, knowledge/runbooks/CML-EVPN-Lab-Jump-Host.md, ships only
+    # busybox wget). wget's `-u`/`--user` flags don't exist on busybox
+    # either (same runbook, SS5), so the Basic auth header is built by hand,
+    # and the request body goes through `--post-file` (a temp file, not
+    # `--post-data`) since busybox wget's argument parsing mishandles the
+    # embedded quotes/semicolons in the cli_conf payload otherwise.
     command = <<-EOT
       set -euo pipefail
-      response=$(curl -sS $NXOS_CURL_TLS -u "$NXOS_USERNAME:$NXOS_PASSWORD" \
-        -H "Content-Type: application/json" \
-        -d '{"ins_api":{"version":"1.0","type":"cli_conf","chunk":"0","sid":"1","input":"no feature bgp ; no feature interface-vlan ; no feature nv overlay","output_format":"json"}}' \
+      AUTH=$(printf '%s:%s' "$NXOS_USERNAME" "$NXOS_PASSWORD" | base64 | tr -d '\n')
+      REQ_FILE=$(mktemp)
+      trap 'rm -f "$REQ_FILE"' EXIT
+      printf '{"ins_api":{"version":"1.0","type":"cli_conf","chunk":"0","sid":"1","input":"no feature bgp ; no feature interface-vlan ; no feature nv overlay","output_format":"json"}}' > "$REQ_FILE"
+      response=$(wget $NXOS_WGET_TLS -q -O- \
+        --header="Content-Type: application/json" \
+        --header="Authorization: Basic $AUTH" \
+        --post-file="$REQ_FILE" \
         "$NXOS_URL/ins")
       echo "$response"
       if echo "$response" | grep -Eqi '"code":[[:space:]]*"[45][0-9]{2}"'; then

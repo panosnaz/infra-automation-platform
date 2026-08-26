@@ -11,6 +11,12 @@
 #   export VAULT_TOKEN=<token>
 #   pipelines/scripts/cml-jump-relay.sh <lab_name> <node_label> <command> [timeout_seconds]
 #
+# Jump-host OS login (a fresh boot sits at a "login:" prompt, a still-
+# running one from an earlier session doesn't) defaults to cisco/cisco,
+# confirmed from the alpine node's day-0 config in
+# knowledge/runbooks/CML-EVPN-Lab-Jump-Host.md SS4 -- override with
+# JUMPHOST_USER/JUMPHOST_PASSWORD if that ever changes.
+#
 # Requires: curl, python3, expect, sshpass (all already used elsewhere in
 # this platform's CI images/scripts -- see tests/pyats/*/scripts/load-vault-env.sh
 # for the same Vault-read pattern).
@@ -21,6 +27,8 @@ NODE_LABEL="${2:?node_label required}"
 RELAY_COMMAND="${3:?command required}"
 TIMEOUT_SECONDS="${4:-60}"
 MAX_ATTEMPTS="${CML_RELAY_MAX_ATTEMPTS:-3}"
+JUMPHOST_USER="${JUMPHOST_USER:-cisco}"
+JUMPHOST_PASSWORD="${JUMPHOST_PASSWORD:-cisco}"
 
 VAULT_ADDR="${VAULT_ADDR:-http://localhost:8200}"
 _HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -49,7 +57,7 @@ attempt=1
 while (( attempt <= MAX_ATTEMPTS )); do
   echo "[cml-jump-relay] attempt ${attempt}/${MAX_ATTEMPTS}: ${LAB_NAME}/${NODE_LABEL}: ${RELAY_COMMAND}" >&2
   set +e
-  output="$(expect "${_HERE}/cml-jump-relay.exp" "${CML_HOST}" "${CML_USER}" "${CML_PASS}" "${LAB_NAME}" "${NODE_LABEL}" "${RELAY_COMMAND}" "${TIMEOUT_SECONDS}")"
+  output="$(expect "${_HERE}/cml-jump-relay.exp" "${CML_HOST}" "${CML_USER}" "${CML_PASS}" "${LAB_NAME}" "${NODE_LABEL}" "${RELAY_COMMAND}" "${TIMEOUT_SECONDS}" "${JUMPHOST_USER}" "${JUMPHOST_PASSWORD}")"
   exit_code=$?
   set -e
   if [[ "${exit_code}" -ne 124 ]]; then
