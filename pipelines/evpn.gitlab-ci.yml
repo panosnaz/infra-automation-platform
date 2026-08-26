@@ -1,19 +1,19 @@
 # VXLAN EVPN domain pipeline (ADR-021). Extends the same shared stage
 # templates in includes/common.gitlab-ci.yml that pipelines/aci.gitlab-ci.yml
-# uses -- per ADR-021's whole point, no pipeline logic changes for a new
-# domain, only new variables.
+# uses for generate/validate/policy -- per ADR-021's whole point, no pipeline
+# logic changes for a new domain, only new variables. terraform_plan/
+# terraform_apply are the one deliberate exception (see below).
 #
-# NOT YET included from the root .gitlab-ci.yml. A working, tested relay
-# mechanism now exists (pipelines/scripts/cml-jump-relay.sh, ADR-021 §12)
-# that lets a CI job reach the real lab devices via the CML jump host, and
-# evpn_lab_connectivity_check below genuinely uses it and passes. But
-# terraform_plan/terraform_apply/ansible_configure/pyats_verify below are
-# still the unmodified shared templates -- they run directly in the
-# runner, which still has no network path to the devices, and will still
-# fail. Relaying those jobs' actual execution through the jump host (SCP
-# the rendered config over, run terraform/ansible/pyats there, retrieve
-# results) is real, separate follow-on work, not done in this pass. Do not
-# include this file from the root pipeline until that's done.
+# STILL NOT included from the root .gitlab-ci.yml. terraform_plan/
+# terraform_apply now relay the real Terraform module through the CML jump
+# host (pipelines/scripts/cml-terraform-run.sh, ADR-021 §17) and are
+# live-verified (a real `terraform plan` succeeded against DC1-Leaf,
+# `Plan: 9 to add`). But ansible_configure/pyats_verify below are still the
+# unmodified shared templates -- they run directly in the runner, which
+# still has no network path to the devices, and will still fail. Relaying
+# those too (same jump-host pattern, or a pyATS-specific variant) is real,
+# separate follow-on work, not done in this pass. Do not include this file
+# from the root pipeline until that's done.
 
 include:
   - local: "pipelines/includes/common.gitlab-ci.yml"
@@ -65,15 +65,41 @@ evpn_lab_connectivity_check:
       done
   needs: ["policy_check"]
 
+# EVPN-specific, not the shared .terraform_plan/.terraform_apply templates
+# (ADR-021 §17): those run terraform directly in the runner, which has no
+# network path to the real devices at all. These relay the whole bundle +
+# init + plan/apply through the CML jump host instead, via
+# cml-terraform-run.sh -- the file-transfer extension ADR-021 §14 concluded
+# was blocked (it wasn't; §17 found the real fix). EVPN_TARGET_DEVICE picks
+# which of the 4 real nodes this runs against, since the module manages one
+# device per provider block; defaults to dc1_leaf in
+# load-vault-evpn-tf-creds.sh.
 terraform_plan:
-  extends: ".terraform_plan"
+  stage: plan
+  image: "python:3.12-slim"
+  before_script:
+    - apt-get update -qq && apt-get install -y -qq curl expect sshpass openssh-client python3 >/dev/null
+    - . pipelines/scripts/load-vault-evpn-tf-creds.sh
+  script:
+    - pipelines/scripts/cml-terraform-run.sh "VXLAN-EVPN-MultiSite" "jump-host" "." "${TERRAFORM_DIR}" "plan"
   needs: ["evpn_lab_connectivity_check"]
 
 terraform_apply:
-  extends: ".terraform_apply"
+  stage: apply
+  image: "python:3.12-slim"
+  before_script:
+    - apt-get update -qq && apt-get install -y -qq curl expect sshpass openssh-client python3 >/dev/null
+    - . pipelines/scripts/load-vault-evpn-tf-creds.sh
+  script:
+    - pipelines/scripts/cml-terraform-run.sh "VXLAN-EVPN-MultiSite" "jump-host" "." "${TERRAFORM_DIR}" "apply"
   needs: ["terraform_plan"]
   environment:
     name: "lab"
+  # Same Stage 4 Approval gate as the shared .terraform_apply template
+  # (Execution-Framework.md §2.4) -- not inherited via `extends` here since
+  # this job no longer extends that template, so it's repeated explicitly.
+  when: manual
+  allow_failure: false
 
 ansible_configure:
   extends: ".ansible_configure"

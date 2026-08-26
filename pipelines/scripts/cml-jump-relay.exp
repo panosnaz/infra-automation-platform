@@ -106,6 +106,16 @@ expect {
 }
 set timeout $full_timeout
 
+# A previous attempt (this script or cml-jump-fetch-file.exp) that timed
+# out mid-transfer can leave the console stuck inside a stale nested
+# `sftp>` sub-session -- the console-proxy reattaches to the same live
+# serial session, it doesn't reset remote state. `bye` is harmless either
+# way: exits a stray sftp session, or fails as an unknown shell command
+# (exit 127) if there wasn't one. See cml-jump-fetch-file.exp for where
+# this was first confirmed live (2026-08-26).
+send "bye\r"
+sleep 1
+
 send "echo ${marker_start}; $command; echo \"${marker_end}\$?\"\r"
 
 # marker_start appears twice in the buffer: once in the console's echo of

@@ -1,0 +1,162 @@
+#!/usr/bin/env expect -f
+# cml-jump-fetch-file.exp — pull a single file onto a CML lab's jump host
+# from CML's own internal SFTP dropfolder (192.168.255.1), driven entirely
+# from outside the jump host.
+#
+# Why this exists: the jump host has neither `sshpass` nor `expect` (busybox
+# alpine ships only `sftp`/`scp`), so it can't drive its own outbound
+# interactive sftp session non-interactively. This script solves that the
+# same way cml-jump-relay.exp solves the console-proxy's own login prompt:
+# by staying outside and answering both levels of interactive prompt itself
+# (the console-proxy's login, then the nested sftp session's password),
+# rather than needing anything installed on the jump host. This is the
+# piece ADR-021 §14 concluded was blocked -- it isn't, once driven this way
+# instead of trying to get sshpass/expect onto the jump host itself.
+#
+# Prerequisite: the file must already be sitting in CML's SFTP dropfolder,
+# reachable from the CI runner/dev host over the EXTERNAL address
+# (`sftp://<cml_user>:<cml_pass>@<cml_host>/<filename>`, e.g. via `curl -T`)
+# -- this script only handles the INTERNAL leg (jump host <- dropfolder).
+#
+# Usage:
+#   expect cml-jump-fetch-file.exp <cml_host> <cml_user> <cml_password> \
+#       <lab_name> <node_label> <remote_filename> <local_dest_path> \
+#       <timeout_seconds> [jh_user] [jh_pass]
+#
+# Exit code: 0 on a confirmed non-empty file at <local_dest_path>, 124 on
+# any connection/timeout failure (same convention as cml-jump-relay.exp --
+# never confused with a real command's exit code).
+
+set cml_host      [lindex $argv 0]
+set cml_user      [lindex $argv 1]
+set cml_pass      [lindex $argv 2]
+set lab_name      [lindex $argv 3]
+set node_label    [lindex $argv 4]
+set remote_file   [lindex $argv 5]
+set local_dest    [lindex $argv 6]
+set cmd_timeout   [lindex $argv 7]
+set jh_user       [expr {[llength $argv] > 8 ? [lindex $argv 8] : "cisco"}]
+set jh_pass       [expr {[llength $argv] > 9 ? [lindex $argv 9] : "cisco"}]
+
+set timeout $cmd_timeout
+log_user 0
+
+spawn sshpass -p $cml_pass ssh -tt -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null $cml_user@$cml_host "open /$lab_name/$node_label/0"
+
+expect {
+    "Connected to CML terminalserver." {}
+    timeout {
+        puts stderr "RELAY-ERROR: timed out waiting for console connection"
+        exit 124
+    }
+}
+
+# Same wake-up + optional-login handling as cml-jump-relay.exp -- see that
+# file's header comment for why both steps are needed.
+send "\r"
+set full_timeout $cmd_timeout
+set timeout 5
+expect {
+    -re {(?i)login:\s*$} {
+        send "$jh_user\r"
+        set timeout 10
+        expect {
+            -re {(?i)assword:\s*$} { send "$jh_pass\r" }
+            timeout {
+                puts stderr "RELAY-ERROR: timed out waiting for jump-host password prompt"
+                exit 124
+            }
+        }
+    }
+    timeout {
+        # no login prompt within 5s -- already at a shell prompt
+    }
+}
+set timeout $full_timeout
+
+# A previous attempt that timed out mid-transfer can leave the console
+# stuck inside a stale nested `sftp>` sub-session (the console-proxy
+# reattaches to the same live serial session, it doesn't reset remote
+# state) -- confirmed live (2026-08-26): a retry's very first `send` was
+# silently swallowed as an (invalid) sftp command instead of a shell
+# command. `bye` is harmless either way: it exits a stray sftp session, or
+# fails as an unknown shell command (exit 127) if there wasn't one.
+send "bye\r"
+sleep 1
+
+send "mkdir -p [file dirname $local_dest] && cd [file dirname $local_dest] && sftp -o StrictHostKeyChecking=no $cml_user@192.168.255.1\r"
+
+expect {
+    -re {(?i)assword:\s*$} {
+        send "$cml_pass\r"
+    }
+    timeout {
+        puts stderr "RELAY-ERROR: timed out waiting for internal sftp password prompt"
+        exit 124
+    }
+}
+
+expect {
+    -re {sftp>\s*$} {
+        send "get $remote_file [file tail $local_dest]\r"
+    }
+    timeout {
+        puts stderr "RELAY-ERROR: timed out waiting for internal sftp prompt"
+        exit 124
+    }
+}
+
+expect {
+    -re {sftp>\s*$} {
+        send "bye\r"
+    }
+    -re {(?i)no such file} {
+        puts stderr "RELAY-ERROR: remote file '$remote_file' not found in dropfolder"
+        exit 124
+    }
+    timeout {
+        puts stderr "RELAY-ERROR: timed out waiting for sftp get to complete"
+        exit 124
+    }
+}
+
+# A fixed pause, not a prompt-match, for the same reason cml-jump-relay.exp
+# doesn't try to match the shell prompt either: confirmed live (2026-08-26)
+# that trying to `-re` match the prompt itself here is unreliable (exact
+# end-of-buffer timing/whitespace varies), where a short sleep after `bye`
+# reliably lets the shell settle before the next command is sent.
+sleep 1
+
+# Confirm a non-empty file landed, using the same marker convention as
+# cml-jump-relay.exp so a partial/failed transfer doesn't look successful.
+set marker_start "___FETCH_START_[pid]___"
+set marker_end   "___FETCH_END_[pid]___EXIT_"
+send "echo ${marker_start}; wc -c < [file tail $local_dest] 2>/dev/null || echo 0; echo \"${marker_end}\$?\"\r"
+
+set pattern "${marker_start}(.*)${marker_end}(\[0-9\]+)"
+expect {
+    -re $pattern {
+        set raw_output $expect_out(1,string)
+        set last_start [string last $marker_start $raw_output]
+        if {$last_start >= 0} {
+            set output [string range $raw_output [expr {$last_start + [string length $marker_start]}] end]
+        } else {
+            set output $raw_output
+        }
+        set byte_count [string trim $output "\r\n"]
+        send "\x1d"
+        catch {exp_close}
+        catch {wait}
+        if {[string is integer -strict $byte_count] && $byte_count > 0} {
+            puts "OK: $byte_count bytes"
+            exit 0
+        } else {
+            puts stderr "RELAY-ERROR: fetched file is empty or missing"
+            exit 124
+        }
+    }
+    timeout {
+        puts stderr "RELAY-ERROR: timed out confirming fetched file size"
+        exit 124
+    }
+}
