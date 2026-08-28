@@ -325,7 +325,7 @@ docker compose up -d --no-deps celery_worker celery_beat   # after nautobot is h
 - **Database connection:** `db:5432`, database `nautobot`, user `nautobot`, password from `NAUTOBOT_DB_PASSWORD` (`creds.env`, default `changeme`).
 - **Installed plugins:** `nautobot_ssot` with `enable_aci = True` (ACI Data Source sync job) — configured in `docker/nautobot/config/nautobot_config.py`.
 - **Jobs and scheduled tasks:** custom Jobs live in `docker/nautobot/jobs/` (bind-mounted); the "Cisco ACI Data Source" SSoT job is run manually or on a schedule via Nautobot's own Jobs UI (`http://localhost:8080/extras/jobs/`). Celery Beat (`celery_beat` container) handles any periodic task scheduling.
-- **Device synchronization:** handled by the `nautobot_ssot` ACI Data Source job, which syncs Tenants/VRFs/Devices from the ACI simulator into Nautobot.
+- **Device synchronization:** the `nautobot_ssot` ACI Data Source job syncs Tenants/VRFs reliably (3 of the lab's 4 tenants arrived this way, per ADR-001's brownfield note) — its Device/Interface sync path has 3 known, unfixed bugs ([ADR-020](knowledge/adr/ADR-020-ACI-Domain-Coverage-Expansion.md) §Phase B) and is not usable today. The lab's 2 real leaf Devices were created manually, bypassing the sync entirely.
 - **Object import/export:** Nautobot's built-in CSV import/export (per-model, via the web UI list views) plus `invoke db_export`/`db_import` for full-database operations.
 - **Backup and restore:** see [§2.13](#213-backup-considerations) above; restore via `invoke db_import <file>`.
 

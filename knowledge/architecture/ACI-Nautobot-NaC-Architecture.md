@@ -144,6 +144,12 @@ Nautobot with everything currently in the ACI simulator.
 Bridge Domains are Layer 2 constructs and do not map directly to a Nautobot `Prefix`.
 Only BD subnets (gateways with masks) map to IPAM Prefixes and IP Addresses.
 
+> **Reality check (2026-07-29, [ADR-020](../adr/ADR-020-ACI-Domain-Coverage-Expansion.md)) — this table is the original plan, not what was actually built.** Confirmed against the live lab and the real `nautobot_ssot` code, two rows above turned out wrong once implementation started:
+> - **Node/Leaf/Spine → Device, Interface → Interface**: the plugin's Device/Interface sync was found to have 3 real bugs (`Tenant`/`Tag` content-type filtering, an unguarded `Namespace.objects.create()`, `VRF.MultipleObjectsReturned`) that were never fixed — the team pivoted to **manually creating the 2 real leaf Devices by hand** instead, bypassing the plugin's sync entirely. There is no working, repeatable Device/Interface sync in this lab today.
+> - **Application Profile / EPG / Contract → "Plugin-managed custom model"**: none of these ended up modeled by the plugin at all. They're plain Nautobot **`VLAN`** objects (EPG) and **JSON-typed Custom Fields** (`aci_epg_contracts` on `VLAN`, `aci_contracts` on `Tenant`) — a deliberate choice to avoid a new Nautobot plugin/custom model, made *because* the plugin doesn't cover these object types at all, not as an implementation detail of using it.
+>
+> Tenant, VRF, and BD-subnet-as-Prefix are the only rows in this table that match real, working plugin behavior (confirmed via ADR-001's brownfield note: 3 of the lab's 4 tenants arrived through this exact sync). Everything else in the platform's actual ACI object coverage (VRF/BD attribute depth, Application Profiles, EPGs, Contracts/Filters, L3Out, Access/Fabric Policies) is generic Nautobot objects plus Custom Fields, authored forward through the generator — never synced from the plugin. See [ADR-020](../adr/ADR-020-ACI-Domain-Coverage-Expansion.md) for the authoritative, current state.
+
 ### Running the First Sync
 
 1. Open Nautobot UI at `http://localhost:8080`.
