@@ -260,7 +260,7 @@ pipelines/
   includes/
     common.gitlab-ci.yml             # shared stage templates (generate/policy/plan/approval/apply/ansible/validate/write-results/knowledge/artifacts)
   aci.gitlab-ci.yml                  # includes common.yml, sets TERRAFORM_DIR=platform/terraform/aci, ANSIBLE_DIR=platform/ansible/aci, GENERATOR=generate_aci.py
-  evpn.gitlab-ci.yml                 # built (ADR-021) -- same shape, different variables; not yet included from the root pipeline, see Platform-Status-and-Pending-Items.md
+  evpn.gitlab-ci.yml                 # built (ADR-021) -- same shape, different variables; included from the root pipeline alongside aci.gitlab-ci.yml (ADR-021 SS20)
   fortinet.gitlab-ci.yml             # future
   azure.gitlab-ci.yml                # future
 ```
@@ -448,7 +448,7 @@ pipelines/
   includes/
     common.gitlab-ci.yml
   aci.gitlab-ci.yml
-  evpn.gitlab-ci.yml                  # built (ADR-021), not yet included from the root pipeline -- see Platform-Status-and-Pending-Items.md
+  evpn.gitlab-ci.yml                  # built (ADR-021), included from the root pipeline alongside aci.gitlab-ci.yml (ADR-021 SS20)
   fortinet.gitlab-ci.yml               # future
   azure.gitlab-ci.yml                    # future
 .gitlab-ci.yml

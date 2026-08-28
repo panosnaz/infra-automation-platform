@@ -11,7 +11,7 @@ A reusable engineering control plane that manages network infrastructure through
 
 **Status (2026-07-31):** all 6 milestones of the [Execution Framework](knowledge/architecture/Execution-Framework.md)'s 7-stage lifecycle are complete for ACI. The MCP Server (`mcp-server/`) is live and callable over the real MCP protocol (`create_tenant`, `create_vrf`, `create_bridge_domain`, `create_epg`, `create_contract`, `create_l3out`, `show_status`), and the VS Code Copilot Agent is wired as a real MCP client (`.vscode/mcp.json`) that has completed a full natural-language-driven business operation end-to-end with no manual pipeline triggering. See [`knowledge/architecture/Execution-Framework.md` §6](knowledge/architecture/Execution-Framework.md) for the full milestone table and gate evidence, and [`knowledge/architecture/Platform-v2-As-Built.md`](knowledge/architecture/Platform-v2-As-Built.md) for the as-built infrastructure record.
 
-**EVPN, the platform's second domain** ([ADR-021](knowledge/adr/ADR-021-VXLAN-EVPN-Domain-Expansion.md)), proves the same generator → Terraform → Ansible → pyATS mechanism works for a completely different vendor/protocol without any changes to the pipeline logic itself — only new domain-specific files, exactly as designed. It has been live-verified against 4 real Cisco Nexus 9000v devices (not a simulator): every device now has a proven `terraform apply` cycle, and pyATS tests are written and validated. What's still open: wiring EVPN's pipeline into the root GitLab pipeline needs the lab's devices to be reachable from wherever the pipeline actually runs, which isn't the case yet in this lab environment — see [`knowledge/architecture/Platform-Status-and-Pending-Items.md`](knowledge/architecture/Platform-Status-and-Pending-Items.md) for the current, honest state of that work.
+**EVPN, the platform's second domain** ([ADR-021](knowledge/adr/ADR-021-VXLAN-EVPN-Domain-Expansion.md)), proves the same generator → Terraform → Ansible → pyATS mechanism works for a completely different vendor/protocol without any changes to the pipeline logic itself — only new domain-specific files, exactly as designed. It has been live-verified against 4 real Cisco Nexus 9000v devices (not a simulator) via a CML jump-host relay mechanism (the runner has no direct network path to the lab devices): every device has a proven `terraform apply` cycle with persisted Terraform state across runs, real BGP/EVPN peer sessions established fabric-wide, and pyATS-equivalent verification live-verified. `pipelines/evpn.gitlab-ci.yml` is included from the root `.gitlab-ci.yml` alongside ACI's — see [`knowledge/architecture/Platform-Status-and-Pending-Items.md`](knowledge/architecture/Platform-Status-and-Pending-Items.md) for the current, honest state of what's still open.
 
 ---
 
@@ -96,7 +96,7 @@ tests/
   unit/          Generator unit tests                                        ✅ Done
   integration/   Live-lab integration smoke tests                            ✅ Done
 
-pipelines/       GitLab CI includes (common templates + one file per domain) ✅ ACI wired in; EVPN written but not yet wired (see Platform-Status-and-Pending-Items.md)
+pipelines/       GitLab CI includes (common templates + one file per domain) ✅ Both ACI and EVPN wired into the root pipeline
 knowledge/       Architecture, ADRs, runbooks, AI notes — the knowledge base
 docs/            Reserved for future generated/customer-facing docs (empty today)
 docker/          All lab infrastructure: Nautobot, Vault, GitLab CE + Runner,
