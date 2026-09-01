@@ -313,7 +313,7 @@ mcp-server/
         __init__.py
         registry.py             # tool registration/dispatch — domain-agnostic, routes by tool name only
         generic.py                 # deploy, approve_change, deny_change, show_status, query_knowledge
-        aci.py                       # create_tenant, create_vrf, create_bridge_domain, create_epg, create_contract, create_l3out
+        aci.py                       # create_tenant, create_vrf, create_bridge_domain, create_epg, create_contract, create_l3out, create_vlan_pool, create_physical_domain, create_aep, create_leaf_interface_policy_group
         evpn.py                        # built (ADR-021) -- create_evpn_tenant, create_evpn_vrf, create_evpn_bridge_domain
         fortinet.py                      # future
         azure.py                           # future
@@ -364,7 +364,7 @@ Per [ADR-018](../adr/ADR-018-NetAsCode-Centric-Execution-Framework.md), every to
 
 **Generic** (never imports vendor-specific code): `deploy`, `approve_change`, `deny_change`, `show_status`, `query_knowledge`.
 
-**Cisco ACI** (`tools/aci.py`): `create_tenant`, `create_vrf`, `create_bridge_domain`, `create_epg`, `create_contract`, `create_l3out`.
+**Cisco ACI** (`tools/aci.py`): `create_tenant`, `create_vrf`, `create_bridge_domain`, `create_epg`, `create_contract`, `create_l3out`, `create_vlan_pool`, `create_physical_domain`, `create_aep`, `create_leaf_interface_policy_group` (the last four are ADR-020 Phase B, added 2026-09-01).
 
 **Cisco Nexus VXLAN EVPN** (`tools/evpn.py`, built per ADR-021): `create_evpn_tenant`, `create_evpn_vrf`, `create_evpn_bridge_domain`.
 

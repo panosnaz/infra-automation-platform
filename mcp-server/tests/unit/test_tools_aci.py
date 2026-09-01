@@ -14,8 +14,24 @@ free next time, not only by re-running live verification.
 """
 from __future__ import annotations
 
-from mcp_server.schemas.aci import CreateBridgeDomainRequest, CreateTenantRequest, CreateVrfRequest
-from mcp_server.tools.aci import create_bridge_domain, create_tenant, create_vrf
+from mcp_server.schemas.aci import (
+    CreateAepRequest,
+    CreateBridgeDomainRequest,
+    CreateLeafInterfacePolicyGroupRequest,
+    CreatePhysicalDomainRequest,
+    CreateTenantRequest,
+    CreateVlanPoolRequest,
+    CreateVrfRequest,
+)
+from mcp_server.tools.aci import (
+    create_aep,
+    create_bridge_domain,
+    create_leaf_interface_policy_group,
+    create_physical_domain,
+    create_tenant,
+    create_vlan_pool,
+    create_vrf,
+)
 
 
 class _FakeNautobotClient:
@@ -35,6 +51,22 @@ class _FakeNautobotClient:
     def create_bridge_domain(self, **kwargs):
         self.calls.append(("create_bridge_domain", kwargs))
         return {"id": "prefix-id", **kwargs}
+
+    def create_vlan_pool(self, **kwargs):
+        self.calls.append(("create_vlan_pool", kwargs))
+        return {"location": kwargs["location"], "vlan_pool": kwargs["name"], "vlan_pools": []}
+
+    def create_physical_domain(self, **kwargs):
+        self.calls.append(("create_physical_domain", kwargs))
+        return {"location": kwargs["location"], "physical_domain": kwargs["name"], "physical_domains": []}
+
+    def create_aep(self, **kwargs):
+        self.calls.append(("create_aep", kwargs))
+        return {"location": kwargs["location"], "aep": kwargs["name"], "aeps": []}
+
+    def create_leaf_interface_policy_group(self, **kwargs):
+        self.calls.append(("create_leaf_interface_policy_group", kwargs))
+        return {"location": kwargs["location"], "leaf_interface_policy_group": kwargs["name"], "leaf_interface_policy_groups": []}
 
 
 def test_create_tenant_passes_name_through_unprefixed():
@@ -88,3 +120,73 @@ def test_create_bridge_domain_passes_gateway_ip_through():
         )
     ]
     assert result["prefix"]["name"] == "acme-bd"
+
+
+def test_create_vlan_pool_passes_range_through():
+    fake = _FakeNautobotClient()
+    request = CreateVlanPoolRequest(name="pool1", range_from=100, range_to=200)
+
+    result = create_vlan_pool(request, nautobot=fake)
+
+    assert fake.calls == [
+        (
+            "create_vlan_pool",
+            {
+                "location": "ACI-Lab",
+                "name": "pool1",
+                "alloc_mode": "static",
+                "range_from": 100,
+                "range_to": 200,
+                "range_alloc_mode": None,
+                "role": "external",
+                "description": "",
+            },
+        )
+    ]
+    assert result["vlan_pool"]["vlan_pool"] == "pool1"
+    assert "100-200" in result["note"]
+
+
+def test_create_physical_domain_passes_vlan_pool_through():
+    fake = _FakeNautobotClient()
+    request = CreatePhysicalDomainRequest(name="phys-dom1", vlan_pool="pool1")
+
+    result = create_physical_domain(request, nautobot=fake)
+
+    assert fake.calls == [
+        ("create_physical_domain", {"location": "ACI-Lab", "name": "phys-dom1", "vlan_pool": "pool1"})
+    ]
+    assert result["physical_domain"]["physical_domain"] == "phys-dom1"
+
+
+def test_create_aep_passes_domains_through():
+    fake = _FakeNautobotClient()
+    request = CreateAepRequest(name="aep1", domains=["phys-dom1", "phys-dom2"])
+
+    result = create_aep(request, nautobot=fake)
+
+    assert fake.calls == [
+        ("create_aep", {"location": "ACI-Lab", "name": "aep1", "domains": ["phys-dom1", "phys-dom2"]})
+    ]
+    assert result["aep"]["aep"] == "aep1"
+
+
+def test_create_aep_defaults_to_no_domains():
+    fake = _FakeNautobotClient()
+    request = CreateAepRequest(name="aep1")
+
+    create_aep(request, nautobot=fake)
+
+    assert fake.calls == [("create_aep", {"location": "ACI-Lab", "name": "aep1", "domains": []})]
+
+
+def test_create_leaf_interface_policy_group_passes_aep_through():
+    fake = _FakeNautobotClient()
+    request = CreateLeafInterfacePolicyGroupRequest(name="leaf-pg1", aep="aep1")
+
+    result = create_leaf_interface_policy_group(request, nautobot=fake)
+
+    assert fake.calls == [
+        ("create_leaf_interface_policy_group", {"location": "ACI-Lab", "name": "leaf-pg1", "aep": "aep1"})
+    ]
+    assert result["leaf_interface_policy_group"]["leaf_interface_policy_group"] == "leaf-pg1"

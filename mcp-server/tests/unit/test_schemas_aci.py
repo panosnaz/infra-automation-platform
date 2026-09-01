@@ -5,11 +5,15 @@ import pytest
 from pydantic import ValidationError
 
 from mcp_server.schemas.aci import (
+    CreateAepRequest,
     CreateBridgeDomainRequest,
     CreateContractRequest,
     CreateEpgRequest,
     CreateL3OutRequest,
+    CreateLeafInterfacePolicyGroupRequest,
+    CreatePhysicalDomainRequest,
     CreateTenantRequest,
+    CreateVlanPoolRequest,
     CreateVrfRequest,
 )
 
@@ -100,3 +104,38 @@ def test_valid_l3out_request_defaults():
     )
     assert req.subnet == "0.0.0.0/0"
     assert req.description == ""
+
+
+def test_valid_vlan_pool_request_defaults():
+    req = CreateVlanPoolRequest(name="pool1", range_from=100, range_to=200)
+    assert req.location == "ACI-Lab"
+    assert req.alloc_mode == "static"
+    assert req.role == "external"
+    assert req.range_alloc_mode is None
+
+
+@pytest.mark.parametrize("bad_vid", [0, 4095])
+def test_vlan_pool_range_out_of_bounds_rejected(bad_vid):
+    with pytest.raises(ValidationError):
+        CreateVlanPoolRequest(name="pool1", range_from=bad_vid, range_to=200)
+
+
+def test_valid_physical_domain_request_defaults():
+    req = CreatePhysicalDomainRequest(name="phys-dom1")
+    assert req.location == "ACI-Lab"
+    assert req.vlan_pool is None
+
+
+def test_valid_aep_request_defaults():
+    req = CreateAepRequest(name="aep1")
+    assert req.domains == []
+
+
+def test_aep_request_with_domains():
+    req = CreateAepRequest(name="aep1", domains=["phys-dom1", "phys-dom2"])
+    assert req.domains == ["phys-dom1", "phys-dom2"]
+
+
+def test_valid_leaf_interface_policy_group_request_defaults():
+    req = CreateLeafInterfacePolicyGroupRequest(name="leaf-pg1")
+    assert req.aep is None

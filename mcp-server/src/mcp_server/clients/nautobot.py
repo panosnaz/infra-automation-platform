@@ -310,6 +310,140 @@ class NautobotClient:
             raise NautobotError(f"Nautobot unreachable or auth failed: {exc}") from exc
         return {"tenant": tenant, "l3out": name, "external_epg": external_epg_name, "l3outs": l3outs}
 
+    # ------------------------------------------------------------------
+    # ACI Access/Fabric Policies (ADR-020 Phase B) -- fabric-wide, not
+    # Tenant-scoped, so all four live in one JSON Custom Field
+    # (`aci_fabric_policies`) on the Location representing the ACI
+    # fabric/site, per transformer.py's `_build_fabric_and_access_
+    # policies()`. Same read-merge-write pattern as create_contract/
+    # create_l3out above, just keyed by Location instead of Tenant.
+    # ------------------------------------------------------------------
+
+    def _get_location_or_raise(self, name: str):
+        location = self.api.dcim.locations.get(name=name)
+        if location is None:
+            raise NautobotError(f"Location '{name}' not found in Nautobot")
+        return location
+
+    def create_vlan_pool(
+        self,
+        location: str,
+        name: str,
+        alloc_mode: str,
+        range_from: int,
+        range_to: int,
+        range_alloc_mode: str | None = None,
+        role: str = "external",
+        description: str = "",
+    ) -> dict:
+        """Create/extend a VLAN Pool (ADR-020 Phase B coverage). Appends one
+        encap range into the named pool; creates the pool first if it
+        doesn't already exist for this Location."""
+        try:
+            location_obj = self._get_location_or_raise(location)
+            existing = dict(location_obj.custom_fields or {}).get("aci_fabric_policies") or {}
+            vlan_pools = list(existing.get("vlan_pools") or [])
+
+            pool = next((p for p in vlan_pools if p.get("name") == name), None)
+            new_range: dict = {"from": range_from, "to": range_to}
+            if range_alloc_mode:
+                new_range["alloc_mode"] = range_alloc_mode
+            if role:
+                new_range["role"] = role
+
+            if pool is None:
+                pool = {"name": name, "alloc_mode": alloc_mode, "ranges": [new_range]}
+                if description:
+                    pool["description"] = description
+                vlan_pools.append(pool)
+            else:
+                pool.setdefault("ranges", []).append(new_range)
+
+            location_obj.update({"custom_fields": {"aci_fabric_policies": {**existing, "vlan_pools": vlan_pools}}})
+        except pynautobot.RequestError as exc:
+            raise NautobotError(f"Nautobot rejected VLAN Pool '{name}': {exc}") from exc
+        except NautobotError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise NautobotError(f"Nautobot unreachable or auth failed: {exc}") from exc
+        return {"location": location, "vlan_pool": name, "vlan_pools": vlan_pools}
+
+    def create_physical_domain(self, location: str, name: str, vlan_pool: str | None = None) -> dict:
+        """Create a Physical Domain (ADR-020 Phase B coverage), optionally
+        bound to an existing VLAN Pool. Creating the same name twice
+        appends a second entry -- callers should check the existing
+        `aci_fabric_policies` Custom Field first if idempotency matters."""
+        try:
+            location_obj = self._get_location_or_raise(location)
+            existing = dict(location_obj.custom_fields or {}).get("aci_fabric_policies") or {}
+            physical_domains = list(existing.get("physical_domains") or [])
+
+            entry: dict = {"name": name}
+            if vlan_pool:
+                entry["vlan_pool"] = vlan_pool
+            physical_domains.append(entry)
+
+            location_obj.update(
+                {"custom_fields": {"aci_fabric_policies": {**existing, "physical_domains": physical_domains}}}
+            )
+        except pynautobot.RequestError as exc:
+            raise NautobotError(f"Nautobot rejected Physical Domain '{name}': {exc}") from exc
+        except NautobotError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise NautobotError(f"Nautobot unreachable or auth failed: {exc}") from exc
+        return {"location": location, "physical_domain": name, "physical_domains": physical_domains}
+
+    def create_aep(self, location: str, name: str, domains: list[str] | None = None) -> dict:
+        """Create/extend an Attachable Access Entity Profile (ADR-020 Phase
+        B coverage). Domains are merged (not replaced) if the AEP already
+        exists for this Location."""
+        try:
+            location_obj = self._get_location_or_raise(location)
+            existing = dict(location_obj.custom_fields or {}).get("aci_fabric_policies") or {}
+            aeps = list(existing.get("aeps") or [])
+            domains = domains or []
+
+            aep = next((a for a in aeps if a.get("name") == name), None)
+            if aep is None:
+                aeps.append({"name": name, "domains": list(domains)})
+            else:
+                merged = list(dict.fromkeys([*aep.get("domains", []), *domains]))
+                aep["domains"] = merged
+
+            location_obj.update({"custom_fields": {"aci_fabric_policies": {**existing, "aeps": aeps}}})
+        except pynautobot.RequestError as exc:
+            raise NautobotError(f"Nautobot rejected AEP '{name}': {exc}") from exc
+        except NautobotError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise NautobotError(f"Nautobot unreachable or auth failed: {exc}") from exc
+        return {"location": location, "aep": name, "aeps": aeps}
+
+    def create_leaf_interface_policy_group(self, location: str, name: str, aep: str | None = None) -> dict:
+        """Create a Leaf Interface Policy Group (ADR-020 Phase B coverage),
+        optionally bound to an existing AEP."""
+        try:
+            location_obj = self._get_location_or_raise(location)
+            existing = dict(location_obj.custom_fields or {}).get("aci_fabric_policies") or {}
+            groups = list(existing.get("leaf_interface_policy_groups") or [])
+
+            entry: dict = {"name": name}
+            if aep:
+                entry["aep"] = aep
+            groups.append(entry)
+
+            location_obj.update(
+                {"custom_fields": {"aci_fabric_policies": {**existing, "leaf_interface_policy_groups": groups}}}
+            )
+        except pynautobot.RequestError as exc:
+            raise NautobotError(f"Nautobot rejected Leaf Interface Policy Group '{name}': {exc}") from exc
+        except NautobotError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise NautobotError(f"Nautobot unreachable or auth failed: {exc}") from exc
+        return {"location": location, "leaf_interface_policy_group": name, "leaf_interface_policy_groups": groups}
+
     def get_tenant_status(self, name: str) -> dict | None:
         """Read back the custom_fields write_results.py (Milestone 4) writes
         after a pipeline run -- validation_status/last_pipeline_id/etc.

@@ -132,3 +132,75 @@ class CreateL3OutRequest(BaseModel):
     @classmethod
     def _validate_name(cls, v: str) -> str:
         return _validate_aci_name(v)
+
+
+class CreateVlanPoolRequest(BaseModel):
+    """ADR-020 Phase B coverage. VLAN Pools/Physical Domains/AEPs/Leaf
+    Interface Policy Groups are fabric-wide, not Tenant-scoped, so they're
+    modeled as a structured JSON Custom Field (`aci_fabric_policies`) on
+    the Location representing the ACI fabric/site, not on Tenant (see
+    transformer.py's `_build_fabric_and_access_policies()`).
+
+    Appends one encap range into the named pool -- creates the pool first
+    if it doesn't already exist for this Location, matching create_contract's
+    create-filter-if-missing/append-entry convention.
+    """
+
+    name: str = Field(description="VLAN Pool name.")
+    range_from: int = Field(description="First VLAN ID in this range.", ge=1, le=4094)
+    range_to: int = Field(description="Last VLAN ID in this range.", ge=1, le=4094)
+    location: str = Field(default="ACI-Lab", description="Name of the existing Nautobot Location representing the ACI fabric/site (this lab has one: 'ACI-Lab').")
+    alloc_mode: str = Field(default="static", description="Pool allocation mode. Allowed: 'static', 'dynamic'.")
+    range_alloc_mode: str | None = Field(default=None, description="Range-level allocation mode override. Allowed: 'static', 'dynamic', 'inherit' (default).")
+    role: str = Field(default="external", description="Range role. Allowed: 'external' (used by Physical/L3 Domains), 'internal' (used by VMM Domains).")
+    description: str = Field(default="", description="Optional free-text description, only applied when the pool is newly created.")
+
+    @field_validator("name")
+    @classmethod
+    def _validate_name(cls, v: str) -> str:
+        return _validate_aci_name(v)
+
+
+class CreatePhysicalDomainRequest(BaseModel):
+    """ADR-020 Phase B coverage. Logical-only: models the Physical Domain
+    object and its VLAN Pool relation, no physical port/interface binding
+    (this lab's simulator has zero real leaf/spine interface data -- see
+    ADR-020 Phase B writeup)."""
+
+    name: str = Field(description="Physical Domain name.")
+    location: str = Field(default="ACI-Lab", description="Name of the existing Nautobot Location representing the ACI fabric/site.")
+    vlan_pool: str | None = Field(default=None, description="Name of an existing VLAN Pool (in this same Location) to bind this domain to. Omit to leave unbound.")
+
+    @field_validator("name")
+    @classmethod
+    def _validate_name(cls, v: str) -> str:
+        return _validate_aci_name(v)
+
+
+class CreateAepRequest(BaseModel):
+    """ADR-020 Phase B coverage: an Attachable Access Entity Profile (AEP),
+    bound to zero or more existing Physical Domains."""
+
+    name: str = Field(description="AEP name.")
+    location: str = Field(default="ACI-Lab", description="Name of the existing Nautobot Location representing the ACI fabric/site.")
+    domains: list[str] = Field(default_factory=list, description="Names of existing Physical Domains (in this same Location) to bind this AEP to. Domains are merged with any already bound on repeated calls, not replaced.")
+
+    @field_validator("name")
+    @classmethod
+    def _validate_name(cls, v: str) -> str:
+        return _validate_aci_name(v)
+
+
+class CreateLeafInterfacePolicyGroupRequest(BaseModel):
+    """ADR-020 Phase B coverage. Logical-only: models the policy group
+    object and its AEP relation, no physical leaf/port selector binding
+    (same simulator limitation as CreatePhysicalDomainRequest)."""
+
+    name: str = Field(description="Leaf Interface Policy Group name.")
+    location: str = Field(default="ACI-Lab", description="Name of the existing Nautobot Location representing the ACI fabric/site.")
+    aep: str | None = Field(default=None, description="Name of an existing AEP (in this same Location) to bind this policy group to. Omit to leave unbound.")
+
+    @field_validator("name")
+    @classmethod
+    def _validate_name(cls, v: str) -> str:
+        return _validate_aci_name(v)

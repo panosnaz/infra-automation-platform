@@ -1,17 +1,24 @@
 """Cisco ACI domain tools. Per Platform-v2-Reference-Architecture.md §7.8,
 covers create_tenant, create_vrf, create_bridge_domain, create_epg,
 create_contract, and create_l3out -- one tool per ADR-020 Phase A item, added
-the same way once each item's generator/Terraform support landed.
+the same way once each item's generator/Terraform support landed. Also
+covers create_vlan_pool, create_physical_domain, create_aep, and
+create_leaf_interface_policy_group -- ADR-020 Phase B's fabric-wide Access/
+Fabric Policy objects, following the same pattern.
 """
 from __future__ import annotations
 
 from mcp_server.clients.nautobot import NautobotClient
 from mcp_server.schemas.aci import (
+    CreateAepRequest,
     CreateBridgeDomainRequest,
     CreateContractRequest,
     CreateEpgRequest,
     CreateL3OutRequest,
+    CreateLeafInterfacePolicyGroupRequest,
+    CreatePhysicalDomainRequest,
     CreateTenantRequest,
+    CreateVlanPoolRequest,
     CreateVrfRequest,
 )
 from mcp_server.tools.registry import registry
@@ -171,4 +178,111 @@ def create_l3out(request: CreateL3OutRequest, *, nautobot: NautobotClient) -> di
     return {
         "l3out": result,
         "note": f"L3Out '{request.name}' written to Nautobot under tenant '{request.tenant}'/VRF '{request.vrf}'. Use show_status(name='{request.tenant}') to check the next pipeline run.",
+    }
+
+
+@registry.register(
+    name="create_vlan_pool",
+    domain="cisco_aci",
+    description=(
+        "Create or extend a fabric-wide VLAN Pool by writing to the "
+        "aci_fabric_policies JSON Custom Field on the ACI Location object "
+        "(ADR-020 Phase B -- fabric-wide objects have no Tenant home). "
+        "Appends one encap range; creates the pool first if it doesn't "
+        "already exist. Logical-only, no physical port binding. Use "
+        "show_status(name=<any tenant>) afterward to check the next "
+        "pipeline run."
+    ),
+    schema=CreateVlanPoolRequest,
+)
+def create_vlan_pool(request: CreateVlanPoolRequest, *, nautobot: NautobotClient) -> dict:
+    result = nautobot.create_vlan_pool(
+        location=request.location,
+        name=request.name,
+        alloc_mode=request.alloc_mode,
+        range_from=request.range_from,
+        range_to=request.range_to,
+        range_alloc_mode=request.range_alloc_mode,
+        role=request.role,
+        description=request.description,
+    )
+    return {
+        "vlan_pool": result,
+        "note": f"VLAN Pool '{request.name}' (range {request.range_from}-{request.range_to}) written to Location '{request.location}'. Use show_status(name=<any tenant>) to check the next pipeline run.",
+    }
+
+
+@registry.register(
+    name="create_physical_domain",
+    domain="cisco_aci",
+    description=(
+        "Create a Physical Domain, optionally bound to an existing VLAN "
+        "Pool, by writing to the aci_fabric_policies JSON Custom Field on "
+        "the ACI Location object (ADR-020 Phase B). Logical-only, no "
+        "physical port binding -- this lab's ACI simulator has zero real "
+        "leaf/spine interface data. Use show_status(name=<any tenant>) "
+        "afterward."
+    ),
+    schema=CreatePhysicalDomainRequest,
+)
+def create_physical_domain(request: CreatePhysicalDomainRequest, *, nautobot: NautobotClient) -> dict:
+    result = nautobot.create_physical_domain(
+        location=request.location,
+        name=request.name,
+        vlan_pool=request.vlan_pool,
+    )
+    return {
+        "physical_domain": result,
+        "note": f"Physical Domain '{request.name}' written to Location '{request.location}'. Use show_status(name=<any tenant>) to check the next pipeline run.",
+    }
+
+
+@registry.register(
+    name="create_aep",
+    domain="cisco_aci",
+    description=(
+        "Create or extend an Attachable Access Entity Profile (AEP), bound "
+        "to zero or more existing Physical Domains, by writing to the "
+        "aci_fabric_policies JSON Custom Field on the ACI Location object "
+        "(ADR-020 Phase B). Domains are merged with any already bound on "
+        "repeated calls. Use show_status(name=<any tenant>) afterward."
+    ),
+    schema=CreateAepRequest,
+)
+def create_aep(request: CreateAepRequest, *, nautobot: NautobotClient) -> dict:
+    result = nautobot.create_aep(
+        location=request.location,
+        name=request.name,
+        domains=request.domains,
+    )
+    return {
+        "aep": result,
+        "note": f"AEP '{request.name}' written to Location '{request.location}'. Use show_status(name=<any tenant>) to check the next pipeline run.",
+    }
+
+
+@registry.register(
+    name="create_leaf_interface_policy_group",
+    domain="cisco_aci",
+    description=(
+        "Create a Leaf Interface Policy Group, optionally bound to an "
+        "existing AEP, by writing to the aci_fabric_policies JSON Custom "
+        "Field on the ACI Location object (ADR-020 Phase B). Logical-only, "
+        "no physical leaf/port selector binding -- this lab's ACI "
+        "simulator has zero real leaf/spine interface data. Use "
+        "show_status(name=<any tenant>) afterward."
+    ),
+    schema=CreateLeafInterfacePolicyGroupRequest,
+)
+def create_leaf_interface_policy_group(
+    request: CreateLeafInterfacePolicyGroupRequest, *, nautobot: NautobotClient
+) -> dict:
+    result = nautobot.create_leaf_interface_policy_group(
+        location=request.location,
+        name=request.name,
+        aep=request.aep,
+    )
+    return {
+        "leaf_interface_policy_group": result,
+        "note": f"Leaf Interface Policy Group '{request.name}' written to Location '{request.location}'. Use show_status(name=<any tenant>) to check the next pipeline run.",
     }
