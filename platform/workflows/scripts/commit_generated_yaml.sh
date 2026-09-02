@@ -11,13 +11,20 @@
 # Requires these environment variables (already available in GitLab CI):
 #   GIT_PUSH_TOKEN, CI_SERVER_HOST, CI_SERVER_PORT, CI_PROJECT_PATH,
 #   CI_COMMIT_REF_NAME
+# Optional: GIT_PUSH_HOST overrides CI_SERVER_HOST (predefined, not
+# reliably overridable itself) -- needed when GitLab's own external_url
+# resolves to something job containers can't reach (e.g. "localhost" when
+# GitLab and the runner's job containers are on different network
+# namespaces -- confirmed in this lab, job containers must use
+# host.docker.internal instead).
 set -euo pipefail
 
 NETASCODE_YAML="$1"
+GIT_PUSH_HOST="${GIT_PUSH_HOST:-${CI_SERVER_HOST}}"
 
 git config user.email "platform-automation@lab.local"
 git config user.name "Platform Automation"
-git remote set-url origin "http://oauth2:${GIT_PUSH_TOKEN}@${CI_SERVER_HOST}:${CI_SERVER_PORT}/${CI_PROJECT_PATH}.git"
+git remote set-url origin "http://oauth2:${GIT_PUSH_TOKEN}@${GIT_PUSH_HOST}:${CI_SERVER_PORT}/${CI_PROJECT_PATH}.git"
 git add "${NETASCODE_YAML}"
 
 if git diff --cached --quiet; then
