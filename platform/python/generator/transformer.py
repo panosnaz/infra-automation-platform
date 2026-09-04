@@ -337,11 +337,21 @@ def _build_fabric_and_access_policies(
     exact attribute names. Scoped to the single default POD Policy Group
     only (this lab has one POD) -- custom-named alternate policies with
     explicit POD Policy Group assignment are out of scope.
+
+    Phase D's `vmm_domains` key models VMM Domain integration (VMware only
+    for this MVP): the VMM Domain object, its Controller (vCenter host/
+    datacenter association), and an optional VLAN Pool binding. The
+    Controller's actual vCenter username/password are deliberately NOT part
+    of this Custom Field or the generated YAML -- same as the APIC's own
+    `aci_username`/`aci_password`, they are supplied at `terraform apply`
+    time via sensitive Terraform variables (`vmm_vcenter_username`/
+    `vmm_vcenter_password`), never persisted in Nautobot or committed YAML.
     """
     vlan_pools: list[dict[str, Any]] = []
     physical_domains: list[dict[str, Any]] = []
     aeps: list[dict[str, Any]] = []
     leaf_interface_policy_groups: list[dict[str, Any]] = []
+    vmm_domains: list[dict[str, Any]] = []
     ntp: dict[str, Any] = {}
     dns: dict[str, Any] = {}
     snmp: dict[str, Any] = {}
@@ -353,6 +363,7 @@ def _build_fabric_and_access_policies(
         physical_domains.extend(data.get("physical_domains") or [])
         aeps.extend(data.get("aeps") or [])
         leaf_interface_policy_groups.extend(data.get("leaf_interface_policy_groups") or [])
+        vmm_domains.extend(data.get("vmm_domains") or [])
         # POD-wide policies are singletons -- last Location with the field
         # set wins, rather than merged/appended like the list-shaped keys
         # above (multiple Locations setting conflicting NTP/DNS/SNMP config
@@ -367,6 +378,8 @@ def _build_fabric_and_access_policies(
     fabric_policies: dict[str, Any] = {}
     if vlan_pools:
         fabric_policies["vlan_pools"] = vlan_pools
+    if vmm_domains:
+        fabric_policies["vmm_domains"] = vmm_domains
     if ntp:
         fabric_policies["ntp"] = ntp
     if dns:

@@ -14,6 +14,7 @@ from mcp_server.schemas.aci import (
     CreatePhysicalDomainRequest,
     CreateTenantRequest,
     CreateVlanPoolRequest,
+    CreateVmmDomainRequest,
     CreateVrfRequest,
 )
 
@@ -139,3 +140,35 @@ def test_aep_request_with_domains():
 def test_valid_leaf_interface_policy_group_request_defaults():
     req = CreateLeafInterfacePolicyGroupRequest(name="leaf-pg1")
     assert req.aep is None
+
+
+def test_valid_vmm_domain_request_defaults():
+    req = CreateVmmDomainRequest(
+        name="vmm1", controller_name="vc1", host_or_ip="vcenter.example.com", root_cont_name="Datacenter1"
+    )
+    assert req.location == "ACI-Lab"
+    assert req.vendor == "VMware"
+    assert req.vlan_pool is None
+    assert req.credential_name is None
+    assert req.dvs_version == "unmanaged"
+
+
+def test_vmm_domain_request_with_optional_fields():
+    req = CreateVmmDomainRequest(
+        name="vmm1",
+        controller_name="vc1",
+        host_or_ip="vcenter.example.com",
+        root_cont_name="Datacenter1",
+        vlan_pool="pool1",
+        credential_name="vc1-cred",
+    )
+    assert req.vlan_pool == "pool1"
+    assert req.credential_name == "vc1-cred"
+
+
+@pytest.mark.parametrize("bad_name", ["bad name", "bad/name", "bad#name"])
+def test_invalid_vmm_domain_name_rejected(bad_name):
+    with pytest.raises(ValidationError):
+        CreateVmmDomainRequest(
+            name=bad_name, controller_name="vc1", host_or_ip="vcenter.example.com", root_cont_name="Datacenter1"
+        )

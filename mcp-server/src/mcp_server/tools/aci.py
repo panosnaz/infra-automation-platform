@@ -4,7 +4,8 @@ create_contract, and create_l3out -- one tool per ADR-020 Phase A item, added
 the same way once each item's generator/Terraform support landed. Also
 covers create_vlan_pool, create_physical_domain, create_aep, and
 create_leaf_interface_policy_group -- ADR-020 Phase B's fabric-wide Access/
-Fabric Policy objects, following the same pattern.
+Fabric Policy objects, following the same pattern. Also covers
+create_vmm_domain -- ADR-020 Phase D's VMM Domain integration.
 """
 from __future__ import annotations
 
@@ -19,6 +20,7 @@ from mcp_server.schemas.aci import (
     CreatePhysicalDomainRequest,
     CreateTenantRequest,
     CreateVlanPoolRequest,
+    CreateVmmDomainRequest,
     CreateVrfRequest,
 )
 from mcp_server.tools.registry import registry
@@ -285,4 +287,37 @@ def create_leaf_interface_policy_group(
     return {
         "leaf_interface_policy_group": result,
         "note": f"Leaf Interface Policy Group '{request.name}' written to Location '{request.location}'. Use show_status(name=<any tenant>) to check the next pipeline run.",
+    }
+
+
+@registry.register(
+    name="create_vmm_domain",
+    domain="cisco_aci",
+    description=(
+        "Create a VMM Domain and its Controller (vCenter host/datacenter "
+        "association), optionally bound to an existing VLAN Pool, by "
+        "writing to the aci_fabric_policies JSON Custom Field on the ACI "
+        "Location object (ADR-020 Phase D). The Controller's actual "
+        "vCenter username/password are NOT part of this tool's request -- "
+        "they are supplied at terraform apply time via sensitive Terraform "
+        "variables, never persisted in Nautobot. Use "
+        "show_status(name=<any tenant>) afterward."
+    ),
+    schema=CreateVmmDomainRequest,
+)
+def create_vmm_domain(request: CreateVmmDomainRequest, *, nautobot: NautobotClient) -> dict:
+    result = nautobot.create_vmm_domain(
+        location=request.location,
+        name=request.name,
+        controller_name=request.controller_name,
+        host_or_ip=request.host_or_ip,
+        root_cont_name=request.root_cont_name,
+        vendor=request.vendor,
+        vlan_pool=request.vlan_pool,
+        credential_name=request.credential_name,
+        dvs_version=request.dvs_version,
+    )
+    return {
+        "vmm_domain": result,
+        "note": f"VMM Domain '{request.name}' written to Location '{request.location}'. Use show_status(name=<any tenant>) to check the next pipeline run.",
     }

@@ -204,3 +204,30 @@ class CreateLeafInterfacePolicyGroupRequest(BaseModel):
     @classmethod
     def _validate_name(cls, v: str) -> str:
         return _validate_aci_name(v)
+
+
+class CreateVmmDomainRequest(BaseModel):
+    """ADR-020 Phase D coverage: a VMM Domain and its Controller (vCenter
+    host/datacenter association), optionally bound to an existing VLAN
+    Pool. The Controller's actual vCenter username/password are
+    deliberately NOT part of this request -- they are supplied at
+    `terraform apply` time via sensitive Terraform variables
+    (`vmm_vcenter_username`/`vmm_vcenter_password`), never persisted in
+    Nautobot, matching the APIC's own `aci_username`/`aci_password`
+    handling. `credential_name` only reserves the ACI Credential object's
+    own name; it is not a secret."""
+
+    name: str = Field(description="VMM Domain name.")
+    controller_name: str = Field(description="VMM Controller name (the ACI-side object name, not the vCenter hostname).")
+    host_or_ip: str = Field(description="vCenter hostname or IP address.")
+    root_cont_name: str = Field(description="vCenter Datacenter name (ACI's 'top level container name').")
+    location: str = Field(default="ACI-Lab", description="Name of the existing Nautobot Location representing the ACI fabric/site.")
+    vendor: str = Field(default="VMware", description="VMM provider vendor. This lab only exercises 'VMware'.")
+    vlan_pool: str | None = Field(default=None, description="Name of an existing VLAN Pool (in this same Location) to bind this domain to. Omit to leave unbound.")
+    credential_name: str | None = Field(default=None, description="Name to give the ACI Credential object for this domain. Omit to leave the domain without a credential relation (no vCenter login will be attempted).")
+    dvs_version: str = Field(default="unmanaged", description="Distributed Virtual Switch version. Default 'unmanaged' lets vCenter manage DVS versioning.")
+
+    @field_validator("name")
+    @classmethod
+    def _validate_name(cls, v: str) -> str:
+        return _validate_aci_name(v)

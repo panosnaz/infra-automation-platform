@@ -540,3 +540,63 @@ def test_fabric_and_access_policies_aggregated_across_multiple_locations():
 
     names = {p["name"] for p in result["apic"]["fabric_policies"]["vlan_pools"]}
     assert names == {"pool-a", "pool-b"}
+
+
+def test_vmm_domains_emitted_from_location_custom_field():
+    locations = [
+        _location(
+            "ACI-Lab",
+            aci_fabric_policies={
+                "vmm_domains": [
+                    {
+                        "name": "vmm1",
+                        "vendor": "VMware",
+                        "vlan_pool": "pool1",
+                        "controller": {
+                            "name": "vc1",
+                            "host_or_ip": "vcenter.example.com",
+                            "root_cont_name": "Datacenter1",
+                        },
+                        "credential": {"name": "vc1-cred"},
+                    }
+                ],
+            },
+        )
+    ]
+
+    result = build_netascode_yaml([], prefixes=[], locations=locations)
+
+    assert result["apic"]["fabric_policies"]["vmm_domains"] == [
+        {
+            "name": "vmm1",
+            "vendor": "VMware",
+            "vlan_pool": "pool1",
+            "controller": {
+                "name": "vc1",
+                "host_or_ip": "vcenter.example.com",
+                "root_cont_name": "Datacenter1",
+            },
+            "credential": {"name": "vc1-cred"},
+        }
+    ]
+
+
+def test_vmm_domains_absent_when_unset():
+    locations = [_location("ACI-Lab", aci_fabric_policies={"vlan_pools": [{"name": "pool1", "alloc_mode": "static"}]})]
+
+    result = build_netascode_yaml([], prefixes=[], locations=locations)
+
+    assert "vmm_domains" not in result["apic"]["fabric_policies"]
+
+
+def test_vmm_domains_aggregated_across_multiple_locations():
+    locations = [
+        _location("site-a", aci_fabric_policies={"vmm_domains": [{"name": "vmm-a", "vendor": "VMware"}]}),
+        _location("site-b", aci_fabric_policies={"vmm_domains": [{"name": "vmm-b", "vendor": "VMware"}]}),
+        _location("site-c"),
+    ]
+
+    result = build_netascode_yaml([], prefixes=[], locations=locations)
+
+    names = {d["name"] for d in result["apic"]["fabric_policies"]["vmm_domains"]}
+    assert names == {"vmm-a", "vmm-b"}

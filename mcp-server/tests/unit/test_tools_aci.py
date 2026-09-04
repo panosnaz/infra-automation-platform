@@ -21,6 +21,7 @@ from mcp_server.schemas.aci import (
     CreatePhysicalDomainRequest,
     CreateTenantRequest,
     CreateVlanPoolRequest,
+    CreateVmmDomainRequest,
     CreateVrfRequest,
 )
 from mcp_server.tools.aci import (
@@ -30,6 +31,7 @@ from mcp_server.tools.aci import (
     create_physical_domain,
     create_tenant,
     create_vlan_pool,
+    create_vmm_domain,
     create_vrf,
 )
 
@@ -67,6 +69,10 @@ class _FakeNautobotClient:
     def create_leaf_interface_policy_group(self, **kwargs):
         self.calls.append(("create_leaf_interface_policy_group", kwargs))
         return {"location": kwargs["location"], "leaf_interface_policy_group": kwargs["name"], "leaf_interface_policy_groups": []}
+
+    def create_vmm_domain(self, **kwargs):
+        self.calls.append(("create_vmm_domain", kwargs))
+        return {"location": kwargs["location"], "vmm_domain": kwargs["name"], "vmm_domains": []}
 
 
 def test_create_tenant_passes_name_through_unprefixed():
@@ -190,3 +196,35 @@ def test_create_leaf_interface_policy_group_passes_aep_through():
         ("create_leaf_interface_policy_group", {"location": "ACI-Lab", "name": "leaf-pg1", "aep": "aep1"})
     ]
     assert result["leaf_interface_policy_group"]["leaf_interface_policy_group"] == "leaf-pg1"
+
+
+def test_create_vmm_domain_passes_fields_through():
+    fake = _FakeNautobotClient()
+    request = CreateVmmDomainRequest(
+        name="vmm1",
+        controller_name="vc1",
+        host_or_ip="vcenter.example.com",
+        root_cont_name="Datacenter1",
+        vlan_pool="pool1",
+        credential_name="vc1-cred",
+    )
+
+    result = create_vmm_domain(request, nautobot=fake)
+
+    assert fake.calls == [
+        (
+            "create_vmm_domain",
+            {
+                "location": "ACI-Lab",
+                "name": "vmm1",
+                "controller_name": "vc1",
+                "host_or_ip": "vcenter.example.com",
+                "root_cont_name": "Datacenter1",
+                "vendor": "VMware",
+                "vlan_pool": "pool1",
+                "credential_name": "vc1-cred",
+                "dvs_version": "unmanaged",
+            },
+        )
+    ]
+    assert result["vmm_domain"]["vmm_domain"] == "vmm1"

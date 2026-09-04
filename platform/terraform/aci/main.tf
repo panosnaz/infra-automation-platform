@@ -213,6 +213,22 @@ locals {
     g.name => g
   }
 
+  # ADR-020 Phase D -- VMM Domain integration (VMware only for this MVP).
+  # Fabric-wide, same aci_fabric_policies JSON Custom Field on Location as
+  # VLAN Pools/Physical Domains/AEPs above (see main.tf's aci_vmm_domain
+  # resources below). Controller and Credential are flattened out of each
+  # VMM Domain entry into their own maps, same for_each-flat-map convention
+  # used throughout this file.
+  vmm_domains = {
+    for d in lookup(lookup(local.nac.apic, "fabric_policies", {}), "vmm_domains", []) :
+    d.name => d
+  }
+  vmm_controllers = {
+    for name, d in local.vmm_domains :
+    name => merge(d.controller, { vmm_domain_name = name })
+    if lookup(d, "controller", null) != null
+  }
+
   # ADR-020 Phase C -- POD-wide NTP/DNS/SNMP. Scoped to ACI's real singleton
   # default POD policies only (this lab has one POD) -- see main.tf's
   # aci_rest_managed resources below for the confirmed-live DNs/attributes.
@@ -545,6 +561,67 @@ resource "aci_leaf_access_port_policy_group" "this" {
   relation_infra_rs_att_ent_p = (
     lookup(each.value, "aep", null) != null
     ? aci_attachable_access_entity_profile.this[each.value.aep].id
+    : null
+  )
+}
+
+# ---------------------------------------------------------------------------
+# VMM Domain integration (ADR-020 Phase D, VMware-only MVP)
+#
+# Real CiscoDevNet/aci 2.20.0 resource/attribute names confirmed via the
+# Terraform Registry provider docs (not assumed): `aci_vmm_domain`'s
+# `parent_dn` is the fixed provider DN `uni/vmmp-VMware` (vmmProvP is a
+# built-in ACI object per vendor, not something Terraform creates);
+# `aci_vmm_controller`'s `host_or_ip`/`root_cont_name` (vCenter's Datacenter
+# name) are required and create-only; `aci_vmm_credential` stores the
+# username directly but excludes `password` from its own state tracking
+# (the provider documents this attribute as write-only/untracked). The
+# actual vCenter username/password are supplied via the sensitive
+# `vmm_vcenter_username`/`vmm_vcenter_password` Terraform variables (see
+# variables.tf) -- never through the generated YAML or a Nautobot Custom
+# Field, same pattern as this module's own `aci_username`/`aci_password`
+# provider credentials.
+# ---------------------------------------------------------------------------
+resource "aci_vmm_domain" "this" {
+  for_each = local.vmm_domains
+
+  parent_dn = "uni/vmmp-${lookup(each.value, "vendor", "VMware")}"
+  name      = each.value.name
+
+  # Relation to a VLAN Pool DN -- referencing the pool's own .id (rather
+  # than the raw YAML string) creates the implicit dependency edge, same
+  # pattern as aci_physical_domain.relation_infra_rs_vlan_ns above.
+  relation_to_vlan_pool = (
+    lookup(each.value, "vlan_pool", null) != null
+    ? { target_dn = aci_vlan_pool.this[each.value.vlan_pool].id }
+    : null
+  )
+}
+
+resource "aci_vmm_credential" "this" {
+  for_each = { for name, d in local.vmm_domains : name => d if lookup(d, "credential", null) != null }
+
+  parent_dn = aci_vmm_domain.this[each.key].id
+  name      = each.value.credential.name
+  username  = var.vmm_vcenter_username
+  password  = var.vmm_vcenter_password
+}
+
+resource "aci_vmm_controller" "this" {
+  for_each = local.vmm_controllers
+
+  vmm_domain_dn  = aci_vmm_domain.this[each.value.vmm_domain_name].id
+  name           = each.value.name
+  host_or_ip     = each.value.host_or_ip
+  root_cont_name = each.value.root_cont_name
+  dvs_version    = lookup(each.value, "dvs_version", "unmanaged")
+
+  # Only set the credential relation when this VMM Domain has one -- avoids
+  # a broken reference for a domain that (unusually) has a controller but no
+  # credential entry.
+  relation_vmm_rs_acc = (
+    contains(keys(aci_vmm_credential.this), each.value.vmm_domain_name)
+    ? aci_vmm_credential.this[each.value.vmm_domain_name].id
     : null
   )
 }

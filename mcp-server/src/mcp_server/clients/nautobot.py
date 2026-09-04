@@ -444,6 +444,57 @@ class NautobotClient:
             raise NautobotError(f"Nautobot unreachable or auth failed: {exc}") from exc
         return {"location": location, "leaf_interface_policy_group": name, "leaf_interface_policy_groups": groups}
 
+    def create_vmm_domain(
+        self,
+        location: str,
+        name: str,
+        controller_name: str,
+        host_or_ip: str,
+        root_cont_name: str,
+        vendor: str = "VMware",
+        vlan_pool: str | None = None,
+        credential_name: str | None = None,
+        dvs_version: str = "unmanaged",
+    ) -> dict:
+        """Create a VMM Domain with its Controller (ADR-020 Phase D
+        coverage), optionally bound to an existing VLAN Pool. The
+        Controller's actual vCenter username/password are deliberately NOT
+        accepted here -- they are supplied at `terraform apply` time via
+        sensitive Terraform variables (`vmm_vcenter_username`/
+        `vmm_vcenter_password`), never persisted in this Custom Field,
+        matching the APIC's own `aci_username`/`aci_password` handling.
+        `credential_name` only reserves the ACI Credential object's own
+        name (e.g. for GUI display); it is not a secret."""
+        try:
+            location_obj = self._get_location_or_raise(location)
+            existing = dict(location_obj.custom_fields or {}).get("aci_fabric_policies") or {}
+            vmm_domains = list(existing.get("vmm_domains") or [])
+
+            entry: dict = {
+                "name": name,
+                "vendor": vendor,
+                "controller": {
+                    "name": controller_name,
+                    "host_or_ip": host_or_ip,
+                    "root_cont_name": root_cont_name,
+                    "dvs_version": dvs_version,
+                },
+            }
+            if vlan_pool:
+                entry["vlan_pool"] = vlan_pool
+            if credential_name:
+                entry["credential"] = {"name": credential_name}
+            vmm_domains.append(entry)
+
+            location_obj.update({"custom_fields": {"aci_fabric_policies": {**existing, "vmm_domains": vmm_domains}}})
+        except pynautobot.RequestError as exc:
+            raise NautobotError(f"Nautobot rejected VMM Domain '{name}': {exc}") from exc
+        except NautobotError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise NautobotError(f"Nautobot unreachable or auth failed: {exc}") from exc
+        return {"location": location, "vmm_domain": name, "vmm_domains": vmm_domains}
+
     def get_tenant_status(self, name: str) -> dict | None:
         """Read back the custom_fields write_results.py (Milestone 4) writes
         after a pipeline run -- validation_status/last_pipeline_id/etc.
