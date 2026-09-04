@@ -261,6 +261,14 @@ locals {
     g.name => g
   }
 
+  # ADR-020 Phase G -- Fault Lifecycle Policy / Syslog System Message Policy
+  # / Syslog Rate Limit Policy are mandatory fabric-wide singletons under
+  # uni/fabric/moncommon (the fabric's Common Monitoring Policy, distinct
+  # from monfab-default above), same semantics as ntp/dns/snmp/coop/isis.
+  fault_lifecycle_policy = lookup(local.fabric_pod_policies, "fault_lifecycle", {})
+  syslog_system_msg      = lookup(local.fabric_pod_policies, "syslog_system_msg", {})
+  syslog_rate_limit      = lookup(local.fabric_pod_policies, "syslog_rate_limit", {})
+
   # ADR-020 Phase F -- RBAC/Security Domains/Local Users. A separate top-
   # level apic.aaa_policies key, not nested under fabric_policies -- see
   # transformer.py's _build_aaa_policies() for why. Both objects are purely
@@ -850,6 +858,65 @@ resource "aci_rest_managed" "pod_policy_group" {
   class_name = "fabricPodPGrp"
   content = {
     name = each.value.name
+  }
+}
+
+# ---------------------------------------------------------------------------
+# ADR-020 Phase G -- Fault Lifecycle Policy / Syslog System Message Policy /
+# Syslog Rate Limit Policy. All three are mandatory fabric-wide singletons
+# under uni/fabric/moncommon, confirmed via direct APIC query (not guessed)
+# -- no typed Terraform resource exists for any of them, so aci_rest_managed
+# is used, same as Phase C's ntp/dns/snmp. content_on_destroy is set to this
+# lab's confirmed original baseline values -- never remove it, same warning
+# as Phase C's resources below.
+resource "aci_rest_managed" "fault_lifecycle_policy" {
+  count = length(local.fault_lifecycle_policy) > 0 ? 1 : 0
+
+  dn         = "uni/fabric/moncommon/flcp-generic"
+  class_name = "faultLcP"
+  content = {
+    soak   = tostring(lookup(local.fault_lifecycle_policy, "soak", 120))
+    retain = tostring(lookup(local.fault_lifecycle_policy, "retain", 3600))
+    clear  = tostring(lookup(local.fault_lifecycle_policy, "clear", 120))
+  }
+  # Resets to this lab's confirmed original defaults on destroy/removal --
+  # never deletes the mandatory singleton object itself.
+  content_on_destroy = {
+    soak   = "120"
+    retain = "3600"
+    clear  = "120"
+  }
+}
+
+resource "aci_rest_managed" "syslog_system_msg" {
+  count = length(local.syslog_system_msg) > 0 ? 1 : 0
+
+  dn         = "uni/fabric/moncommon/sysmsgp"
+  class_name = "syslogSystemMsgP"
+  content = {
+    systemSyslogMsgHdl = lookup(local.syslog_system_msg, "admin_state", "monitor")
+  }
+  # Resets to this lab's confirmed original default on destroy/removal --
+  # never deletes the mandatory singleton object itself.
+  content_on_destroy = {
+    systemSyslogMsgHdl = "monitor"
+  }
+}
+
+resource "aci_rest_managed" "syslog_rate_limit" {
+  count = length(local.syslog_rate_limit) > 0 ? 1 : 0
+
+  dn         = "uni/fabric/moncommon/ratelimitp"
+  class_name = "syslogRateLimitP"
+  content = {
+    enabled     = lookup(local.syslog_rate_limit, "enabled", true) ? "yes" : "no"
+    limitPerSec = tostring(lookup(local.syslog_rate_limit, "limit_per_sec", 500))
+  }
+  # Resets to this lab's confirmed original defaults on destroy/removal --
+  # never deletes the mandatory singleton object itself.
+  content_on_destroy = {
+    enabled     = "yes"
+    limitPerSec = "500"
   }
 }
 

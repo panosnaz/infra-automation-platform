@@ -371,6 +371,14 @@ def _build_fabric_and_access_policies(
     `aeps`/etc.): named Pod Policy Groups are purely additive objects with
     no default instance, so no destroy-safety concern applies to them the
     way it does to the singleton keys.
+
+    Phase G's `fault_lifecycle`/`syslog_system_msg`/`syslog_rate_limit`
+    keys are singletons too, targeting real mandatory default objects
+    confirmed via direct APIC queries under `uni/fabric/moncommon` (the
+    fabric's Common Monitoring Policy, distinct from Phase C/E's
+    `monfab-default`): Fault Lifecycle Policy at `moncommon/flcp-generic`,
+    Syslog System Message Policy at `moncommon/sysmsgp`, Syslog Rate Limit
+    Policy at `moncommon/ratelimitp`.
     """
     vlan_pools: list[dict[str, Any]] = []
     physical_domains: list[dict[str, Any]] = []
@@ -383,6 +391,9 @@ def _build_fabric_and_access_policies(
     snmp: dict[str, Any] = {}
     coop: dict[str, Any] = {}
     isis: dict[str, Any] = {}
+    fault_lifecycle: dict[str, Any] = {}
+    syslog_system_msg: dict[str, Any] = {}
+    syslog_rate_limit: dict[str, Any] = {}
 
     for location in locations:
         cf = location.get("_custom_field_data") or {}
@@ -407,6 +418,12 @@ def _build_fabric_and_access_policies(
             coop = data["coop"]
         if data.get("isis"):
             isis = data["isis"]
+        if data.get("fault_lifecycle"):
+            fault_lifecycle = data["fault_lifecycle"]
+        if data.get("syslog_system_msg"):
+            syslog_system_msg = data["syslog_system_msg"]
+        if data.get("syslog_rate_limit"):
+            syslog_rate_limit = data["syslog_rate_limit"]
 
     fabric_policies: dict[str, Any] = {}
     if vlan_pools:
@@ -425,6 +442,12 @@ def _build_fabric_and_access_policies(
         fabric_policies["isis"] = isis
     if pod_policy_groups:
         fabric_policies["pod_policy_groups"] = pod_policy_groups
+    if fault_lifecycle:
+        fabric_policies["fault_lifecycle"] = fault_lifecycle
+    if syslog_system_msg:
+        fabric_policies["syslog_system_msg"] = syslog_system_msg
+    if syslog_rate_limit:
+        fabric_policies["syslog_rate_limit"] = syslog_rate_limit
 
     access_policies: dict[str, Any] = {}
     if physical_domains:

@@ -694,6 +694,46 @@ def test_pod_policy_groups_absent_when_unset():
     assert "pod_policy_groups" not in result["apic"]["fabric_policies"]
 
 
+def test_fault_and_syslog_policies_emitted_from_location_custom_field():
+    locations = [
+        _location(
+            "ACI-Lab",
+            aci_fabric_policies={
+                "fault_lifecycle": {"soak": 120, "retain": 3600, "clear": 120},
+                "syslog_system_msg": {"admin_state": "monitor"},
+                "syslog_rate_limit": {"enabled": True, "limit_per_sec": 500},
+            },
+        )
+    ]
+
+    result = build_netascode_yaml([], prefixes=[], locations=locations)
+
+    assert result["apic"]["fabric_policies"]["fault_lifecycle"] == {"soak": 120, "retain": 3600, "clear": 120}
+    assert result["apic"]["fabric_policies"]["syslog_system_msg"] == {"admin_state": "monitor"}
+    assert result["apic"]["fabric_policies"]["syslog_rate_limit"] == {"enabled": True, "limit_per_sec": 500}
+
+
+def test_fault_and_syslog_policies_absent_when_unset():
+    locations = [_location("ACI-Lab", aci_fabric_policies={"vlan_pools": [{"name": "pool1", "alloc_mode": "static"}]})]
+
+    result = build_netascode_yaml([], prefixes=[], locations=locations)
+
+    assert "fault_lifecycle" not in result["apic"]["fabric_policies"]
+    assert "syslog_system_msg" not in result["apic"]["fabric_policies"]
+    assert "syslog_rate_limit" not in result["apic"]["fabric_policies"]
+
+
+def test_fault_and_syslog_policies_singleton_last_location_wins():
+    locations = [
+        _location("site-a", aci_fabric_policies={"syslog_rate_limit": {"enabled": True, "limit_per_sec": 500}}),
+        _location("site-b", aci_fabric_policies={"syslog_rate_limit": {"enabled": False, "limit_per_sec": 100}}),
+    ]
+
+    result = build_netascode_yaml([], prefixes=[], locations=locations)
+
+    assert result["apic"]["fabric_policies"]["syslog_rate_limit"] == {"enabled": False, "limit_per_sec": 100}
+
+
 def _location_aaa(name: str, aci_aaa_policies: dict | None = None) -> dict:
     return {
         "name": name,
