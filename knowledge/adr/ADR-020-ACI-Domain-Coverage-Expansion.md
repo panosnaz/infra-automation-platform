@@ -217,6 +217,16 @@ Revisited "VMM Domain integration — Not started" from `Platform-Status-and-Pen
   7. Cleared the ACI-Lab Location's `aci_fabric_policies` Custom Field back to `null`, matching the pre-test baseline.
 * **No simulator/hardware limitation, unlike Phase B/Phase A item 4** — VMM Domain, Controller, and Credential are all logical ACI-side objects; they don't require any physical leaf/spine port data to create. The only thing this MVP doesn't cover is binding an EPG to the VMM Domain (`relation_vmm_rs_mgmt_e_pg`-style EPG↔domain association) — deferred, same as Phase A item 2's original `static_ports`/domain-binding scope, since it needs its own short design note on how an EPG selects which of possibly-several VMM Domains it deploys to.
 
+### Follow-on design note — EPG-to-Domain Binding (not yet implemented)
+
+Scoped ahead of implementation, per this ADR's own convention (see "Negative/risk" above) — confirmed against the real installed provider schema, not assumed:
+
+* **Real resource/attribute (confirmed via `terraform providers schema -json`):** `aci_application_epg.relation_to_domains` is a single, generic relation (Terraform Set of nested objects) that binds an EPG to **any** domain kind — Physical, VMM, L2 External, or L3 External — via one attribute, not a separate relation per domain type. Each set member's key field is `target_dn` (required in practice, though the schema itself marks the whole attribute optional+computed); the VMM-specific fields that actually matter for a real deployment are `resolution_immediacy` (`"immediate"`/`"lazy"`/`"pre-provision"`) and `deployment_immediacy` (`"immediate"`/`"lazy"`) — both currently unset/undesigned anywhere in this codebase.
+* **Nautobot data model question:** EPGs are already modeled as `ipam.vlan` objects with two scalar Custom Fields (`aci_application_profile`, `aci_epg_bridge_domain`) and one JSON Custom Field (`aci_epg_contracts`, added in Phase A item 3). Proposed: add a third JSON Custom Field, `aci_epg_domains`, on the same VLAN object: `{"domains": [{"name": "<domain_name>", "domain_type": "physical"|"vmm", "resolution_immediacy": "...", "deployment_immediacy": "..."}]}`. The `domain_type` field is required in the schema (not inferred) because a physical Domain and a VMM Domain could share the same `name` in principle — Terraform's `relation_to_domains.target_dn` needs the *correct* domain's DN, so the generator must know which `aci_physical_domain`/`aci_vmm_domain` resource map to resolve against, not guess by name collision.
+* **Terraform side:** extend `aci_application_epg.this` with `relation_to_domains`, built from a per-EPG flat map that resolves `target_dn` via a merged local (`merge(aci_physical_domain.this, aci_vmm_domain.this)`-style lookup keyed by `"${domain_type}/${name}"` to avoid the collision risk above).
+* **Scope boundary:** this only covers the domain *relation itself* (which domain(s) an EPG deploys into, and with what immediacy settings) — it does not cover per-EPG VMM-specific deployment details beyond `resolution_immediacy`/`deployment_immediacy` (e.g. custom port-group naming, static bindings), which would be a further increment if a real need arises.
+* **Not yet implemented** — this section exists so whoever picks this up next doesn't have to re-derive the schema/resource research above.
+
 ---
 
 # Consequences
