@@ -5,12 +5,14 @@ the same way once each item's generator/Terraform support landed. Also
 covers create_vlan_pool, create_physical_domain, create_aep, and
 create_leaf_interface_policy_group -- ADR-020 Phase B's fabric-wide Access/
 Fabric Policy objects, following the same pattern. Also covers
-create_vmm_domain -- ADR-020 Phase D's VMM Domain integration.
+create_vmm_domain -- ADR-020 Phase D's VMM Domain integration -- and
+bind_epg_domain -- ADR-020 Phase D's follow-on EPG-to-Domain binding.
 """
 from __future__ import annotations
 
 from mcp_server.clients.nautobot import NautobotClient
 from mcp_server.schemas.aci import (
+    BindEpgDomainRequest,
     CreateAepRequest,
     CreateBridgeDomainRequest,
     CreateContractRequest,
@@ -120,6 +122,34 @@ def create_epg(request: CreateEpgRequest, *, nautobot: NautobotClient) -> dict:
     return {
         "epg": vlan,
         "note": f"EPG '{request.name}' (Application Profile '{request.application_profile}') written to Nautobot under tenant '{request.tenant}'. Use show_status(name='{request.tenant}') to check the next pipeline run.",
+    }
+
+
+@registry.register(
+    name="bind_epg_domain",
+    domain="cisco_aci",
+    description=(
+        "Bind an existing EPG to a Physical or VMM Domain (ADR-020 Phase D "
+        "follow-on) by writing to the aci_epg_domains Custom Field on the "
+        "EPG's own VLAN object. Re-binding the same domain updates its "
+        "resolution/deployment immediacy in place rather than duplicating "
+        "the entry. Use show_status(name=<tenant>) afterward."
+    ),
+    schema=BindEpgDomainRequest,
+)
+def bind_epg_domain(request: BindEpgDomainRequest, *, nautobot: NautobotClient) -> dict:
+    result = nautobot.bind_epg_domain(
+        tenant=request.tenant,
+        application_profile=request.application_profile,
+        epg=request.epg,
+        domain=request.domain,
+        domain_type=request.domain_type,
+        resolution_immediacy=request.resolution_immediacy,
+        deployment_immediacy=request.deployment_immediacy,
+    )
+    return {
+        "binding": result,
+        "note": f"EPG '{request.epg}' bound to {request.domain_type} domain '{request.domain}' under tenant '{request.tenant}'. Use show_status(name='{request.tenant}') to check the next pipeline run.",
     }
 
 

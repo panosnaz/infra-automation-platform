@@ -263,6 +263,18 @@ def _build_application_profiles(vlans: list[dict[str, Any]]) -> list[dict[str, A
         if consumed := epg_contracts.get("consumed"):
             epg["consumed_contracts"] = list(consumed)
 
+        # ADR-020 Phase D follow-on: EPG-to-Domain binding (Physical or
+        # VMM), stored as a JSON Custom Field on the same VLAN. Each entry
+        # must carry an explicit domain_type -- a Physical Domain and a VMM
+        # Domain could share the same name, and Terraform needs to resolve
+        # against the correct resource map (aci_physical_domain vs.
+        # aci_vmm_domain), not guess by name collision. No local validation
+        # of resolution_immediacy/deployment_immediacy value strings, same
+        # pass-through convention as this function's other fields.
+        epg_domains = cf.get("aci_epg_domains") or {}
+        if domains := epg_domains.get("domains"):
+            epg["domains"] = list(domains)
+
         aps[ap_name].append(epg)
 
     return [

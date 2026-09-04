@@ -412,6 +412,40 @@ def test_epg_provided_and_consumed_contracts_emitted_only_when_set():
     assert "consumed_contracts" not in epgs["no-contracts-epg"]
 
 
+def test_epg_domains_emitted_only_when_set():
+    tenants = [_tenant("ACI:acme", vrfs=[{"name": "acme-vrf"}])]
+    vlans = [
+        _vlan(
+            "web-epg",
+            "ACI:acme",
+            custom_fields={
+                "aci_application_profile": "web-ap",
+                "aci_epg_bridge_domain": "web-bd",
+                "aci_epg_domains": {
+                    "domains": [
+                        {"name": "phys-dom", "domain_type": "physical"},
+                        {"name": "vmm-dom", "domain_type": "vmm", "resolution_immediacy": "immediate"},
+                    ]
+                },
+            },
+        ),
+        _vlan(
+            "no-domains-epg",
+            "ACI:acme",
+            custom_fields={"aci_application_profile": "web-ap", "aci_epg_bridge_domain": "other-bd"},
+        ),
+    ]
+
+    result = build_netascode_yaml(tenants, prefixes=[], vlans=vlans)
+
+    epgs = {e["name"]: e for e in result["apic"]["tenants"][0]["application_profiles"][0]["endpoint_groups"]}
+    assert epgs["web-epg"]["domains"] == [
+        {"name": "phys-dom", "domain_type": "physical"},
+        {"name": "vmm-dom", "domain_type": "vmm", "resolution_immediacy": "immediate"},
+    ]
+    assert "domains" not in epgs["no-domains-epg"]
+
+
 def test_baseline_output_has_no_l3outs_when_custom_field_unset():
     """Regression guard: tenants without the aci_l3outs custom field must
     not get an l3outs key."""

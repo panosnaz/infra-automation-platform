@@ -5,6 +5,7 @@ import pytest
 from pydantic import ValidationError
 
 from mcp_server.schemas.aci import (
+    BindEpgDomainRequest,
     CreateAepRequest,
     CreateBridgeDomainRequest,
     CreateContractRequest,
@@ -171,4 +172,34 @@ def test_invalid_vmm_domain_name_rejected(bad_name):
     with pytest.raises(ValidationError):
         CreateVmmDomainRequest(
             name=bad_name, controller_name="vc1", host_or_ip="vcenter.example.com", root_cont_name="Datacenter1"
+        )
+
+
+def test_valid_bind_epg_domain_request_defaults():
+    req = BindEpgDomainRequest(
+        tenant="finance", application_profile="finance-ap", epg="finance-epg", domain="phys-dom1", domain_type="physical"
+    )
+    assert req.resolution_immediacy is None
+    assert req.deployment_immediacy is None
+
+
+def test_bind_epg_domain_request_with_immediacy():
+    req = BindEpgDomainRequest(
+        tenant="finance",
+        application_profile="finance-ap",
+        epg="finance-epg",
+        domain="vmm-dom1",
+        domain_type="vmm",
+        resolution_immediacy="immediate",
+        deployment_immediacy="lazy",
+    )
+    assert req.resolution_immediacy == "immediate"
+    assert req.deployment_immediacy == "lazy"
+
+
+@pytest.mark.parametrize("bad_type", ["Physical", "VMM", "physical-domain", ""])
+def test_invalid_bind_epg_domain_type_rejected(bad_type):
+    with pytest.raises(ValidationError):
+        BindEpgDomainRequest(
+            tenant="finance", application_profile="finance-ap", epg="finance-epg", domain="dom1", domain_type=bad_type
         )

@@ -361,6 +361,30 @@ resource "aci_application_epg" "this" {
   # Boolean-in-Nautobot -> ACI enum string, same try(...) pattern as the
   # Bridge Domain boolean attributes above. ACI's own default is "exclude".
   preferred_group_member = try(each.value.preferred_group_member ? "include" : "exclude", null)
+
+  # ADR-020 Phase D follow-on -- EPG-to-Domain binding (Physical or VMM).
+  # relation_to_domains is the real provider attribute (confirmed via
+  # `terraform providers schema -json`): a single Set-of-objects relation
+  # that binds an EPG to Physical, VMM, L2 External, or L3 External domains
+  # alike, keyed by target_dn. Each Nautobot-side entry carries an explicit
+  # domain_type since a Physical Domain and a VMM Domain could share the
+  # same name -- resolving against the wrong resource map would silently
+  # bind the EPG to an unrelated domain. Left null (unmanaged) when no
+  # domains are set, same convention as every other optional relation in
+  # this file.
+  relation_to_domains = length(lookup(each.value, "domains", [])) > 0 ? [
+    for d in each.value.domains : merge(
+      {
+        target_dn = (
+          d.domain_type == "physical"
+          ? aci_physical_domain.this[d.name].id
+          : aci_vmm_domain.this[d.name].id
+        )
+      },
+      lookup(d, "resolution_immediacy", null) != null ? { resolution_immediacy = d.resolution_immediacy } : {},
+      lookup(d, "deployment_immediacy", null) != null ? { deployment_immediacy = d.deployment_immediacy } : {},
+    )
+  ] : null
 }
 
 # ---------------------------------------------------------------------------

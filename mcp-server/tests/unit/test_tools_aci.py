@@ -15,6 +15,7 @@ free next time, not only by re-running live verification.
 from __future__ import annotations
 
 from mcp_server.schemas.aci import (
+    BindEpgDomainRequest,
     CreateAepRequest,
     CreateBridgeDomainRequest,
     CreateLeafInterfacePolicyGroupRequest,
@@ -25,6 +26,7 @@ from mcp_server.schemas.aci import (
     CreateVrfRequest,
 )
 from mcp_server.tools.aci import (
+    bind_epg_domain,
     create_aep,
     create_bridge_domain,
     create_leaf_interface_policy_group,
@@ -73,6 +75,15 @@ class _FakeNautobotClient:
     def create_vmm_domain(self, **kwargs):
         self.calls.append(("create_vmm_domain", kwargs))
         return {"location": kwargs["location"], "vmm_domain": kwargs["name"], "vmm_domains": []}
+
+    def bind_epg_domain(self, **kwargs):
+        self.calls.append(("bind_epg_domain", kwargs))
+        return {
+            "tenant": kwargs["tenant"],
+            "application_profile": kwargs["application_profile"],
+            "epg": kwargs["epg"],
+            "domains": [],
+        }
 
 
 def test_create_tenant_passes_name_through_unprefixed():
@@ -228,3 +239,34 @@ def test_create_vmm_domain_passes_fields_through():
         )
     ]
     assert result["vmm_domain"]["vmm_domain"] == "vmm1"
+
+
+def test_bind_epg_domain_passes_fields_through():
+    fake = _FakeNautobotClient()
+    request = BindEpgDomainRequest(
+        tenant="ACI:acme",
+        application_profile="acme-ap",
+        epg="acme-epg",
+        domain="vmm-dom1",
+        domain_type="vmm",
+        resolution_immediacy="immediate",
+    )
+
+    result = bind_epg_domain(request, nautobot=fake)
+
+    assert fake.calls == [
+        (
+            "bind_epg_domain",
+            {
+                "tenant": "ACI:acme",
+                "application_profile": "acme-ap",
+                "epg": "acme-epg",
+                "domain": "vmm-dom1",
+                "domain_type": "vmm",
+                "resolution_immediacy": "immediate",
+                "deployment_immediacy": None,
+            },
+        )
+    ]
+    assert result["binding"]["epg"] == "acme-epg"
+    assert "vmm domain 'vmm-dom1'" in result["note"]

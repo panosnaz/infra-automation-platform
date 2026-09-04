@@ -94,6 +94,31 @@ class CreateEpgRequest(BaseModel):
         return _validate_aci_name(v)
 
 
+class BindEpgDomainRequest(BaseModel):
+    """ADR-020 Phase D follow-on coverage. Binds an existing EPG to a
+    Physical or VMM Domain -- appends/updates one entry in the `domains`
+    list of the EPG's own `aci_epg_domains` Custom Field (see
+    transformer.py's `_build_application_profiles()`). domain_type must be
+    "physical" or "vmm" so Terraform can resolve target_dn against the
+    correct resource map (aci_physical_domain vs. aci_vmm_domain) -- a
+    Physical Domain and a VMM Domain could share the same name."""
+
+    tenant: str = Field(description="Name of the existing Tenant the EPG belongs to.")
+    application_profile: str = Field(description="Application Profile name the EPG belongs to.")
+    epg: str = Field(description="Name of the existing EPG to bind.")
+    domain: str = Field(description="Name of the existing Physical or VMM Domain to bind to.")
+    domain_type: str = Field(description="Either 'physical' or 'vmm'.")
+    resolution_immediacy: str | None = Field(default=None, description="Optional: 'immediate' or 'lazy' (ACI default applies if omitted).")
+    deployment_immediacy: str | None = Field(default=None, description="Optional: 'immediate' or 'lazy' (ACI default applies if omitted).")
+
+    @field_validator("domain_type")
+    @classmethod
+    def _validate_domain_type(cls, v: str) -> str:
+        if v not in ("physical", "vmm"):
+            raise ValueError("domain_type must be 'physical' or 'vmm'")
+        return v
+
+
 class CreateContractRequest(BaseModel):
     """ADR-020 Phase A item 3 coverage. Contracts/Filters are modeled as a
     single structured JSON Custom Field on Tenant (`aci_contracts`) -- this

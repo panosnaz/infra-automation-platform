@@ -220,6 +220,52 @@ class NautobotClient:
             raise NautobotError(f"Nautobot unreachable or auth failed: {exc}") from exc
         return dict(vlan)
 
+    def bind_epg_domain(
+        self,
+        tenant: str,
+        application_profile: str,
+        epg: str,
+        domain: str,
+        domain_type: str,
+        resolution_immediacy: str | None = None,
+        deployment_immediacy: str | None = None,
+    ) -> dict:
+        """Bind an existing EPG to a Physical or VMM Domain (ADR-020 Phase D
+        follow-on coverage) -- appends/replaces one entry in the `domains`
+        list of the EPG's own `aci_epg_domains` Custom Field (the EPG is
+        modeled as a Nautobot VLAN, same as `create_epg`). Merge-not-replace,
+        same convention as `create_aep`'s domains list: re-binding the same
+        (domain, domain_type) pair updates immediacy settings in place
+        instead of appending a duplicate."""
+        try:
+            tenant_obj = self._get_tenant_or_raise(tenant)
+            vlan = self.api.ipam.vlans.get(
+                name=epg, tenant_id=tenant_obj.id, cf_aci_application_profile=application_profile
+            )
+            if vlan is None:
+                raise NautobotError(f"EPG '{epg}' not found in tenant '{tenant}' / application profile '{application_profile}'")
+
+            existing = dict(vlan.custom_fields or {}).get("aci_epg_domains") or {}
+            domains = list(existing.get("domains") or [])
+
+            entry = {"name": domain, "domain_type": domain_type}
+            if resolution_immediacy:
+                entry["resolution_immediacy"] = resolution_immediacy
+            if deployment_immediacy:
+                entry["deployment_immediacy"] = deployment_immediacy
+
+            domains = [d for d in domains if not (d.get("name") == domain and d.get("domain_type") == domain_type)]
+            domains.append(entry)
+
+            vlan.update({"custom_fields": {"aci_epg_domains": {**existing, "domains": domains}}})
+        except pynautobot.RequestError as exc:
+            raise NautobotError(f"Nautobot rejected domain binding for EPG '{epg}': {exc}") from exc
+        except NautobotError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise NautobotError(f"Nautobot unreachable or auth failed: {exc}") from exc
+        return {"tenant": tenant, "application_profile": application_profile, "epg": epg, "domains": domains}
+
     def create_contract(
         self,
         tenant: str,
