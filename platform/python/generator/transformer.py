@@ -121,6 +121,10 @@ def build_netascode_yaml(
     if access_policies:
         result["apic"]["access_policies"] = access_policies
 
+    aaa_policies = _build_aaa_policies(locations or [])
+    if aaa_policies:
+        result["apic"]["aaa_policies"] = aaa_policies
+
     return result
 
 
@@ -431,6 +435,46 @@ def _build_fabric_and_access_policies(
         access_policies["leaf_interface_policy_groups"] = leaf_interface_policy_groups
 
     return fabric_policies, access_policies
+
+
+def _build_aaa_policies(locations: list[dict[str, Any]]) -> dict[str, Any]:
+    """Build apic.aaa_policies from each Location's ``aci_aaa_policies`` JSON
+    Custom Field (ADR-020 Phase F -- RBAC/Security Domains/Local Users).
+
+    Deliberately a separate Custom Field from `aci_fabric_policies`, not a
+    new key within it: Security Domains/Local Users live under the APIC's
+    `uni/userext` subtree (platform administration/AAA), a genuinely
+    different part of the ACI MIT from `uni/fabric` (network/tenant
+    policy) -- keeping them in a separate field avoids conflating two
+    unrelated concerns in one ever-growing JSON blob.
+
+    Both `security_domains` and `local_users` are purely additive named
+    objects with no default/mandatory instance in a fresh fabric (unlike
+    Phase C/E's fabric-wide singletons), so -- same convention as
+    `vlan_pools`/`aeps`/Phase E's `pod_policy_groups` -- they are list-
+    shaped and aggregated across all Locations that have the field set.
+    Local User passwords are deliberately NOT part of this Custom Field or
+    the generated YAML -- same convention as Phase D's VMM Controller
+    credentials -- supplied at `terraform apply` time via a sensitive
+    `local_user_passwords` map variable, keyed by username, never
+    persisted in Nautobot or committed YAML.
+    """
+    security_domains: list[dict[str, Any]] = []
+    local_users: list[dict[str, Any]] = []
+
+    for location in locations:
+        cf = location.get("_custom_field_data") or {}
+        data = cf.get("aci_aaa_policies") or {}
+        security_domains.extend(data.get("security_domains") or [])
+        local_users.extend(data.get("local_users") or [])
+
+    aaa_policies: dict[str, Any] = {}
+    if security_domains:
+        aaa_policies["security_domains"] = security_domains
+    if local_users:
+        aaa_policies["local_users"] = local_users
+
+    return aaa_policies
 
 
 def _parse_bd_name(description: str) -> str | None:

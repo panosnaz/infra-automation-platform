@@ -41,6 +41,20 @@ variable "vmm_vcenter_password" {
   default     = null
 }
 
+# RBAC/Local Users (ADR-020 Phase F) -- Local User passwords, following the
+# exact same sensitive-Terraform-variable pattern as vmm_vcenter_username/
+# password above. Keyed by username (map, not a single value), since a
+# fabric can have multiple named Local Users each with their own password.
+# Never embedded in the generated NetAsCode YAML or a Nautobot Custom
+# Field -- supplied via TF_VAR_local_user_passwords (a JSON map) at apply
+# time.
+variable "local_user_passwords" {
+  description = "Map of Local User name -> password (ADR-020 Phase F). Never persisted in Nautobot/YAML."
+  type        = map(string)
+  sensitive   = true
+  default     = {}
+}
+
 variable "netascode_yaml_file" {
   description = "Path to the NetAsCode tenants YAML file produced by the generator."
   type        = string

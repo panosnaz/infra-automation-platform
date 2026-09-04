@@ -260,6 +260,34 @@ locals {
     for g in lookup(local.fabric_pod_policies, "pod_policy_groups", []) :
     g.name => g
   }
+
+  # ADR-020 Phase F -- RBAC/Security Domains/Local Users. A separate top-
+  # level apic.aaa_policies key, not nested under fabric_policies -- see
+  # transformer.py's _build_aaa_policies() for why. Both objects are purely
+  # additive named objects (no default/mandatory instance), same for_each-
+  # flat-map convention as vlan_pools/aeps/pod_policy_groups above.
+  aaa_policies     = lookup(local.nac.apic, "aaa_policies", {})
+  security_domains = { for d in lookup(local.aaa_policies, "security_domains", []) : d.name => d }
+  local_users      = { for u in lookup(local.aaa_policies, "local_users", []) : u.name => u }
+
+  # Flat map of every (user, security domain) binding: "user/domain" => {...}
+  user_security_domains = merge([
+    for u in lookup(local.aaa_policies, "local_users", []) : {
+      for d in lookup(u, "security_domains", []) :
+      "${u.name}/${d.name}" => { user_name = u.name, domain_name = d.name }
+    }
+  ]...)
+
+  # Flat map of every (user, security domain, role) binding:
+  # "user/domain/role" => {...}
+  user_security_domain_roles = merge([
+    for u in lookup(local.aaa_policies, "local_users", []) : merge([
+      for d in lookup(u, "security_domains", []) : {
+        for r in lookup(d, "roles", []) :
+        "${u.name}/${d.name}/${r.name}" => merge(r, { user_name = u.name, domain_name = d.name })
+      }
+    ]...)
+  ]...)
 }
 
 # ---------------------------------------------------------------------------
@@ -823,5 +851,58 @@ resource "aci_rest_managed" "pod_policy_group" {
   content = {
     name = each.value.name
   }
+}
+
+# ---------------------------------------------------------------------------
+# ADR-020 Phase F -- RBAC / Security Domains / Local Users. Confirmed real
+# DNs via direct APIC query (not guessed): Security Domain at
+# uni/userext/domain-<name>, Local User at uni/userext/user-<name>, User-
+# Security-Domain binding at uni/userext/user-<name>/userdomain-<domain>,
+# and Role binding at .../userdomain-<domain>/role-<role>. All four are
+# purely additive named objects -- no default/mandatory instance exists for
+# any custom-named object here (the 3 pre-existing Security Domains --
+# mgmt/all/common -- and 2 pre-existing Local Users -- admin/automation --
+# are all creator=SYSTEM or otherwise untouched by this module; only new,
+# explicitly-Nautobot-sourced names are ever managed). Real typed resources
+# exist for all four (aci_aaa_domain/aci_local_user/aci_user_security_domain/
+# aci_user_security_domain_role) -- no aci_rest_managed needed.
+resource "aci_aaa_domain" "this" {
+  for_each = local.security_domains
+
+  name        = each.value.name
+  description = lookup(each.value, "description", null)
+}
+
+resource "aci_local_user" "this" {
+  for_each = local.local_users
+
+  name           = each.value.name
+  email          = lookup(each.value, "email", null)
+  first_name     = lookup(each.value, "first_name", null)
+  last_name      = lookup(each.value, "last_name", null)
+  phone          = lookup(each.value, "phone", null)
+  account_status = lookup(each.value, "account_status", null)
+
+  # Password is never sourced from Nautobot/the generated YAML -- only from
+  # the sensitive local_user_passwords Terraform variable, same convention
+  # as vmm_vcenter_username/password. lookup(..., null) leaves it unmanaged
+  # (ACI itself requires a password only at real account creation time; an
+  # omitted value here means "no password change through this resource").
+  pwd = lookup(var.local_user_passwords, each.value.name, null)
+}
+
+resource "aci_user_security_domain" "this" {
+  for_each = local.user_security_domains
+
+  local_user_dn = aci_local_user.this[each.value.user_name].id
+  name          = each.value.domain_name
+}
+
+resource "aci_user_security_domain_role" "this" {
+  for_each = local.user_security_domain_roles
+
+  user_domain_dn = aci_user_security_domain.this["${each.value.user_name}/${each.value.domain_name}"].id
+  name           = each.value.name
+  priv_type      = lookup(each.value, "priv_type", null)
 }
 

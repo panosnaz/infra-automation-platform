@@ -6,7 +6,9 @@ covers create_vlan_pool, create_physical_domain, create_aep, and
 create_leaf_interface_policy_group -- ADR-020 Phase B's fabric-wide Access/
 Fabric Policy objects, following the same pattern. Also covers
 create_vmm_domain -- ADR-020 Phase D's VMM Domain integration -- and
-bind_epg_domain -- ADR-020 Phase D's follow-on EPG-to-Domain binding.
+bind_epg_domain -- ADR-020 Phase D's follow-on EPG-to-Domain binding. Also
+covers create_security_domain and create_local_user -- ADR-020 Phase F's
+RBAC/Security Domains/Local Users coverage.
 """
 from __future__ import annotations
 
@@ -19,7 +21,9 @@ from mcp_server.schemas.aci import (
     CreateEpgRequest,
     CreateL3OutRequest,
     CreateLeafInterfacePolicyGroupRequest,
+    CreateLocalUserRequest,
     CreatePhysicalDomainRequest,
+    CreateSecurityDomainRequest,
     CreateTenantRequest,
     CreateVlanPoolRequest,
     CreateVmmDomainRequest,
@@ -350,4 +354,55 @@ def create_vmm_domain(request: CreateVmmDomainRequest, *, nautobot: NautobotClie
     return {
         "vmm_domain": result,
         "note": f"VMM Domain '{request.name}' written to Location '{request.location}'. Use show_status(name=<any tenant>) to check the next pipeline run.",
+    }
+
+
+@registry.register(
+    name="create_security_domain",
+    domain="cisco_aci",
+    description=(
+        "Create a Security Domain (RBAC) by writing to the aci_aaa_policies "
+        "JSON Custom Field on the ACI Location object (ADR-020 Phase F). "
+        "Use show_status(name=<any tenant>) afterward."
+    ),
+    schema=CreateSecurityDomainRequest,
+)
+def create_security_domain(request: CreateSecurityDomainRequest, *, nautobot: NautobotClient) -> dict:
+    result = nautobot.create_security_domain(location=request.location, name=request.name, description=request.description)
+    return {
+        "security_domain": result,
+        "note": f"Security Domain '{request.name}' written to Location '{request.location}'. Use show_status(name=<any tenant>) to check the next pipeline run.",
+    }
+
+
+@registry.register(
+    name="create_local_user",
+    domain="cisco_aci",
+    description=(
+        "Create a Local User, optionally bound to one Security Domain + "
+        "Role, by writing to the aci_aaa_policies JSON Custom Field on the "
+        "ACI Location object (ADR-020 Phase F). The user's password is NOT "
+        "part of this tool's request -- it is supplied at terraform apply "
+        "time via the sensitive local_user_passwords Terraform variable, "
+        "never persisted in Nautobot or seen by this tool. Use "
+        "show_status(name=<any tenant>) afterward."
+    ),
+    schema=CreateLocalUserRequest,
+)
+def create_local_user(request: CreateLocalUserRequest, *, nautobot: NautobotClient) -> dict:
+    result = nautobot.create_local_user(
+        location=request.location,
+        name=request.name,
+        email=request.email,
+        first_name=request.first_name,
+        last_name=request.last_name,
+        phone=request.phone,
+        account_status=request.account_status,
+        security_domain=request.security_domain,
+        role=request.role,
+        priv_type=request.priv_type,
+    )
+    return {
+        "local_user": result,
+        "note": f"Local User '{request.name}' written to Location '{request.location}'. Set TF_VAR_local_user_passwords[\"{request.name}\"] before the next terraform apply. Use show_status(name=<any tenant>) to check the pipeline run.",
     }

@@ -19,7 +19,9 @@ from mcp_server.schemas.aci import (
     CreateAepRequest,
     CreateBridgeDomainRequest,
     CreateLeafInterfacePolicyGroupRequest,
+    CreateLocalUserRequest,
     CreatePhysicalDomainRequest,
+    CreateSecurityDomainRequest,
     CreateTenantRequest,
     CreateVlanPoolRequest,
     CreateVmmDomainRequest,
@@ -30,7 +32,9 @@ from mcp_server.tools.aci import (
     create_aep,
     create_bridge_domain,
     create_leaf_interface_policy_group,
+    create_local_user,
     create_physical_domain,
+    create_security_domain,
     create_tenant,
     create_vlan_pool,
     create_vmm_domain,
@@ -71,6 +75,14 @@ class _FakeNautobotClient:
     def create_leaf_interface_policy_group(self, **kwargs):
         self.calls.append(("create_leaf_interface_policy_group", kwargs))
         return {"location": kwargs["location"], "leaf_interface_policy_group": kwargs["name"], "leaf_interface_policy_groups": []}
+
+    def create_security_domain(self, **kwargs):
+        self.calls.append(("create_security_domain", kwargs))
+        return {"location": kwargs["location"], "security_domain": kwargs["name"], "security_domains": []}
+
+    def create_local_user(self, **kwargs):
+        self.calls.append(("create_local_user", kwargs))
+        return {"location": kwargs["location"], "local_user": kwargs["name"], "local_users": []}
 
     def create_vmm_domain(self, **kwargs):
         self.calls.append(("create_vmm_domain", kwargs))
@@ -270,3 +282,67 @@ def test_bind_epg_domain_passes_fields_through():
     ]
     assert result["binding"]["epg"] == "acme-epg"
     assert "vmm domain 'vmm-dom1'" in result["note"]
+
+
+def test_create_security_domain_passes_description_through():
+    fake = _FakeNautobotClient()
+    request = CreateSecurityDomainRequest(name="phase-f-domain", description="test")
+
+    result = create_security_domain(request, nautobot=fake)
+
+    assert fake.calls == [
+        ("create_security_domain", {"location": "ACI-Lab", "name": "phase-f-domain", "description": "test"})
+    ]
+    assert result["security_domain"]["security_domain"] == "phase-f-domain"
+
+
+def test_create_local_user_defaults_no_domain_binding():
+    fake = _FakeNautobotClient()
+    request = CreateLocalUserRequest(name="phase-f-user")
+
+    create_local_user(request, nautobot=fake)
+
+    assert fake.calls == [
+        (
+            "create_local_user",
+            {
+                "location": "ACI-Lab",
+                "name": "phase-f-user",
+                "email": "",
+                "first_name": "",
+                "last_name": "",
+                "phone": "",
+                "account_status": "active",
+                "security_domain": None,
+                "role": None,
+                "priv_type": None,
+            },
+        )
+    ]
+
+
+def test_create_local_user_passes_security_domain_and_role_through():
+    fake = _FakeNautobotClient()
+    request = CreateLocalUserRequest(name="phase-f-user", security_domain="phase-f-domain", role="read-all", priv_type="readPriv")
+
+    result = create_local_user(request, nautobot=fake)
+
+    assert fake.calls == [
+        (
+            "create_local_user",
+            {
+                "location": "ACI-Lab",
+                "name": "phase-f-user",
+                "email": "",
+                "first_name": "",
+                "last_name": "",
+                "phone": "",
+                "account_status": "active",
+                "security_domain": "phase-f-domain",
+                "role": "read-all",
+                "priv_type": "readPriv",
+            },
+        )
+    ]
+    assert result["local_user"]["local_user"] == "phase-f-user"
+    assert "local_user_passwords" in result["note"]

@@ -541,6 +541,80 @@ class NautobotClient:
             raise NautobotError(f"Nautobot unreachable or auth failed: {exc}") from exc
         return {"location": location, "vmm_domain": name, "vmm_domains": vmm_domains}
 
+    def create_security_domain(self, location: str, name: str, description: str = "") -> dict:
+        """Create a Security Domain (ADR-020 Phase F coverage) -- a purely
+        additive, fabric-wide named object in the aci_aaa_policies Custom
+        Field on Location, same pattern as create_physical_domain."""
+        try:
+            location_obj = self._get_location_or_raise(location)
+            existing = dict(location_obj.custom_fields or {}).get("aci_aaa_policies") or {}
+            domains = list(existing.get("security_domains") or [])
+
+            entry: dict = {"name": name}
+            if description:
+                entry["description"] = description
+            domains.append(entry)
+
+            location_obj.update({"custom_fields": {"aci_aaa_policies": {**existing, "security_domains": domains}}})
+        except pynautobot.RequestError as exc:
+            raise NautobotError(f"Nautobot rejected Security Domain '{name}': {exc}") from exc
+        except NautobotError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise NautobotError(f"Nautobot unreachable or auth failed: {exc}") from exc
+        return {"location": location, "security_domain": name, "security_domains": domains}
+
+    def create_local_user(
+        self,
+        location: str,
+        name: str,
+        email: str = "",
+        first_name: str = "",
+        last_name: str = "",
+        phone: str = "",
+        account_status: str = "active",
+        security_domain: str | None = None,
+        role: str | None = None,
+        priv_type: str | None = None,
+    ) -> dict:
+        """Create a Local User (ADR-020 Phase F coverage), optionally bound
+        to one Security Domain + Role. The password is deliberately NOT
+        accepted here -- it is supplied at `terraform apply` time via the
+        sensitive `local_user_passwords` Terraform variable, keyed by this
+        user's name, matching create_vmm_domain's credential handling."""
+        try:
+            location_obj = self._get_location_or_raise(location)
+            existing = dict(location_obj.custom_fields or {}).get("aci_aaa_policies") or {}
+            local_users = list(existing.get("local_users") or [])
+
+            entry: dict = {"name": name, "account_status": account_status}
+            if email:
+                entry["email"] = email
+            if first_name:
+                entry["first_name"] = first_name
+            if last_name:
+                entry["last_name"] = last_name
+            if phone:
+                entry["phone"] = phone
+            if security_domain:
+                domain_entry: dict = {"name": security_domain}
+                if role:
+                    role_entry: dict = {"name": role}
+                    if priv_type:
+                        role_entry["priv_type"] = priv_type
+                    domain_entry["roles"] = [role_entry]
+                entry["security_domains"] = [domain_entry]
+            local_users.append(entry)
+
+            location_obj.update({"custom_fields": {"aci_aaa_policies": {**existing, "local_users": local_users}}})
+        except pynautobot.RequestError as exc:
+            raise NautobotError(f"Nautobot rejected Local User '{name}': {exc}") from exc
+        except NautobotError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise NautobotError(f"Nautobot unreachable or auth failed: {exc}") from exc
+        return {"location": location, "local_user": name, "local_users": local_users}
+
     def get_tenant_status(self, name: str) -> dict | None:
         """Read back the custom_fields write_results.py (Milestone 4) writes
         after a pipeline run -- validation_status/last_pipeline_id/etc.

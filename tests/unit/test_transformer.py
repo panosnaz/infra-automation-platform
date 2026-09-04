@@ -692,3 +692,58 @@ def test_pod_policy_groups_absent_when_unset():
     result = build_netascode_yaml([], prefixes=[], locations=locations)
 
     assert "pod_policy_groups" not in result["apic"]["fabric_policies"]
+
+
+def _location_aaa(name: str, aci_aaa_policies: dict | None = None) -> dict:
+    return {
+        "name": name,
+        "_custom_field_data": {"aci_aaa_policies": aci_aaa_policies} if aci_aaa_policies is not None else {},
+    }
+
+
+def test_aaa_policies_emitted_from_location_custom_field():
+    locations = [
+        _location_aaa(
+            "ACI-Lab",
+            aci_aaa_policies={
+                "security_domains": [{"name": "phase-f-domain", "description": "test"}],
+                "local_users": [
+                    {
+                        "name": "phase-f-user",
+                        "email": "test@example.com",
+                        "security_domains": [{"name": "phase-f-domain", "roles": [{"name": "read-all", "priv_type": "readPriv"}]}],
+                    }
+                ],
+            },
+        )
+    ]
+
+    result = build_netascode_yaml([], prefixes=[], locations=locations)
+
+    assert result["apic"]["aaa_policies"]["security_domains"] == [{"name": "phase-f-domain", "description": "test"}]
+    assert result["apic"]["aaa_policies"]["local_users"] == [
+        {
+            "name": "phase-f-user",
+            "email": "test@example.com",
+            "security_domains": [{"name": "phase-f-domain", "roles": [{"name": "read-all", "priv_type": "readPriv"}]}],
+        }
+    ]
+
+
+def test_aaa_policies_absent_when_unset():
+    result = build_netascode_yaml([], prefixes=[], locations=[_location_aaa("ACI-Lab")])
+
+    assert "aaa_policies" not in result["apic"]
+
+
+def test_aaa_policies_aggregated_across_multiple_locations():
+    locations = [
+        _location_aaa("site-a", aci_aaa_policies={"security_domains": [{"name": "domain-a"}]}),
+        _location_aaa("site-b", aci_aaa_policies={"local_users": [{"name": "user-b"}]}),
+        _location_aaa("site-c"),
+    ]
+
+    result = build_netascode_yaml([], prefixes=[], locations=locations)
+
+    assert result["apic"]["aaa_policies"]["security_domains"] == [{"name": "domain-a"}]
+    assert result["apic"]["aaa_policies"]["local_users"] == [{"name": "user-b"}]

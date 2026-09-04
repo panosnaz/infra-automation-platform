@@ -12,7 +12,9 @@ from mcp_server.schemas.aci import (
     CreateEpgRequest,
     CreateL3OutRequest,
     CreateLeafInterfacePolicyGroupRequest,
+    CreateLocalUserRequest,
     CreatePhysicalDomainRequest,
+    CreateSecurityDomainRequest,
     CreateTenantRequest,
     CreateVlanPoolRequest,
     CreateVmmDomainRequest,
@@ -173,6 +175,34 @@ def test_invalid_vmm_domain_name_rejected(bad_name):
         CreateVmmDomainRequest(
             name=bad_name, controller_name="vc1", host_or_ip="vcenter.example.com", root_cont_name="Datacenter1"
         )
+
+
+def test_valid_security_domain_request_defaults():
+    req = CreateSecurityDomainRequest(name="phase-f-domain")
+    assert req.location == "ACI-Lab"
+    assert req.description == ""
+
+
+def test_valid_local_user_request_defaults():
+    req = CreateLocalUserRequest(name="phase-f-user")
+    assert req.location == "ACI-Lab"
+    assert req.account_status == "active"
+    assert req.security_domain is None
+    assert req.role is None
+    assert req.priv_type is None
+
+
+def test_local_user_request_with_security_domain_and_role():
+    req = CreateLocalUserRequest(name="phase-f-user", security_domain="phase-f-domain", role="read-all", priv_type="readPriv")
+    assert req.security_domain == "phase-f-domain"
+    assert req.role == "read-all"
+    assert req.priv_type == "readPriv"
+
+
+@pytest.mark.parametrize("bad_name", ["bad name", "bad/name", "bad#name"])
+def test_invalid_local_user_name_rejected(bad_name):
+    with pytest.raises(ValidationError):
+        CreateLocalUserRequest(name=bad_name)
 
 
 def test_valid_bind_epg_domain_request_defaults():

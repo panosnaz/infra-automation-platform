@@ -119,6 +119,50 @@ class BindEpgDomainRequest(BaseModel):
         return v
 
 
+class CreateSecurityDomainRequest(BaseModel):
+    """ADR-020 Phase F coverage. Security Domains are fabric-wide, purely
+    additive named objects (no default instance), modeled the same way as
+    Phase B/E's fabric-wide objects: a JSON Custom Field on Location
+    (`aci_aaa_policies`)."""
+
+    name: str = Field(description="Security Domain name.")
+    location: str = Field(default="ACI-Lab", description="Nautobot Location representing the ACI fabric/site.")
+    description: str = Field(default="", description="Optional free-text description")
+
+    @field_validator("name")
+    @classmethod
+    def _validate_name(cls, v: str) -> str:
+        return _validate_aci_name(v)
+
+
+class CreateLocalUserRequest(BaseModel):
+    """ADR-020 Phase F coverage. Local Users are fabric-wide, purely
+    additive named objects, modeled the same way as CreateSecurityDomain-
+    Request above. The password is deliberately NOT a field on this
+    schema -- same boundary as VMM Domain's Controller credential
+    (ADR-020 Phase D): it is never written to Nautobot or seen by the AI
+    layer, only supplied at `terraform apply` time via the sensitive
+    `local_user_passwords` Terraform variable. This tool optionally binds
+    one Security Domain + one Role at creation time (a further increment
+    would be needed for multiple bindings in one call)."""
+
+    name: str = Field(description="Local User name.")
+    location: str = Field(default="ACI-Lab", description="Nautobot Location representing the ACI fabric/site.")
+    email: str = Field(default="", description="Optional email address")
+    first_name: str = Field(default="", description="Optional first name")
+    last_name: str = Field(default="", description="Optional last name")
+    phone: str = Field(default="", description="Optional phone number")
+    account_status: str = Field(default="active", description="'active' or 'inactive'.")
+    security_domain: str | None = Field(default=None, description="Optional: name of an existing Security Domain to bind this user to.")
+    role: str | None = Field(default=None, description="Optional: RBAC role name (e.g. 'read-all', 'admin') within security_domain. Ignored if security_domain is not set.")
+    priv_type: str | None = Field(default=None, description="Optional: 'readPriv' or 'writePriv' for the role above.")
+
+    @field_validator("name")
+    @classmethod
+    def _validate_name(cls, v: str) -> str:
+        return _validate_aci_name(v)
+
+
 class CreateContractRequest(BaseModel):
     """ADR-020 Phase A item 3 coverage. Contracts/Filters are modeled as a
     single structured JSON Custom Field on Tenant (`aci_contracts`) -- this
