@@ -248,6 +248,18 @@ locals {
     d.name => d
   }
   snmp_policy = lookup(local.fabric_pod_policies, "snmp", {})
+
+  # ADR-020 Phase E -- COOP Group Policy / ISIS Domain Policy are mandatory
+  # fabric-wide singletons too (uni/fabric/pol-default, uni/fabric/isisDomP-
+  # default), same semantics as ntp/dns/snmp above. Pod Policy Groups are
+  # purely additive named objects with no default instance -- ordinary
+  # for_each-flat-map, no destroy-safety concern.
+  coop_policy = lookup(local.fabric_pod_policies, "coop", {})
+  isis_policy = lookup(local.fabric_pod_policies, "isis", {})
+  pod_policy_groups = {
+    for g in lookup(local.fabric_pod_policies, "pod_policy_groups", []) :
+    g.name => g
+  }
 }
 
 # ---------------------------------------------------------------------------
@@ -769,5 +781,47 @@ resource "aci_snmp_community" "this" {
   name      = each.value.name
 
   depends_on = [aci_rest_managed.snmp_policy]
+}
+
+# ---------------------------------------------------------------------------
+# ADR-020 Phase E -- COOP Group Policy / ISIS Domain Policy (mandatory
+# fabric-wide singletons, confirmed via direct APIC query: uni/fabric/pol-
+# default and uni/fabric/isisDomP-default respectively). Unlike ntp/dns/snmp
+# above, the CiscoDevNet/aci provider exposes these through real *typed*
+# resources (aci_coop_policy/aci_isis_domain_policy) rather than the generic
+# aci_rest_managed -- confirmed via `terraform providers schema -json`: both
+# take no parent_dn (the provider itself always targets the one fixed DN,
+# there is only ever one of each in a fabric). Neither typed resource has a
+# content_on_destroy-equivalent lever, so a genuine `terraform destroy`
+# still risks the same class of incident Phase C hit -- live-verified
+# end-to-end in an isolated state before trusting this in the shared fleet.
+resource "aci_coop_policy" "this" {
+  count = length(local.coop_policy) > 0 ? 1 : 0
+
+  type        = lookup(local.coop_policy, "type", null)
+  description = lookup(local.coop_policy, "description", null)
+}
+
+resource "aci_isis_domain_policy" "this" {
+  count = length(local.isis_policy) > 0 ? 1 : 0
+
+  mtu              = lookup(local.isis_policy, "mtu", null)
+  redistrib_metric = lookup(local.isis_policy, "redistrib_metric", null)
+  description      = lookup(local.isis_policy, "description", null)
+}
+
+# ADR-020 Phase E -- named Pod Policy Groups (fabricPodPGrp). Purely
+# additive: no default instance exists in a fresh fabric (confirmed via
+# direct APIC class query: 0 pre-existing instances), so ordinary
+# aci_rest_managed destroy behavior (delete the DN) is correct here, unlike
+# the singleton resources above -- no content_on_destroy needed.
+resource "aci_rest_managed" "pod_policy_group" {
+  for_each = local.pod_policy_groups
+
+  dn         = "uni/fabric/funcprof/podpgrp-${each.value.name}"
+  class_name = "fabricPodPGrp"
+  content = {
+    name = each.value.name
+  }
 }
 

@@ -358,15 +358,27 @@ def _build_fabric_and_access_policies(
     `aci_username`/`aci_password`, they are supplied at `terraform apply`
     time via sensitive Terraform variables (`vmm_vcenter_username`/
     `vmm_vcenter_password`), never persisted in Nautobot or committed YAML.
+
+    Phase E's `coop`/`isis` keys are singletons, same semantics as `ntp`/
+    `dns`/`snmp` -- they target ACI's real mandatory default fabric-wide
+    policies (`uni/fabric/pol-default` for COOP Group Policy, `uni/fabric/
+    isisDomP-default` for ISIS Domain Policy), confirmed via direct APIC
+    queries. `pod_policy_groups` is list-shaped (like `vlan_pools`/
+    `aeps`/etc.): named Pod Policy Groups are purely additive objects with
+    no default instance, so no destroy-safety concern applies to them the
+    way it does to the singleton keys.
     """
     vlan_pools: list[dict[str, Any]] = []
     physical_domains: list[dict[str, Any]] = []
     aeps: list[dict[str, Any]] = []
     leaf_interface_policy_groups: list[dict[str, Any]] = []
     vmm_domains: list[dict[str, Any]] = []
+    pod_policy_groups: list[dict[str, Any]] = []
     ntp: dict[str, Any] = {}
     dns: dict[str, Any] = {}
     snmp: dict[str, Any] = {}
+    coop: dict[str, Any] = {}
+    isis: dict[str, Any] = {}
 
     for location in locations:
         cf = location.get("_custom_field_data") or {}
@@ -376,6 +388,7 @@ def _build_fabric_and_access_policies(
         aeps.extend(data.get("aeps") or [])
         leaf_interface_policy_groups.extend(data.get("leaf_interface_policy_groups") or [])
         vmm_domains.extend(data.get("vmm_domains") or [])
+        pod_policy_groups.extend(data.get("pod_policy_groups") or [])
         # POD-wide policies are singletons -- last Location with the field
         # set wins, rather than merged/appended like the list-shaped keys
         # above (multiple Locations setting conflicting NTP/DNS/SNMP config
@@ -386,6 +399,10 @@ def _build_fabric_and_access_policies(
             dns = data["dns"]
         if data.get("snmp"):
             snmp = data["snmp"]
+        if data.get("coop"):
+            coop = data["coop"]
+        if data.get("isis"):
+            isis = data["isis"]
 
     fabric_policies: dict[str, Any] = {}
     if vlan_pools:
@@ -398,6 +415,12 @@ def _build_fabric_and_access_policies(
         fabric_policies["dns"] = dns
     if snmp:
         fabric_policies["snmp"] = snmp
+    if coop:
+        fabric_policies["coop"] = coop
+    if isis:
+        fabric_policies["isis"] = isis
+    if pod_policy_groups:
+        fabric_policies["pod_policy_groups"] = pod_policy_groups
 
     access_policies: dict[str, Any] = {}
     if physical_domains:

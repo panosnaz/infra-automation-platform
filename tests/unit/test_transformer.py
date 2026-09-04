@@ -634,3 +634,61 @@ def test_vmm_domains_aggregated_across_multiple_locations():
 
     names = {d["name"] for d in result["apic"]["fabric_policies"]["vmm_domains"]}
     assert names == {"vmm-a", "vmm-b"}
+
+
+def test_coop_and_isis_policies_emitted_from_location_custom_field():
+    locations = [
+        _location(
+            "ACI-Lab",
+            aci_fabric_policies={
+                "coop": {"type": "strict"},
+                "isis": {"mtu": 1492, "redistrib_metric": 60},
+            },
+        )
+    ]
+
+    result = build_netascode_yaml([], prefixes=[], locations=locations)
+
+    assert result["apic"]["fabric_policies"]["coop"] == {"type": "strict"}
+    assert result["apic"]["fabric_policies"]["isis"] == {"mtu": 1492, "redistrib_metric": 60}
+
+
+def test_coop_and_isis_policies_absent_when_unset():
+    locations = [_location("ACI-Lab", aci_fabric_policies={"vlan_pools": [{"name": "pool1", "alloc_mode": "static"}]})]
+
+    result = build_netascode_yaml([], prefixes=[], locations=locations)
+
+    assert "coop" not in result["apic"]["fabric_policies"]
+    assert "isis" not in result["apic"]["fabric_policies"]
+
+
+def test_coop_and_isis_policies_singleton_last_location_wins():
+    locations = [
+        _location("site-a", aci_fabric_policies={"coop": {"type": "strict"}}),
+        _location("site-b", aci_fabric_policies={"coop": {"type": "lax"}}),
+    ]
+
+    result = build_netascode_yaml([], prefixes=[], locations=locations)
+
+    assert result["apic"]["fabric_policies"]["coop"] == {"type": "lax"}
+
+
+def test_pod_policy_groups_emitted_and_aggregated_across_locations():
+    locations = [
+        _location("site-a", aci_fabric_policies={"pod_policy_groups": [{"name": "pod-pg-a"}]}),
+        _location("site-b", aci_fabric_policies={"pod_policy_groups": [{"name": "pod-pg-b"}]}),
+        _location("site-c"),
+    ]
+
+    result = build_netascode_yaml([], prefixes=[], locations=locations)
+
+    names = {g["name"] for g in result["apic"]["fabric_policies"]["pod_policy_groups"]}
+    assert names == {"pod-pg-a", "pod-pg-b"}
+
+
+def test_pod_policy_groups_absent_when_unset():
+    locations = [_location("ACI-Lab", aci_fabric_policies={"vlan_pools": [{"name": "pool1", "alloc_mode": "static"}]})]
+
+    result = build_netascode_yaml([], prefixes=[], locations=locations)
+
+    assert "pod_policy_groups" not in result["apic"]["fabric_policies"]
