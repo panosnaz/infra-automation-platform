@@ -4,12 +4,12 @@ domain: cisco_aci
 status: active
 tags: [aci, domain-coverage, roadmap, generator, terraform, mcp]
 owner: platform-engineering-team
-last_updated: 2026-09-04
+last_updated: 2026-09-08
 ---
 
 # ADR-020 — ACI Domain Coverage Expansion (Tenant Policy Depth, then Access/Fabric Policies)
 
-**Status:** Accepted — all phases complete and live-verified.
+**Status:** Accepted — Phases A-G complete and live-verified. Phases H-J (below) are plan-validated only; `terraform apply` has not yet been run against them in this repo's history.
 
 ## Summary (read this first — the Progress section below is a detailed, phase-by-phase implementation log)
 
@@ -22,10 +22,13 @@ last_updated: 2026-09-04
 - **Phase E — Fabric Policies beyond NTP/DNS/SNMP**: COOP Group Policy, ISIS Domain Policy (both mandatory fabric-wide singletons, managed via real *typed* Terraform resources rather than `aci_rest_managed`), and named Pod Policy Groups (purely additive). Complete and live-verified. BGP Route Reflector node binding and Pod Selector/Pod Profile reassignment are explicitly out of scope for this pass — see the Phase E section for why.
 - **Phase F — RBAC / Security Domains / Local Users**: Security Domains, Local Users, and their RBAC role bindings — all purely additive named objects (no default-instance risk). Complete and live-verified, including over the real MCP protocol. Local User passwords are never Nautobot-sourced, matching Phase D's credential-handling precedent. Syslog/Fault/Health monitoring policies remain out of scope.
 - **Phase G — Syslog / Fault monitoring policies**: Fault Lifecycle Policy, Syslog System Message Policy, Syslog Rate Limit Policy — all mandatory fabric-wide singletons under `uni/fabric/moncommon`, managed via `aci_rest_managed` with `content_on_destroy`. Complete and live-verified. **Health Score policy is genuinely unavailable in this APIC version** — no resolvable class found after direct testing, not a naming gap.
+- **Phase H — Logical L4-L7 / PBR / Service Graph support**: L4-L7 devices, two-arm and one-arm Service Graphs, redirect policies, and PBR Contracts, tenant-scoped under `aci_l4l7_services`. Unit/Terraform-validated and plan-verified against the real APIC; **`terraform apply` not yet run**.
+- **Phase I — VRF route-leak intent**: shared-services leaking and L3Out-associated route advertisement between VRFs in the same Tenant, under `aci_vrf_route_leaks`. Unit/Terraform-validated and plan-verified against the real APIC; **`terraform apply` not yet run**.
+- **Phase J — Protocol L3Out and remaining access-policy tools**: Leaf Interface Profiles, Interface Selectors, EPG static-path bindings, BGP/OSPF L3Out node/interface profiles, BGP peers, and OSPF interfaces/policies, extending the Tenant `aci_l3outs` JSON Custom Field. Unit/Terraform-validated and plan-verified against the real APIC; **`terraform apply` not yet run, and physical/OSPF/BGP L3Out attachment is expected to fail on this simulator** for the same zero-real-interface-data reason as Phase B/Phase A item 4.
 
 **The one bug worth knowing about, even without reading the details:** `aci_rest_managed` (Terraform's generic "manage any ACI object" resource) deletes the entire target object on `terraform destroy` by default — which is dangerous when the target is a mandatory system object that can't actually be removed (like the fabric's default NTP/DNS/SNMP policies). This was caught live (a real destroy briefly deleted real fabric objects, then was recovered), and fixed by setting `content_on_destroy` to revert to safe defaults instead of deleting. Worth remembering for any future use of this resource type, or of any other provider's equivalent "manage anything" resource. **Real typed resources can behave differently and more safely** — Phase E found that `aci_coop_policy`/`aci_isis_domain_policy` refuse the underlying APIC delete outright (a provider-level warning, `"Resource with class name ... cannot be deleted"`), leaving the real object completely untouched on `terraform destroy`. Never assume this protection exists without testing it directly against the real target, the same way Phase C's incident proved it can't be assumed for `aci_rest_managed`.
 
-**Everything in this ADR is done.** If you're looking for what's *not* done in ACI domain coverage, check [`Platform-Status-and-Pending-Items.md`](../architecture/Platform-Status-and-Pending-Items.md) instead of this file.
+**Phases A-G are done and live-verified; Phases H-J are implemented and plan-validated but not yet `apply`-tested.** If you're looking for what's *not* done in ACI domain coverage, check [`Platform-Status-and-Pending-Items.md`](../architecture/Platform-Status-and-Pending-Items.md) instead of this file.
 
 ---
 
@@ -197,15 +200,7 @@ Revisited the "explicitly out of scope" call below after a concrete need arose (
   8. Cleared the ACI-Lab Location's `aci_fabric_policies` custom field back to `null`, matching the pre-test baseline.
 * **Generalizable lesson:** any generic "manage any object" Terraform resource (`aci_rest_managed` and equivalents in other providers) must always set destroy-time content explicitly when targeting objects that are mandatory singletons in the target system — the default destroy behavior of deleting the DN is unsafe for objects that cannot actually be removed from the real system.
 
-## Phase D — ✅ VMware VMM Domain integration implemented locally (2026-09-04)
-
-Implemented VMware VMM Domain support using the same fabric-wide `dcim.location` Custom-Field-JSON pattern established in Phase B/C. The `aci_fabric_policies` JSON field now accepts `vmm_domains[]`, and the generator emits those entries under top-level `apic.fabric_policies.vmm_domains` alongside VLAN Pools and POD-wide policy keys.
-
-Terraform support is implemented with the CiscoDevNet/aci provider's typed VMM resources: `aci_vmm_domain`, optional `aci_vmm_credential`, and `aci_vmm_controller`. VMM metadata such as domain name, vendor, VLAN Pool relation, controller name, host/IP, root container name, DVS version, and credential object name is allowed in Nautobot/YAML. vCenter username/password are deliberately excluded from Nautobot and generated YAML; Terraform receives them through sensitive runtime variables (`vmm_vcenter_username`, `vmm_vcenter_password`) or Vault/CI variables.
-
-Added MCP `create_vmm_domain`, which writes only non-secret VMM metadata to the Location's `aci_fabric_policies` custom field and preserves existing JSON keys. Added unit coverage for generator output, schema validation, and tool request pass-through. Local validation completed with Python transformer tests, Terraform `fmt -check`, Terraform `validate`, Bash syntax check, and whitespace check. Live APIC/vCenter plan/apply validation is still pending and must not run without explicit operator approval and real vCenter credentials.
-
-## Phase E — ✅ Logical L4-L7 / PBR / Service Graph support implemented locally (2026-09-04)
+## Phase H — ✅ Logical L4-L7 / PBR / Service Graph support implemented locally (2026-09-04)
 
 L4-L7 service intent is tenant-scoped and follows the existing Contract/L3Out Custom-Field-JSON modeling convention: `aci_l4l7_services` on `tenancy.tenant` holds `devices`, `service_graphs`, and `redirect_policies`. Existing VLAN-backed EPGs retain their `aci_epg_contracts` Custom Field for consumer/provider Contract references. This preserves Nautobot as the sole source of desired state and avoids inventing a parallel schema or a Nautobot plugin for a small, structured object family.
 
@@ -213,23 +208,25 @@ The generator emits `apic.tenants[].services`, and Terraform maps it with the in
 
 Scope is deliberately logical: the installed provider does not expose the concrete device/interface resources used in the local Cisco NetAsCode workbook example, so this phase does not claim APIC-managed VMware VM discovery, service-device credentials, device package installation, or traffic steering validation. Unit tests and Terraform validation cover the model. A refresh-disabled, temporary-state plan against the dedicated two-arm fixture successfully authenticated to APIC and reported `27 to add, 0 to change, 0 to destroy`, including distinct consumer/provider `aci_logical_interface_context` bindings to `DB_PBR` and `Backup_PBR`; the one-arm ADC fixture independently passed with `11 to add, 0 to change, 0 to destroy`. Live apply and independent traffic-steering validation still require explicit operator approval and a compatible service-device lab.
 
-## Phase F — ✅ VRF route-leak intent implemented locally (2026-09-07)
+## Phase I — ✅ VRF route-leak intent implemented locally (2026-09-07)
 
 Added tenant-scoped `aci_vrf_route_leaks` JSON Custom Field support for the two supplied scenario classes: shared-services leaking and L3Out-associated route advertisement. Each entry contains a unique name, `source_vrf`, `destination_vrf`, leaked subnet, and `allow_l3out_advertisement`. The generator emits `apic.tenants[].vrf_route_leaks`; Terraform uses the installed `aci_vrf_leak_epg_bd_subnet` resource under the destination VRF. The source VRF is retained and validated as explicit intent metadata because CiscoDevNet/aci 2.20.0 exposes no source-VRF argument on this resource.
 
 MCP `create_vrf_route_leak` validates that both VRFs already exist in the same Tenant, rejects duplicate intent names, and writes only non-secret data to Nautobot. The fixture covers one shared-services leak with L3Out advertisement disabled and one L3Out-associated leak with advertisement enabled. Unit and Terraform validation pass; the APIC-backed temporary-state, refresh-disabled plan reports `6 to add, 0 to change, 0 to destroy`. No apply was run.
 
-## Phase G — ✅ Access policy and protocol L3Out tools implemented locally (2026-09-07)
+## Phase J — ✅ Access policy and protocol L3Out tools implemented locally (2026-09-07)
 
-Added the requested MCP catalogue and corresponding intent/Terraform mappings for VLAN Pools, Physical Domains, AAEPs, Leaf Interface Policy Groups, Leaf Interface Profiles, Interface Selectors, EPG static-path bindings, EPG physical/VMM domain bindings, BGP/OSPF L3Out creation, L3Out node profiles, interface profiles, routed/SVI interfaces, BGP peers, and OSPF interfaces. Fabric-wide objects continue to use the Location `aci_fabric_policies` JSON Custom Field; EPG bindings use VLAN custom fields; L3Out hierarchy and protocol data extend the Tenant `aci_l3outs` JSON Custom Field.
+Added the requested MCP catalogue and corresponding intent/Terraform mappings for Leaf Interface Profiles, Interface Selectors, EPG static-path bindings, BGP/OSPF L3Out creation, L3Out node profiles, interface profiles, routed/SVI interfaces, BGP peers, and OSPF interfaces. VLAN Pools, Physical Domains, AEPs, Leaf Interface Policy Groups, and EPG-to-domain binding already existed from Phase B/D and were not re-implemented here — this phase's EPG-domain-binding equivalent uses the existing unified `bind_epg_domain` tool and `aci_epg_domains` Custom Field rather than a second, competing binding mechanism. Fabric-wide objects continue to use the Location `aci_fabric_policies` JSON Custom Field; L3Out hierarchy and protocol data extend the Tenant `aci_l3outs` JSON Custom Field.
 
-The installed CiscoDevNet/aci provider schemas were used for the direct resource mapping: `aci_leaf_interface_profile`, `aci_access_port_selector`, `aci_epg_to_domain`, `aci_epg_to_static_path`, `aci_logical_node_profile`, `aci_logical_node_to_fabric_node`, `aci_logical_interface_profile`, `aci_l3out_path_attachment`, `aci_l3out_floating_svi`, `aci_l3out_bgp_protocol_profile`, `aci_bgp_peer_connectivity_profile`, and `aci_l3out_ospf_interface_profile`. The combined non-secret access/L3Out fixture authenticated to APIC and produced a clean read-only plan: `22 to add, 0 to change, 0 to destroy`. No apply was run.
+The installed CiscoDevNet/aci provider schemas were used for the direct resource mapping: `aci_leaf_interface_profile`, `aci_access_port_selector`, `aci_epg_to_static_path`, `aci_logical_node_profile`, `aci_logical_node_to_fabric_node`, `aci_logical_interface_profile`, `aci_l3out_path_attachment`, `aci_l3out_floating_svi`, `aci_l3out_bgp_protocol_profile`, `aci_bgp_peer_connectivity_profile`, and `aci_l3out_ospf_interface_profile`. The combined non-secret access/L3Out fixture authenticated to APIC and produced a clean read-only plan: `22 to add, 0 to change, 0 to destroy`. No apply was run.
 
 The OSPF extension adds `create_ospf_interface_policy` and the typed `aci_ospf_interface_policy` resource with network type, hello/dead timers, passive control, cost, priority, and OSPF authentication metadata. Authentication values are never stored in Nautobot/YAML; only a non-secret Vault reference may be recorded, while provider runtime secret injection remains a follow-up integration task.
 
-## ADR-020 — All phases complete (2026-07-30)
+## ADR-020 — Phases A-G complete (2026-07-30); Phases H-J plan-validated only (2026-09-08)
 
-Phase A (items 1-4), Phase B, and Phase C are all implemented, unit-tested, and live-verified against the real ACI simulator. Phase D VMware VMM Domain support is implemented locally and unit/Terraform-validated, but not yet live-applied against APIC/vCenter. Two deliberate, documented scope limitations remain, both stemming from the same root cause (this simulator has zero real leaf/spine interface data, confirmed directly via APIC API queries): L3Out has no physical interface/OSPF/BGP attachment (item 4), and Access Policies have no physical port/interface binding (Phase B). Both are permanent constraints of this specific simulator, not gaps in the generator/Terraform pattern — extending either would require a heavier simulator or real hardware. Fabric Policies (Phase C) are complete with no such limitation — NTP/DNS/SNMP are logical, POD-wide configuration with no physical interface dependency.
+Phase A (items 1-4), Phase B, Phase C, Phase D (VMware VMM Domain, including its EPG-to-Domain binding follow-on), Phase E, Phase F, and Phase G are all implemented, unit-tested, and live-verified against the real ACI simulator (and, for Phase D, the real vCenter). Two deliberate, documented scope limitations remain, both stemming from the same root cause (this simulator has zero real leaf/spine interface data, confirmed directly via APIC API queries): L3Out has no physical interface/OSPF/BGP attachment (item 4), and Access Policies have no physical port/interface binding (Phase B). Both are permanent constraints of this specific simulator, not gaps in the generator/Terraform pattern — extending either would require a heavier simulator or real hardware. Fabric Policies (Phase C) are complete with no such limitation — NTP/DNS/SNMP are logical, POD-wide configuration with no physical interface dependency.
+
+Phases H (L4-L7/PBR/Service Graph), I (VRF route-leak), and J (protocol L3Out/access-policy tools) are implemented, unit-tested, and plan-verified against the real APIC, but **no `terraform apply` has been run for any of them in this repo's history** — see [`Platform-Status-and-Pending-Items.md`](../architecture/Platform-Status-and-Pending-Items.md) for the current apply status of each.
 
 ## Phase D — VMM Domain Integration ✅ Complete (2026-09-04)
 
