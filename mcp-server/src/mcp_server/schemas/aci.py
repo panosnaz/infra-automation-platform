@@ -307,6 +307,48 @@ class CreateInterfaceSelectorRequest(FabricPolicyRequest):
     port: int = Field(ge=1)
 
 
+class CreateAccessPortProfileRequest(FabricPolicyRequest):
+    description: str = ""
+
+
+class CreateAccessPortSelectorRequest(FabricPolicyRequest):
+    access_port_profile: str
+    policy_group: str
+    selector_type: str = "range"
+
+
+class CreateAccessPortBlockRequest(BaseModel):
+    location: str
+    access_port_profile: str
+    selector: str
+    name: str
+    from_card: int = Field(ge=1)
+    from_port: int = Field(ge=1)
+    to_card: int | None = Field(default=None, ge=1)
+    to_port: int | None = Field(default=None, ge=1)
+
+
+class CreateLeafProfileRequest(FabricPolicyRequest):
+    access_port_profiles: list[str] = Field(default_factory=list)
+    description: str = ""
+
+
+class CreateLeafSelectorRequest(BaseModel):
+    location: str
+    leaf_profile: str
+    name: str
+    selector_type: str = "range"
+
+
+class CreateLeafNodeBlockRequest(BaseModel):
+    location: str
+    leaf_profile: str
+    selector: str
+    name: str
+    from_node: int = Field(ge=1)
+    to_node: int | None = Field(default=None, ge=1)
+
+
 class CreateStaticPathBindingRequest(BaseModel):
     tenant: str
     application_profile: str

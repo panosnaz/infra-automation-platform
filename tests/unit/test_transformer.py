@@ -911,3 +911,40 @@ def test_access_bindings_and_l3out_protocol_intent_are_preserved():
     assert result["apic"]["tenants"][0]["l3outs"][0]["protocol"] == "bgp"
     epg = result["apic"]["tenants"][0]["application_profiles"][0]["endpoint_groups"][0]
     assert epg["static_paths"][0]["port"] == 5
+
+
+def test_xml_compatible_access_hierarchy_emitted_from_location_policy():
+    locations = [
+        _location(
+            "ACI-Lab",
+            aci_fabric_policies={
+                "access_port_profiles": [
+                    {
+                        "name": "LEAF101_IFP",
+                        "selectors": [
+                            {
+                                "name": "Ext_Nexus",
+                                "policy_group": "ExtL3_IPG",
+                                "blocks": [{"name": "portblk_ext_nexus", "from_card": 1, "to_card": 1, "from_port": 4, "to_port": 4}],
+                            }
+                        ],
+                    }
+                ],
+                "leaf_profiles": [
+                    {
+                        "name": "LEAF101_SWP",
+                        "access_port_profiles": ["LEAF101_IFP"],
+                        "selectors": [
+                            {"name": "LEAF101_Sel", "node_blocks": [{"name": "nodeblk_101_101", "from_node": 101, "to_node": 101}]}
+                        ],
+                    }
+                ],
+            },
+        )
+    ]
+
+    result = build_netascode_yaml([], prefixes=[], locations=locations)
+    access = result["apic"]["access_policies"]
+
+    assert access["access_port_profiles"][0]["selectors"][0]["blocks"][0]["from_port"] == 4
+    assert access["leaf_profiles"][0]["selectors"][0]["node_blocks"][0]["from_node"] == 101

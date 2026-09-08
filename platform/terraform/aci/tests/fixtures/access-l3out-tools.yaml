@@ -39,6 +39,35 @@ apic:
         policy_group: ExtL3_IPG
         module: 1
         port: 5
+    access_port_profiles:
+      - name: LEAF101_IFP
+        selectors:
+          - name: Ext_Nexus
+            policy_group: ExtL3_IPG
+            blocks:
+              - name: portblk_ext_nexus
+                from_card: 1
+                to_card: 1
+                from_port: 4
+                to_port: 4
+          - name: Host_e1_5
+            policy_group: ExtL3_IPG
+            blocks:
+              - name: portblk_host_e1_5
+                from_card: 1
+                to_card: 1
+                from_port: 5
+                to_port: 5
+    leaf_profiles:
+      - name: LEAF101_SWP
+        access_port_profiles: [LEAF101_IFP]
+        selectors:
+          - name: LEAF101_Sel
+            selector_type: range
+            node_blocks:
+              - name: nodeblk_101_101
+                from_node: 101
+                to_node: 101
   tenants:
     - name: access-l3out-plan-test
       ospf_interface_policies:

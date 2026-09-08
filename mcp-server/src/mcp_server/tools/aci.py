@@ -26,6 +26,17 @@ from mcp_server.schemas.aci import (
     CreateContractRequest,
     CreateEpgRequest,
     CreateInterfaceSelectorRequest,
+    CreateAccessPortProfileRequest,
+    CreateAccessPortSelectorRequest,
+    CreateAccessPortBlockRequest,
+    CreateLeafProfileRequest,
+    CreateLeafSelectorRequest,
+    CreateLeafNodeBlockRequest,
+    CreateStaticPathBindingRequest,
+    BindEpgToPhysicalDomainRequest,
+    BindEpgToVmmDomainRequest,
+    CreateProtocolL3OutRequest,
+    CreateL3OutNodeProfileRequest,
     CreateL3OutInterfaceProfileRequest,
     CreateL3OutInterfaceRequest,
     CreateL3OutNodeProfileRequest,
@@ -390,6 +401,46 @@ def create_interface_selector(request: CreateInterfaceSelectorRequest, *, nautob
 @_fabric_tool("create_static_path_binding", CreateStaticPathBindingRequest, "create_static_path_binding", "Bind an EPG to a static leaf path.")
 def create_static_path_binding(request: CreateStaticPathBindingRequest, *, nautobot: NautobotClient) -> dict:
     return {"static_path": nautobot.create_static_path_binding(**request.model_dump())}
+
+
+@_fabric_tool("bind_epg_to_physical_domain", BindEpgToPhysicalDomainRequest, "bind_epg_to_physical_domain", "Bind an EPG to a physical domain.")
+def bind_epg_to_physical_domain(request: BindEpgToPhysicalDomainRequest, *, nautobot: NautobotClient) -> dict:
+    return {"binding": nautobot.bind_epg_to_physical_domain(**request.model_dump())}
+
+
+@_fabric_tool("bind_epg_to_vmm_domain", BindEpgToVmmDomainRequest, "bind_epg_to_vmm_domain", "Bind an EPG to a VMM domain.")
+def bind_epg_to_vmm_domain(request: BindEpgToVmmDomainRequest, *, nautobot: NautobotClient) -> dict:
+    return {"binding": nautobot.bind_epg_to_vmm_domain(**request.model_dump())}
+
+
+@registry.register(name="create_access_port_profile", domain="cisco_aci", description="Create an APIC-equivalent access-port profile (infraAccPortP) intent.", schema=CreateAccessPortProfileRequest)
+def create_access_port_profile(request: CreateAccessPortProfileRequest, *, nautobot: NautobotClient) -> dict:
+    return {"access_port_profile": nautobot.create_access_port_profile(**request.model_dump())}
+
+
+@registry.register(name="create_access_port_selector", domain="cisco_aci", description="Create an APIC-equivalent access-port selector (infraHPortS) intent.", schema=CreateAccessPortSelectorRequest)
+def create_access_port_selector(request: CreateAccessPortSelectorRequest, *, nautobot: NautobotClient) -> dict:
+    return {"access_port_selector": nautobot.create_access_port_selector(**request.model_dump())}
+
+
+@registry.register(name="create_access_port_block", domain="cisco_aci", description="Create an APIC-equivalent port block (infraPortBlk) intent.", schema=CreateAccessPortBlockRequest)
+def create_access_port_block(request: CreateAccessPortBlockRequest, *, nautobot: NautobotClient) -> dict:
+    return {"access_port_block": nautobot.create_access_port_block(**request.model_dump())}
+
+
+@registry.register(name="create_leaf_profile", domain="cisco_aci", description="Create an APIC-equivalent leaf/node profile (infraNodeP) intent.", schema=CreateLeafProfileRequest)
+def create_leaf_profile(request: CreateLeafProfileRequest, *, nautobot: NautobotClient) -> dict:
+    return {"leaf_profile": nautobot.create_leaf_profile(**request.model_dump())}
+
+
+@registry.register(name="create_leaf_selector", domain="cisco_aci", description="Create an APIC-equivalent leaf selector (infraLeafS) intent.", schema=CreateLeafSelectorRequest)
+def create_leaf_selector(request: CreateLeafSelectorRequest, *, nautobot: NautobotClient) -> dict:
+    return {"leaf_selector": nautobot.create_leaf_selector(**request.model_dump())}
+
+
+@registry.register(name="create_leaf_node_block", domain="cisco_aci", description="Create an APIC-equivalent node block (infraNodeBlk) intent.", schema=CreateLeafNodeBlockRequest)
+def create_leaf_node_block(request: CreateLeafNodeBlockRequest, *, nautobot: NautobotClient) -> dict:
+    return {"leaf_node_block": nautobot.create_leaf_node_block(**request.model_dump())}
 
 
 @registry.register(name="create_bgp_l3out", domain="cisco_aci", description="Create a BGP-enabled L3Out intent in Nautobot.", schema=CreateProtocolL3OutRequest)

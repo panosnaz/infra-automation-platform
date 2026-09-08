@@ -518,7 +518,7 @@ def _build_fabric_and_access_policies(
         access_policies["aeps"] = aeps
     if leaf_interface_policy_groups:
         access_policies["leaf_interface_policy_groups"] = leaf_interface_policy_groups
-    for key in ("leaf_interface_profiles", "interface_selectors"):
+    for key in ("leaf_interface_profiles", "interface_selectors", "access_port_profiles", "leaf_profiles"):
         values = []
         for location in locations:
             data = (location.get("_custom_field_data") or {}).get("aci_fabric_policies") or {}

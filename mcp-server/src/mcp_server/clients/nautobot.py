@@ -682,6 +682,102 @@ class NautobotClient:
         entry = {"name": name, "leaf_interface_profile": leaf_interface_profile, "policy_group": policy_group, "module": module, "port": port}
         return self._append_location_fabric_policy(location, "interface_selectors", entry)
 
+    def _merge_location_named_entry(self, location: str, key: str, name: str, update: dict) -> dict:
+        location_obj = self._get_location_or_raise(location)
+        custom_fields = dict(location_obj.custom_fields or {})
+        policies = dict(custom_fields.get("aci_fabric_policies") or {})
+        values = list(policies.get(key) or [])
+        target = next((item for item in values if item.get("name") == name), None)
+        if target is None:
+            target = {"name": name}
+            values.append(target)
+        target.update(update)
+        policies[key] = values
+        custom_fields["aci_fabric_policies"] = policies
+        location_obj.update({"custom_fields": custom_fields})
+        return {"location": location, key: target}
+
+    def create_access_port_profile(self, location: str, name: str, description: str = "") -> dict:
+        update = {"description": description} if description else {}
+        return self._merge_location_named_entry(location, "access_port_profiles", name, update)
+
+    def create_access_port_selector(self, location: str, access_port_profile: str, name: str, policy_group: str, selector_type: str = "range") -> dict:
+        location_obj = self._get_location_or_raise(location)
+        fields = dict(location_obj.custom_fields or {})
+        policies = dict(fields.get("aci_fabric_policies") or {})
+        profiles = list(policies.get("access_port_profiles") or [])
+        profile = next((p for p in profiles if p.get("name") == access_port_profile), None)
+        if profile is None:
+            raise NautobotError(f"Access Port Profile '{access_port_profile}' not found on Location '{location}'")
+        selectors = list(profile.get("selectors") or [])
+        selector = next((s for s in selectors if s.get("name") == name), None)
+        if selector is None:
+            selectors.append({"name": name, "policy_group": policy_group, "selector_type": selector_type})
+        else:
+            selector.update({"policy_group": policy_group, "selector_type": selector_type})
+        profile["selectors"] = selectors
+        policies["access_port_profiles"] = profiles
+        fields["aci_fabric_policies"] = policies
+        location_obj.update({"custom_fields": fields})
+        return {"location": location, "access_port_profile": access_port_profile, "selector": name}
+
+    def create_access_port_block(self, location: str, access_port_profile: str, selector: str, name: str, from_card: int, from_port: int, to_card: int | None = None, to_port: int | None = None) -> dict:
+        location_obj = self._get_location_or_raise(location)
+        fields = dict(location_obj.custom_fields or {})
+        policies = dict(fields.get("aci_fabric_policies") or {})
+        profiles = list(policies.get("access_port_profiles") or [])
+        profile = next((p for p in profiles if p.get("name") == access_port_profile), None)
+        if profile is None: raise NautobotError(f"Access Port Profile '{access_port_profile}' not found on Location '{location}'")
+        selector_obj = next((s for s in profile.get("selectors", []) if s.get("name") == selector), None)
+        if selector_obj is None: raise NautobotError(f"Access Port Selector '{selector}' not found in profile '{access_port_profile}'")
+        block = {"name": name, "from_card": from_card, "from_port": from_port, "to_card": to_card or from_card, "to_port": to_port or from_port}
+        blocks = list(selector_obj.get("blocks") or [])
+        blocks = [b for b in blocks if b.get("name") != name] + [block]
+        selector_obj["blocks"] = blocks
+        policies["access_port_profiles"] = profiles
+        fields["aci_fabric_policies"] = policies
+        location_obj.update({"custom_fields": fields})
+        return {"location": location, "access_port_profile": access_port_profile, "selector": selector, "block": block}
+
+    def create_leaf_profile(self, location: str, name: str, access_port_profiles: list[str], description: str = "") -> dict:
+        update = {"access_port_profiles": list(access_port_profiles)}
+        if description: update["description"] = description
+        return self._merge_location_named_entry(location, "leaf_profiles", name, update)
+
+    def create_leaf_selector(self, location: str, leaf_profile: str, name: str, selector_type: str = "range") -> dict:
+        location_obj = self._get_location_or_raise(location)
+        fields = dict(location_obj.custom_fields or {})
+        policies = dict(fields.get("aci_fabric_policies") or {})
+        profiles = list(policies.get("leaf_profiles") or [])
+        profile = next((p for p in profiles if p.get("name") == leaf_profile), None)
+        if profile is None: raise NautobotError(f"Leaf Profile '{leaf_profile}' not found on Location '{location}'")
+        selectors = list(profile.get("selectors") or [])
+        selector = next((s for s in selectors if s.get("name") == name), None)
+        if selector is None: selectors.append({"name": name, "selector_type": selector_type})
+        else: selector["selector_type"] = selector_type
+        profile["selectors"] = selectors
+        policies["leaf_profiles"] = profiles
+        fields["aci_fabric_policies"] = policies
+        location_obj.update({"custom_fields": fields})
+        return {"location": location, "leaf_profile": leaf_profile, "selector": name}
+
+    def create_leaf_node_block(self, location: str, leaf_profile: str, selector: str, name: str, from_node: int, to_node: int | None = None) -> dict:
+        location_obj = self._get_location_or_raise(location)
+        fields = dict(location_obj.custom_fields or {})
+        policies = dict(fields.get("aci_fabric_policies") or {})
+        profiles = list(policies.get("leaf_profiles") or [])
+        profile = next((p for p in profiles if p.get("name") == leaf_profile), None)
+        if profile is None: raise NautobotError(f"Leaf Profile '{leaf_profile}' not found on Location '{location}'")
+        selector_obj = next((s for s in profile.get("selectors", []) if s.get("name") == selector), None)
+        if selector_obj is None: raise NautobotError(f"Leaf Selector '{selector}' not found in profile '{leaf_profile}'")
+        block = {"name": name, "from_node": from_node, "to_node": to_node or from_node}
+        blocks = [b for b in selector_obj.get("node_blocks", []) if b.get("name") != name] + [block]
+        selector_obj["node_blocks"] = blocks
+        policies["leaf_profiles"] = profiles
+        fields["aci_fabric_policies"] = policies
+        location_obj.update({"custom_fields": fields})
+        return {"location": location, "leaf_profile": leaf_profile, "selector": selector, "block": block}
+
     def _update_epg_custom_fields(self, tenant: str, application_profile: str, epg: str, update: dict) -> dict:
         tenant_obj = self._get_tenant_or_raise(tenant)
         epg_obj = self.api.ipam.vlans.get(name=epg, tenant_id=tenant_obj.id)

@@ -347,6 +347,49 @@ locals {
     s.name => s
   }
 
+  # XML-equivalent access hierarchy: infraAccPortP/infraHPortS/infraPortBlk.
+  access_port_profiles = {
+    for p in lookup(lookup(local.nac.apic, "access_policies", {}), "access_port_profiles", []) :
+    p.name => p
+  }
+  access_port_selectors = merge([
+    for profile_name, profile in local.access_port_profiles : {
+      for s in lookup(profile, "selectors", []) :
+      "${profile_name}/${s.name}" => merge(s, { profile_name = profile_name })
+    }
+  ]...)
+  access_port_blocks = merge([
+    for selector_key, selector in local.access_port_selectors : {
+      for b in lookup(selector, "blocks", []) :
+      "${selector_key}/${b.name}" => merge(b, { selector_key = selector_key })
+    }
+  ]...)
+  leaf_profiles = {
+    for p in lookup(lookup(local.nac.apic, "access_policies", {}), "leaf_profiles", []) :
+    p.name => p
+  }
+  leaf_selectors = merge([
+    for profile_name, profile in local.leaf_profiles : {
+      for s in lookup(profile, "selectors", []) :
+      "${profile_name}/${s.name}" => merge(s, { profile_name = profile_name })
+    }
+  ]...)
+  leaf_node_blocks = merge([
+    for selector_key, selector in local.leaf_selectors : {
+      for b in lookup(selector, "node_blocks", []) :
+      "${selector_key}/${b.name}" => merge(b, { selector_key = selector_key })
+    }
+  ]...)
+
+  epg_domain_bindings = merge([
+    for epg_key, epg in local.endpoint_groups : merge(
+      { for d in lookup(epg, "physical_domains", []) :
+      "${epg_key}/physical/${d}" => { epg = epg, domain = d, kind = "physical" } },
+      { for d in lookup(epg, "vmm_domains", []) :
+      "${epg_key}/vmm/${d.name}" => { epg = epg, domain = d.name, kind = "vmm", details = d } },
+    )
+  ]...)
+
   static_path_bindings = merge([
     for epg_key, epg in local.endpoint_groups : {
       for p in lookup(epg, "static_paths", []) :
@@ -1078,6 +1121,61 @@ resource "aci_leaf_interface_profile" "this" {
   for_each    = local.leaf_interface_profiles
   name        = each.value.name
   description = lookup(each.value, "description", null)
+}
+
+resource "aci_leaf_interface_profile" "xml_compatible" {
+  for_each    = local.access_port_profiles
+  name        = each.value.name
+  description = lookup(each.value, "description", null)
+}
+
+resource "aci_access_port_selector" "xml_compatible" {
+  for_each = local.access_port_selectors
+
+  leaf_interface_profile_dn = aci_leaf_interface_profile.xml_compatible[each.value.profile_name].id
+  name                      = each.value.name
+  port_selector_type        = lookup(each.value, "selector_type", "range")
+  relation_to_leaf_access_port_policy_group = {
+    target_dn = aci_leaf_access_port_policy_group.this[each.value.policy_group].id
+  }
+}
+
+resource "aci_access_port_block" "xml_compatible" {
+  for_each = local.access_port_blocks
+
+  access_port_selector_dn = aci_access_port_selector.xml_compatible[each.value.selector_key].id
+  name                    = each.value.name
+  from_card               = tostring(each.value.from_card)
+  to_card                 = tostring(lookup(each.value, "to_card", each.value.from_card))
+  from_port               = tostring(each.value.from_port)
+  to_port                 = tostring(lookup(each.value, "to_port", each.value.from_port))
+}
+
+resource "aci_leaf_profile" "xml_compatible" {
+  for_each = local.leaf_profiles
+
+  name = each.value.name
+  relation_infra_rs_acc_port_p = [
+    for p in lookup(each.value, "access_port_profiles", []) :
+    aci_leaf_interface_profile.xml_compatible[p].id
+  ]
+}
+
+resource "aci_leaf_selector" "xml_compatible" {
+  for_each = local.leaf_selectors
+
+  leaf_profile_dn         = aci_leaf_profile.xml_compatible[each.value.profile_name].id
+  name                    = each.value.name
+  switch_association_type = lookup(each.value, "selector_type", "range")
+}
+
+resource "aci_node_block" "xml_compatible" {
+  for_each = local.leaf_node_blocks
+
+  switch_association_dn = aci_leaf_selector.xml_compatible[each.value.selector_key].id
+  name                  = each.value.name
+  from_                 = tostring(each.value.from_node)
+  to_                   = tostring(lookup(each.value, "to_node", each.value.from_node))
 }
 
 resource "aci_access_port_selector" "this" {
