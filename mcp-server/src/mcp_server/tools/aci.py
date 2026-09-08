@@ -33,8 +33,6 @@ from mcp_server.schemas.aci import (
     CreateLeafSelectorRequest,
     CreateLeafNodeBlockRequest,
     CreateStaticPathBindingRequest,
-    BindEpgToPhysicalDomainRequest,
-    BindEpgToVmmDomainRequest,
     CreateProtocolL3OutRequest,
     CreateL3OutNodeProfileRequest,
     CreateL3OutInterfaceProfileRequest,
@@ -401,16 +399,6 @@ def create_interface_selector(request: CreateInterfaceSelectorRequest, *, nautob
 @_fabric_tool("create_static_path_binding", CreateStaticPathBindingRequest, "create_static_path_binding", "Bind an EPG to a static leaf path.")
 def create_static_path_binding(request: CreateStaticPathBindingRequest, *, nautobot: NautobotClient) -> dict:
     return {"static_path": nautobot.create_static_path_binding(**request.model_dump())}
-
-
-@_fabric_tool("bind_epg_to_physical_domain", BindEpgToPhysicalDomainRequest, "bind_epg_to_physical_domain", "Bind an EPG to a physical domain.")
-def bind_epg_to_physical_domain(request: BindEpgToPhysicalDomainRequest, *, nautobot: NautobotClient) -> dict:
-    return {"binding": nautobot.bind_epg_to_physical_domain(**request.model_dump())}
-
-
-@_fabric_tool("bind_epg_to_vmm_domain", BindEpgToVmmDomainRequest, "bind_epg_to_vmm_domain", "Bind an EPG to a VMM domain.")
-def bind_epg_to_vmm_domain(request: BindEpgToVmmDomainRequest, *, nautobot: NautobotClient) -> dict:
-    return {"binding": nautobot.bind_epg_to_vmm_domain(**request.model_dump())}
 
 
 @registry.register(name="create_access_port_profile", domain="cisco_aci", description="Create an APIC-equivalent access-port profile (infraAccPortP) intent.", schema=CreateAccessPortProfileRequest)
