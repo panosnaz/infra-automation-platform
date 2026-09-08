@@ -117,6 +117,74 @@ locals {
     }
   ]...)
 
+  # Tenant-scoped L4-L7/PBR services. The structure is emitted from each
+  # Tenant's aci_l4l7_services JSON Custom Field; unlike VMM credentials,
+  # this data contains no runtime secrets.
+  l4l7_devices = merge([
+    for tn, t in local.tenants : {
+      for device in lookup(lookup(t, "services", {}), "devices", []) :
+      "${tn}/${device.name}" => merge(device, {
+        tenant_name = tn
+        device_name = device.name
+      })
+    }
+  ]...)
+
+  l4l7_logical_interfaces = merge([
+    for device_key, device in local.l4l7_devices : {
+      for interface in lookup(device, "logical_interfaces", []) :
+      "${device_key}/${interface.name}" => merge(interface, {
+        tenant_name = device.tenant_name
+        device_name = device.device_name
+      })
+    }
+  ]...)
+
+  service_graphs = merge([
+    for tn, t in local.tenants : {
+      for graph in lookup(lookup(t, "services", {}), "service_graphs", []) :
+      "${tn}/${graph.name}" => merge(graph, {
+        tenant_name = tn
+        graph_name  = graph.name
+      })
+    }
+  ]...)
+
+  # One logical interface context per Service Graph arm. Each arm binds the
+  # graph's logical device context to a logical interface and PBR policy.
+  service_graph_interface_contexts = merge([
+    for graph_key, graph in local.service_graphs : {
+      for side in ["consumer", "provider"] :
+      "${graph_key}/${side}" => merge(graph[side], {
+        tenant_name = graph.tenant_name
+        graph_name  = graph.graph_name
+        device_name = graph.device
+        side        = side
+      })
+      if lookup(graph, side, null) != null
+    }
+  ]...)
+
+  redirect_policies = merge([
+    for tn, t in local.tenants : {
+      for policy in lookup(lookup(t, "services", {}), "redirect_policies", []) :
+      "${tn}/${policy.name}" => merge(policy, {
+        tenant_name = tn
+        policy_name = policy.name
+      })
+    }
+  ]...)
+
+  redirect_destinations = merge([
+    for policy_key, policy in local.redirect_policies : {
+      for destination in lookup(policy, "destinations", []) :
+      "${policy_key}/${destination.ip}" => merge(destination, {
+        tenant_name = policy.tenant_name
+        policy_name = policy.policy_name
+      })
+    }
+  ]...)
+
   # Flat map of EPG-to-Contract relations, both provided and consumed, built
   # from each EPG's provided_contracts/consumed_contracts lists:
   # "tenant/ap/epg/provided/contract" or ".../consumed/contract" => {...}
@@ -181,6 +249,27 @@ locals {
     }
   ]...)
 
+  l3out_bgp_policies  = { for k, l in local.l3outs : k => l if lookup(l, "protocol", "") == "bgp" }
+  l3out_ospf_policies = { for k, l in local.l3outs : k => l if lookup(l, "protocol", "") == "ospf" }
+  ospf_interface_policies = merge([
+    for tn, t in local.tenants : {
+      for p in lookup(t, "ospf_interface_policies", []) :
+      "${tn}/${p.name}" => merge(p, { tenant_name = tn })
+    }
+  ]...)
+
+  # Tenant-scoped VRF route leaks. The provider resource creates the leak
+  # route under the destination VRF; source_vrf remains explicit intent
+  # metadata because this provider version exposes no source-VRF argument.
+  vrf_route_leaks = merge([
+    for tn, t in local.tenants : {
+      for leak in lookup(t, "vrf_route_leaks", []) :
+      "${tn}/${leak.name}" => merge(leak, {
+        tenant_name = tn
+      })
+    }
+  ]...)
+
   # ADR-020 Phase B -- Fabric/Access Policies (logical-only MVP: no physical
   # interface binding -- see the aci_leaf_access_port_policy_group resource's
   # comment for why). Fabric-wide, not per-tenant, so read directly off
@@ -212,6 +301,108 @@ locals {
     for g in lookup(lookup(local.nac.apic, "access_policies", {}), "leaf_interface_policy_groups", []) :
     g.name => g
   }
+
+  # Ported from copilot/aci-platform-comparison (2026-09-08) -- IPG-level
+  # CDP/LLDP/link-level/spanning-tree/port-security policies, leaf interface
+  # profiles/selectors, EPG-to-domain/static-path bindings, and physical/
+  # protocol L3Out node/interface/BGP/OSPF intent. See Platform-Status-and-
+  # Pending-Items.md: plan-validated only on this simulator -- the L3Out/
+  # BGP/OSPF portion depends on real `pathep-[...]` physical-interface data
+  # this simulator does not have (same confirmed root cause as the existing
+  # "permanently blocked by simulator" items above); expect `apply` to fail
+  # for that portion until tested against real hardware or an environment
+  # with genuine leaf/spine interface data.
+  ipg_cdp_policies = {
+    for g in lookup(lookup(local.nac.apic, "access_policies", {}), "leaf_interface_policy_groups", []) :
+    g.name => merge(lookup(g, "policies", {}).cdp, { ipg_name = g.name })
+    if lookup(lookup(g, "policies", {}), "cdp", null) != null
+  }
+  ipg_lldp_policies = {
+    for g in lookup(lookup(local.nac.apic, "access_policies", {}), "leaf_interface_policy_groups", []) :
+    g.name => merge(lookup(g, "policies", {}).lldp, { ipg_name = g.name })
+    if lookup(lookup(g, "policies", {}), "lldp", null) != null
+  }
+  ipg_link_policies = {
+    for g in lookup(lookup(local.nac.apic, "access_policies", {}), "leaf_interface_policy_groups", []) :
+    g.name => merge(lookup(g, "policies", {}), { ipg_name = g.name })
+    if lookup(lookup(g, "policies", {}), "speed", null) != null || lookup(lookup(g, "policies", {}), "duplex", null) != null
+  }
+  ipg_stp_policies = {
+    for g in lookup(lookup(local.nac.apic, "access_policies", {}), "leaf_interface_policy_groups", []) :
+    g.name => merge(lookup(g, "policies", {}), { ipg_name = g.name })
+    if lookup(lookup(g, "policies", {}), "spanning_tree", null) != null
+  }
+  ipg_port_security_policies = {
+    for g in lookup(lookup(local.nac.apic, "access_policies", {}), "leaf_interface_policy_groups", []) :
+    g.name => merge(lookup(g, "policies", {}), { ipg_name = g.name })
+    if lookup(lookup(g, "policies", {}), "port_security", false) == true
+  }
+
+  leaf_interface_profiles = {
+    for p in lookup(lookup(local.nac.apic, "access_policies", {}), "leaf_interface_profiles", []) :
+    p.name => p
+  }
+  interface_selectors = {
+    for s in lookup(lookup(local.nac.apic, "access_policies", {}), "interface_selectors", []) :
+    s.name => s
+  }
+
+  epg_domain_bindings = merge([
+    for epg_key, epg in local.endpoint_groups : merge(
+      { for d in lookup(epg, "physical_domains", []) :
+      "${epg_key}/physical/${d}" => { epg = epg, domain = d, kind = "physical" } },
+      { for d in lookup(epg, "vmm_domains", []) :
+      "${epg_key}/vmm/${d.name}" => { epg = epg, domain = d.name, kind = "vmm", details = d } },
+    )
+  ]...)
+
+  static_path_bindings = merge([
+    for epg_key, epg in local.endpoint_groups : {
+      for p in lookup(epg, "static_paths", []) :
+      "${epg_key}/${p.node_id}/${p.module}/${p.port}" => merge(p, {
+        tenant_name = epg.tenant_name
+        ap_name     = epg.ap_name
+        epg_name    = epg.name
+      })
+    }
+  ]...)
+
+  l3out_node_profiles = merge([
+    for l3out_key, l3out in local.l3outs : {
+      for p in lookup(l3out, "node_profiles", []) :
+      "${l3out_key}/${p.name}" => merge(p, { tenant_name = l3out.tenant_name, l3out_name = l3out.name, l3out_key = l3out_key })
+    }
+  ]...)
+  l3out_nodes = merge([
+    for profile_key, profile in local.l3out_node_profiles : {
+      for n in lookup(profile, "nodes", []) :
+      "${profile_key}/${n.node_id}" => merge(n, { profile_key = profile_key, tenant_name = profile.tenant_name, l3out_name = profile.l3out_name, l3out_key = profile.l3out_key })
+    }
+  ]...)
+  l3out_interface_profiles = merge([
+    for profile_key, profile in local.l3out_node_profiles : {
+      for p in lookup(profile, "interface_profiles", []) :
+      "${profile_key}/${p.name}" => merge(p, { node_profile_key = profile_key, tenant_name = profile.tenant_name, l3out_name = profile.l3out_name, l3out_key = profile.l3out_key })
+    }
+  ]...)
+  l3out_interfaces = merge([
+    for ip_key, profile in local.l3out_interface_profiles : {
+      for i in lookup(profile, "interfaces", []) :
+      "${ip_key}/${i.node_id}/${i.module}/${i.port}" => merge(i, { interface_profile_key = ip_key, node_profile_key = profile.node_profile_key, l3out_key = profile.l3out_key, tenant_name = profile.tenant_name })
+    }
+  ]...)
+  bgp_peers = merge([
+    for interface_key, i in local.l3out_interfaces : {
+      for p in lookup(i, "bgp_peers", []) :
+      "${interface_key}/${p.ip}" => merge(p, { interface_key = interface_key, l3out_key = i.l3out_key, node_profile_key = i.node_profile_key })
+    }
+  ]...)
+  ospf_interfaces = merge([
+    for interface_key, i in local.l3out_interfaces : {
+      for o in lookup(i, "ospf", []) :
+      "${interface_key}/${o.name}" => merge(o, { interface_key = i.interface_profile_key, l3out_key = i.l3out_key, tenant_name = i.tenant_name })
+    }
+  ]...)
 
   # ADR-020 Phase D -- VMM Domain integration (VMware only for this MVP).
   # Fabric-wide, same aci_fabric_policies JSON Custom Field on Location as
@@ -490,6 +681,117 @@ resource "aci_contract_subject" "this" {
     for f in lookup(each.value, "filters", []) :
     aci_filter.this["${each.value.tenant_name}/${f}"].id
   ]
+
+  relation_vz_rs_subj_graph_att = (
+    lookup(each.value, "service_graph", null) != null
+    ? aci_l4_l7_service_graph_template.this["${each.value.tenant_name}/${each.value.service_graph}"].id
+    : null
+  )
+}
+
+# ---------------------------------------------------------------------------
+# L4-L7 Devices, Service Graphs, and Policy-Based Redirect
+# ---------------------------------------------------------------------------
+resource "aci_l4_l7_device" "this" {
+  for_each = local.l4l7_devices
+
+  tenant_dn     = aci_tenant.this[each.value.tenant_name].id
+  name          = each.value.device_name
+  service_type  = lookup(each.value, "service_type", null)
+  device_type   = upper(lookup(each.value, "device_type", "VIRTUAL"))
+  function_type = lookup(each.value, "function_type", null)
+  managed       = try(each.value.managed ? "yes" : "no", null)
+  context_aware = lookup(each.value, "context_aware", null)
+  trunking      = try(each.value.trunking ? "yes" : "no", null)
+  promiscuous_mode = try(
+    each.value.promiscuous_mode ? "yes" : "no",
+    null,
+  )
+  description = lookup(each.value, "description", null)
+
+  dynamic "relation_vns_rs_al_dev_to_dom_p" {
+    for_each = lookup(each.value, "vmm_domain", null) != null ? [each.value.vmm_domain] : []
+
+    content {
+      domain_dn = aci_vmm_domain.this[relation_vns_rs_al_dev_to_dom_p.value].id
+    }
+  }
+}
+
+resource "aci_l4_l7_logical_interface" "this" {
+  for_each = local.l4l7_logical_interfaces
+
+  l4_l7_device_dn = aci_l4_l7_device.this["${each.value.tenant_name}/${each.value.device_name}"].id
+  name            = each.value.name
+  description     = lookup(each.value, "description", null)
+}
+
+resource "aci_l4_l7_service_graph_template" "this" {
+  for_each = local.service_graphs
+
+  tenant_dn                         = aci_tenant.this[each.value.tenant_name].id
+  name                              = each.value.graph_name
+  l4_l7_service_graph_template_type = lookup(each.value, "graph_type", "legacy")
+  ui_template_type = lookup(
+    {
+      FW_ROUTED = "ONE_NODE_FW_ROUTED"
+      FW_TRANS  = "ONE_NODE_FW_TRANS"
+    },
+    upper(lookup(each.value, "template_type", "UNSPECIFIED")),
+    upper(lookup(each.value, "template_type", "UNSPECIFIED")),
+  )
+  term_cons_name = lookup(each.value, "consumer_terminal_name", "consumer")
+  term_prov_name = lookup(each.value, "provider_terminal_name", "provider")
+  description    = lookup(each.value, "description", null)
+}
+
+resource "aci_logical_device_context" "this" {
+  for_each = local.service_graphs
+
+  tenant_dn                          = aci_tenant.this[each.value.tenant_name].id
+  ctrct_name_or_lbl                  = each.value.contract
+  graph_name_or_lbl                  = each.value.graph_name
+  node_name_or_lbl                   = lookup(each.value, "node_name", "node-1")
+  relation_vns_rs_l_dev_ctx_to_l_dev = aci_l4_l7_device.this["${each.value.tenant_name}/${each.value.device}"].id
+  depends_on = [
+    aci_contract.this,
+    aci_l4_l7_service_graph_template.this,
+  ]
+}
+
+resource "aci_logical_interface_context" "this" {
+  for_each = local.service_graph_interface_contexts
+
+  logical_device_context_dn = aci_logical_device_context.this["${each.value.tenant_name}/${each.value.graph_name}"].id
+  conn_name_or_lbl          = each.value.side
+  relation_vns_rs_l_if_ctx_to_l_if = aci_l4_l7_logical_interface.this[
+    "${each.value.tenant_name}/${each.value.device_name}/${each.value.logical_interface}"
+  ].id
+  relation_vns_rs_l_if_ctx_to_svc_redirect_pol = aci_service_redirect_policy.this[
+    "${each.value.tenant_name}/${each.value.redirect_policy}"
+  ].id
+  l3_dest = try(each.value.l3_destination ? "yes" : "no", null)
+}
+
+resource "aci_service_redirect_policy" "this" {
+  for_each = local.redirect_policies
+
+  tenant_dn              = aci_tenant.this[each.value.tenant_name].id
+  name                   = each.value.policy_name
+  dest_type              = lookup(each.value, "destination_type", "L3")
+  anycast_enabled        = try(each.value.anycast ? "yes" : "no", null)
+  program_local_pod_only = try(each.value.pod_aware ? "yes" : "no", null)
+  resilient_hash_enabled = try(each.value.resilient_hashing ? "yes" : "no", null)
+  description            = lookup(each.value, "description", null)
+}
+
+resource "aci_destination_of_redirected_traffic" "this" {
+  for_each = local.redirect_destinations
+
+  service_redirect_policy_dn = aci_service_redirect_policy.this["${each.value.tenant_name}/${each.value.policy_name}"].id
+  ip                         = each.value.ip
+  mac                        = lookup(each.value, "mac", null)
+  description                = lookup(each.value, "description", null)
 }
 
 # ---------------------------------------------------------------------------
@@ -557,6 +859,110 @@ resource "aci_l3_ext_subnet" "this" {
 
   scope     = lookup(each.value, "scope", null)
   aggregate = lookup(each.value, "aggregate", null)
+}
+
+resource "aci_logical_node_profile" "this" {
+  for_each      = local.l3out_node_profiles
+  l3_outside_dn = aci_l3_outside.this["${each.value.tenant_name}/${each.value.l3out_name}"].id
+  name          = each.value.name
+  description   = lookup(each.value, "description", null)
+}
+
+resource "aci_logical_node_to_fabric_node" "this" {
+  for_each                = local.l3out_nodes
+  logical_node_profile_dn = aci_logical_node_profile.this[each.value.profile_key].id
+  tdn                     = "topology/pod-${each.value.pod_id}/node-${each.value.node_id}"
+  rtr_id                  = lookup(each.value, "router_id", null)
+  rtr_id_loop_back        = try(each.value.router_id_as_loopback ? "yes" : "no", null)
+}
+
+resource "aci_logical_interface_profile" "this" {
+  for_each                = local.l3out_interface_profiles
+  logical_node_profile_dn = aci_logical_node_profile.this[each.value.node_profile_key].id
+  name                    = each.value.name
+  description             = lookup(each.value, "description", null)
+}
+
+resource "aci_l3out_path_attachment" "this" {
+  for_each                     = { for k, i in local.l3out_interfaces : k => i if !try(i.svi, false) }
+  logical_interface_profile_dn = aci_logical_interface_profile.this[each.value.interface_profile_key].id
+  if_inst_t                    = "l3-port"
+  target_dn                    = "topology/pod-${each.value.pod_id}/paths-${each.value.node_id}/pathep-[eth${each.value.module}/${each.value.port}]"
+  addr                         = lookup(each.value, "ip", null)
+  encap                        = lookup(each.value, "vlan", null) != null ? "vlan-${each.value.vlan}" : null
+  mode                         = lookup(each.value, "mode", null)
+  mtu                          = lookup(each.value, "mtu", null)
+}
+
+resource "aci_l3out_floating_svi" "this" {
+  for_each                     = { for k, i in local.l3out_interfaces : k => i if try(i.svi, false) }
+  logical_interface_profile_dn = aci_logical_interface_profile.this[each.value.interface_profile_key].id
+  node_dn                      = "topology/pod-${each.value.pod_id}/node-${each.value.node_id}"
+  encap                        = "vlan-${each.value.vlan}"
+  addr                         = lookup(each.value, "ip", null)
+  mode                         = lookup(each.value, "mode", null)
+  mtu                          = lookup(each.value, "mtu", null)
+}
+
+resource "aci_l3out_bgp_protocol_profile" "this" {
+  for_each                = local.l3out_bgp_policies
+  logical_node_profile_dn = one([for k, p in local.l3out_node_profiles : aci_logical_node_profile.this[k].id if startswith(k, "${each.key}/")])
+}
+
+resource "aci_bgp_peer_connectivity_profile" "this" {
+  for_each                = local.bgp_peers
+  parent_dn               = aci_l3out_bgp_protocol_profile.this[each.value.l3out_key].id
+  logical_node_profile_dn = aci_logical_node_profile.this[each.value.node_profile_key].id
+  addr                    = each.value.ip
+  as_number               = tostring(each.value.remote_as)
+  local_asn               = tostring(each.value.local_as)
+  admin_state             = try(each.value.admin_state ? "enabled" : "disabled", null)
+  ttl                     = tostring(lookup(each.value, "ttl", 1))
+  weight                  = tostring(lookup(each.value, "weight", 0))
+  allowed_self_as_cnt     = tostring(lookup(each.value, "allowed_self_as_count", 0))
+}
+
+resource "aci_l3out_ospf_interface_profile" "this" {
+  for_each                     = local.ospf_interfaces
+  logical_interface_profile_dn = aci_logical_interface_profile.this[each.value.interface_key].id
+  relation_ospf_rs_if_pol      = lookup(each.value, "policy", null) != null ? aci_ospf_interface_policy.this["${each.value.tenant_name}/${each.value.policy}"].id : null
+  auth_type                    = lookup(each.value, "authentication_type", null)
+  auth_key_id                  = lookup(each.value, "authentication_key_id", null)
+}
+
+resource "aci_ospf_interface_policy" "this" {
+  for_each = local.ospf_interface_policies
+
+  tenant_dn = aci_tenant.this[each.value.tenant_name].id
+  name      = each.value.name
+  nw_t = lookup({
+    "point-to-point" = "p2p"
+    "broadcast"      = "bcast"
+  }, lower(lookup(each.value, "network_type", "unspecified")), lower(lookup(each.value, "network_type", "unspecified")))
+  hello_intvl = lookup(each.value, "hello_interval", null)
+  dead_intvl  = lookup(each.value, "dead_interval", null)
+  cost        = lookup(each.value, "cost", null)
+  prio        = lookup(each.value, "priority", null)
+  ctrl = compact([
+    try(each.value.passive ? "passive" : null, null),
+  ])
+  description = lookup(each.value, "description", null)
+}
+
+# ---------------------------------------------------------------------------
+# VRF Route Leaking
+# ---------------------------------------------------------------------------
+resource "aci_vrf_leak_epg_bd_subnet" "this" {
+  for_each = local.vrf_route_leaks
+
+  vrf_dn = aci_vrf.this["${each.value.tenant_name}/${each.value.destination_vrf}"].id
+  ip     = each.value.subnet
+
+  allow_l3out_advertisement = try(
+    each.value.allow_l3out_advertisement ? "true" : "false",
+    null,
+  )
+  description = lookup(each.value, "description", null)
 }
 
 # ---------------------------------------------------------------------------
@@ -635,6 +1041,76 @@ resource "aci_leaf_access_port_policy_group" "this" {
     ? aci_attachable_access_entity_profile.this[each.value.aep].id
     : null
   )
+  relation_infra_rs_cdp_if_pol           = lookup(local.ipg_cdp_policies, each.key, null) != null ? aci_cdp_interface_policy.this[each.key].id : null
+  relation_infra_rs_lldp_if_pol          = lookup(local.ipg_lldp_policies, each.key, null) != null ? aci_lldp_interface_policy.this[each.key].id : null
+  relation_infra_rs_l2_if_pol            = lookup(local.ipg_link_policies, each.key, null) != null ? aci_link_level_interface_policy.this[each.key].id : null
+  relation_infra_rs_stp_if_pol           = lookup(local.ipg_stp_policies, each.key, null) != null ? aci_spanning_tree_interface_policy.this[each.key].id : null
+  relation_infra_rs_l2_port_security_pol = lookup(local.ipg_port_security_policies, each.key, null) != null ? aci_port_security_interface_policy.this[each.key].id : null
+}
+
+resource "aci_cdp_interface_policy" "this" {
+  for_each    = local.ipg_cdp_policies
+  name        = "${each.key}-cdp"
+  admin_state = try(each.value.enabled ? "enabled" : "disabled", null)
+}
+
+resource "aci_lldp_interface_policy" "this" {
+  for_each    = local.ipg_lldp_policies
+  name        = "${each.key}-lldp"
+  admin_rx_st = try(each.value.receive ? "enabled" : "disabled", null)
+  admin_tx_st = try(each.value.transmit ? "enabled" : "disabled", null)
+}
+
+resource "aci_link_level_interface_policy" "this" {
+  for_each = local.ipg_link_policies
+  name     = "${each.key}-link"
+  auto_negotiation = lookup({
+    auto = "on"
+    full = "on-enforce"
+  }, lower(lookup(each.value, "duplex", "auto")), "on")
+  speed = lookup(each.value, "speed", null)
+}
+
+resource "aci_spanning_tree_interface_policy" "this" {
+  for_each           = local.ipg_stp_policies
+  name               = "${each.key}-stp"
+  interface_controls = [each.value.spanning_tree]
+}
+
+resource "aci_port_security_interface_policy" "this" {
+  for_each         = local.ipg_port_security_policies
+  name             = "${each.key}-port-security"
+  violation_action = each.value.port_security ? "protect" : "shutdown"
+}
+
+resource "aci_leaf_interface_profile" "this" {
+  for_each    = local.leaf_interface_profiles
+  name        = each.value.name
+  description = lookup(each.value, "description", null)
+}
+
+resource "aci_access_port_selector" "this" {
+  for_each                                  = local.interface_selectors
+  leaf_interface_profile_dn                 = aci_leaf_interface_profile.this[each.value.leaf_interface_profile].id
+  name                                      = each.value.name
+  port_selector_type                        = lookup(each.value, "port_selector_type", "range")
+  relation_to_leaf_access_port_policy_group = { target_dn = aci_leaf_access_port_policy_group.this[each.value.policy_group].id }
+}
+
+resource "aci_epg_to_domain" "this" {
+  for_each           = local.epg_domain_bindings
+  application_epg_dn = aci_application_epg.this["${each.value.epg.tenant_name}/${each.value.epg.ap_name}/${each.value.epg.name}"].id
+  tdn                = each.value.kind == "physical" ? aci_physical_domain.this[each.value.domain].id : aci_vmm_domain.this[each.value.domain].id
+  encap              = each.value.kind == "vmm" ? lookup(each.value.details, "encap", null) : null
+  encap_mode         = each.value.kind == "vmm" ? lookup(each.value.details, "mode", null) : null
+}
+
+resource "aci_epg_to_static_path" "this" {
+  for_each           = local.static_path_bindings
+  application_epg_dn = aci_application_epg.this["${each.value.tenant_name}/${each.value.ap_name}/${each.value.epg_name}"].id
+  tdn                = "topology/pod-${each.value.pod_id}/paths-${each.value.node_id}/pathep-[eth${each.value.module}/${each.value.port}]"
+  encap              = each.value.encap
+  mode               = lookup(each.value, "mode", "regular")
 }
 
 # ---------------------------------------------------------------------------

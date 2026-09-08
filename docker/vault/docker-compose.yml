@@ -27,13 +27,17 @@ services:
       retries: 10
     restart: unless-stopped
     networks:
-      - app-net
+      - isolated-net
 
 volumes:
   vault_data:
     name: "infra-automation-lab_vault_data"
 
 networks:
-  app-net:
+  # Joins the standalone nautobot-isolated stack's network (not app-net) --
+  # the root docker-compose.yml's app-net/full stack isn't up in this
+  # workspace. Keep this on the isolated Nautobot network so local CI jobs can
+  # this runs as part of the full stack.
+  isolated-net:
     external: true
-    name: "infra-automation-lab_app-net"
+    name: "infra-automation-nautobot-isolated-net"

@@ -11,14 +11,20 @@ from mcp_server.schemas.aci import (
     CreateContractRequest,
     CreateEpgRequest,
     CreateL3OutRequest,
+    CreateL4L7DeviceRequest,
     CreateLeafInterfacePolicyGroupRequest,
     CreateLocalUserRequest,
+    CreateOneArmServiceGraphRequest,
+    CreatePbrContractRequest,
+    CreatePbrPolicyRequest,
     CreatePhysicalDomainRequest,
     CreateSecurityDomainRequest,
+    CreateServiceGraphRequest,
     CreateTenantRequest,
     CreateVlanPoolRequest,
     CreateVmmDomainRequest,
     CreateVrfRequest,
+    CreateVrfRouteLeakRequest,
 )
 
 
@@ -232,4 +238,88 @@ def test_invalid_bind_epg_domain_type_rejected(bad_type):
     with pytest.raises(ValidationError):
         BindEpgDomainRequest(
             tenant="finance", application_profile="finance-ap", epg="finance-epg", domain="dom1", domain_type=bad_type
+        )
+
+
+# Ported from copilot/aci-platform-comparison (2026-09-08) -- L4-L7/PBR/
+# Service Graph and VRF route-leak schema tests, genuinely new coverage.
+def test_l4l7_and_pbr_request_defaults():
+    device = CreateL4L7DeviceRequest(
+        tenant="finance", name="fw", consumer_interface="inside", provider_interface="outside", vmm_domain="finance-vmm"
+    )
+    graph = CreateServiceGraphRequest(
+        tenant="finance",
+        name="fw-graph",
+        contract="web-to-db",
+        device="fw",
+        consumer_logical_interface="inside",
+        consumer_redirect_policy="inside-pbr",
+        provider_logical_interface="outside",
+        provider_redirect_policy="outside-pbr",
+    )
+    policy = CreatePbrPolicyRequest(tenant="finance", name="web-pbr", destination_ip="10.0.0.10")
+    contract = CreatePbrContractRequest(
+        tenant="finance",
+        name="web-to-db",
+        filter_name="tcp-filter",
+        service_graph="fw-graph",
+        consumer_epg="web",
+        provider_epg="db",
+    )
+
+    assert device.service_type == "FW"
+    assert graph.node_name == "node-1"
+    assert policy.destination_type == "L3"
+    assert contract.ip_protocol == "unspecified"
+
+
+def test_invalid_service_graph_name_rejected():
+    with pytest.raises(ValidationError):
+        CreateServiceGraphRequest(
+            tenant="finance",
+            name="bad graph",
+            contract="web-to-db",
+            device="fw",
+            consumer_logical_interface="inside",
+            consumer_redirect_policy="inside-pbr",
+            provider_logical_interface="outside",
+            provider_redirect_policy="outside-pbr",
+        )
+
+
+def test_virtual_l4l7_device_requires_vmm_domain():
+    with pytest.raises(ValidationError):
+        CreateL4L7DeviceRequest(tenant="finance", name="fw", consumer_interface="inside", provider_interface="outside")
+
+
+def test_one_arm_device_and_service_graph_request():
+    device = CreateL4L7DeviceRequest(tenant="finance", name="adc", consumer_interface="client", vmm_domain="finance-vmm")
+    graph = CreateOneArmServiceGraphRequest(
+        tenant="finance", name="adc-graph", contract="client-to-app", device="adc", logical_interface="client", redirect_policy="adc-pbr"
+    )
+
+    assert device.provider_interface is None
+    assert graph.template_type == "ONE_NODE_ADC_ONE_ARM"
+
+
+def test_vrf_route_leak_request_defaults_and_distinct_vrfs():
+    request = CreateVrfRouteLeakRequest(
+        tenant="finance",
+        name="shared-to-app",
+        source_vrf="shared-vrf",
+        destination_vrf="app-vrf",
+        subnet="10.10.10.0/24",
+    )
+
+    assert request.allow_l3out_advertisement is False
+
+
+def test_vrf_route_leak_rejects_same_source_and_destination():
+    with pytest.raises(ValidationError):
+        CreateVrfRouteLeakRequest(
+            tenant="finance",
+            name="invalid-leak",
+            source_vrf="app-vrf",
+            destination_vrf="app-vrf",
+            subnet="10.10.10.0/24",
         )

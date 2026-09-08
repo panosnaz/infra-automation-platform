@@ -23,7 +23,7 @@ scrape_configs:
       Accept:
         values: ["*/*"]
     static_configs:
-      - targets: ["host.docker.internal:8080"]
+      - targets: ["host.docker.internal:8081"]
 
   - job_name: "opa"
     # The legacy "platform-api" FastAPI app this job used to target is

@@ -30,7 +30,7 @@ from datetime import datetime, timezone
 
 import yaml
 
-NAUTOBOT_URL = os.environ.get("NAUTOBOT_URL", "http://localhost:8080").rstrip("/")
+NAUTOBOT_URL = os.environ.get("NAUTOBOT_URL", "http://host.docker.internal:8081").rstrip("/")
 NAUTOBOT_TOKEN = os.environ.get("NAUTOBOT_TOKEN", "")
 
 

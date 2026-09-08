@@ -1,0 +1,57 @@
+# Fill the values marked FILL_ME_IN.
+# Names in this file are referenced by the L3Out and route-leak files.
+# Do not put passwords, tokens, private keys, or certificates here.
+
+tenant:
+  name: ACI:Sales
+  description: FILL_ME_IN        # Optional business description
+
+  vrfs:
+    - name: Shared_Services_VRF
+    - name: Presales_VRF
+    - name: FILL_ME_IN          # Optional External_VRF, only if required
+
+  bridge_domains:
+    - name: FILL_ME_IN          # Shared Services BD name from the lab
+      vrf: Shared_Services_VRF
+      gateway: FILL_ME_IN       # Shared-services gateway/prefix
+    - name: FILL_ME_IN
+      vrf: Presales_VRF
+      gateway: FILL_ME_IN       # Presales application gateway/prefix
+
+  application_profiles:
+    - name: FILL_ME_IN          # Shared Services AP name
+      endpoint_groups:
+        - name: FILL_ME_IN      # Shared Services EPG name
+          bridge_domain: FILL_ME_IN
+          vlan_id: FILL_ME_IN    # VLAN ID if physically/VMM attached
+          physical_domains:
+            - ExtL3Dom
+          vmm_domains:
+            - name: FILL_ME_IN
+              encap: FILL_ME_IN
+              mode: regular
+          static_paths:
+            - pod_id: FILL_ME_IN
+              node_id: FILL_ME_IN
+              module: FILL_ME_IN
+              port: FILL_ME_IN
+              encap: FILL_ME_IN
+              mode: regular
+        - name: FILL_ME_IN      # Destination/application EPG name
+          bridge_domain: FILL_ME_IN
+          vlan_id: FILL_ME_IN
+
+  contracts:
+    - name: FileServices_Ct
+      scope: context
+      filters:
+        - name: FILL_ME_IN      # Filter name
+          entries:
+            - name: FILL_ME_IN  # Filter entry name
+              ether_type: ip
+              ip_protocol: FILL_ME_IN  # tcp/udp/icmp/unspecified
+      subjects:
+        - name: FILL_ME_IN      # Contract subject name
+          filters:
+            - FILL_ME_IN        # Must match filters[].name

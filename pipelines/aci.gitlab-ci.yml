@@ -21,39 +21,64 @@ variables:
   TERRAFORM_VERSION: "1.9.8"
   KNOWLEDGE_CAPTURE_PATH: "knowledge_capture/aci-deployments.jsonl"
   CI_ENVIRONMENT_NAME: "lab"
-  NAUTOBOT_URL: "http://localhost:8080"
+  NAUTOBOT_URL: "http://host.docker.internal:8081"
   MINIO_ENDPOINT: "http://localhost:9000"
+  MINIO_KNOWLEDGE_BUCKET: "knowledge-capture"
+  MINIO_KNOWLEDGE_KEY: "aci/deployments.jsonl"
+
+# GitLab CI merges every included file's top-level `variables:` block into
+# one flat map -- since evpn.gitlab-ci.yml defines the exact same keys
+# (NETASCODE_YAML, POLICY_DOMAIN, TERRAFORM_DIR, ANSIBLE_DIR, PYATS_DIR,
+# KNOWLEDGE_CAPTURE_PATH, MINIO_KNOWLEDGE_KEY), the LAST included file wins
+# for every job that doesn't redeclare them locally, silently pointing
+# ACI's jobs at EVPN's paths/domain (confirmed live: validate_nac failed
+# checking platform/netascode/evpn/fabric.yaml for an 'apic' key). Every
+# job below restates its own values to be immune to include order.
+.aci_job_vars: &aci_job_vars
+  NETASCODE_YAML: "platform/netascode/aci/tenants.yaml"
+  POLICY_DOMAIN: "cisco_aci"
+  TERRAFORM_DIR: "platform/terraform/aci"
+  ANSIBLE_DIR: "platform/ansible/aci"
+  PYATS_DIR: "tests/pyats/aci"
+  KNOWLEDGE_CAPTURE_PATH: "knowledge_capture/aci-deployments.jsonl"
   MINIO_KNOWLEDGE_BUCKET: "knowledge-capture"
   MINIO_KNOWLEDGE_KEY: "aci/deployments.jsonl"
 
 generate_nac:
   extends: ".generate_nac"
+  variables: *aci_job_vars
 
 validate_nac:
   extends: ".validate_nac"
   needs: ["generate_nac"]
+  variables: *aci_job_vars
 
 policy_check:
   extends: ".policy_check"
   needs: ["validate_nac"]
+  variables: *aci_job_vars
 
 terraform_plan:
   extends: ".terraform_plan"
   needs: ["policy_check"]
+  variables: *aci_job_vars
 
 terraform_apply:
   extends: ".terraform_apply"
   needs: ["terraform_plan"]
+  variables: *aci_job_vars
   environment:
     name: "lab"
 
 ansible_configure:
   extends: ".ansible_configure"
   needs: ["terraform_apply"]
+  variables: *aci_job_vars
 
 pyats_verify:
   extends: ".pyats_verify"
   needs: ["ansible_configure"]
+  variables: *aci_job_vars
 
 # needs generate_nac explicitly (not just the normal upstream chain) so this
 # job always downloads the freshly-generated NETASCODE_YAML artifact, even
@@ -68,6 +93,7 @@ write_results:
     - job: "generate_nac"
     - job: "pyats_verify"
       optional: true
+  variables: *aci_job_vars
 
 knowledge_capture:
   extends: ".knowledge_capture"
@@ -76,4 +102,4 @@ knowledge_capture:
     - job: "pyats_verify"
       optional: true
     - job: "write_results"
-      optional: true
+  variables: *aci_job_vars

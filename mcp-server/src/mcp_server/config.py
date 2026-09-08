@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="", extra="ignore")
 
     # Nautobot -- the Source of Truth every tool ultimately writes to.
-    nautobot_url: str = Field(default="http://localhost:8080", alias="NAUTOBOT_URL")
+    nautobot_url: str = Field(default="http://localhost:8081", alias="NAUTOBOT_URL")
     nautobot_token: str = Field(alias="NAUTOBOT_TOKEN")
 
     # GitLab -- queried (never orchestrated) by show_status per

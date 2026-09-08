@@ -34,7 +34,7 @@ variables:
   TERRAFORM_VERSION: "1.9.8"
   KNOWLEDGE_CAPTURE_PATH: "knowledge_capture/evpn-deployments.jsonl"
   CI_ENVIRONMENT_NAME: "lab"
-  NAUTOBOT_URL: "http://localhost:8080"
+  NAUTOBOT_URL: "http://host.docker.internal:8081"
   MINIO_ENDPOINT: "http://localhost:9000"
   MINIO_KNOWLEDGE_BUCKET: "knowledge-capture"
   MINIO_KNOWLEDGE_KEY: "evpn/deployments.jsonl"

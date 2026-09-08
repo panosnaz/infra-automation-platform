@@ -100,7 +100,7 @@ docker/
 
 | Service | Dockerfile | Compose | Network | Volumes | Health check | Depends on | Resources (lab-scale) |
 |---|---|---|---|---|---|---|---|
-| `nautobot` | Upstream image, no custom Dockerfile needed | `docker/nautobot/docker-compose.yml` | `app-net` | `nautobot_media`, config bind mounts | `GET /health/` | postgres, redis | 2 vCPU / 4 GB |
+| `isolated-nautobot` | Repository-local custom image | `docker/nautobot-isolated/docker-compose.yml` | `isolated-net` | `isolated_nautobot_media`, config bind mounts | `GET /health/` | isolated-postgres, isolated-redis | 1.25 vCPU / 1.5 GB |
 | `postgres` | Upstream `postgres:` image | `docker/postgres/docker-compose.yml` | `app-net` | `postgres_data` | `pg_isready` | — | 1 vCPU / 2 GB |
 | `redis` | Upstream `redis:` image | `docker/redis/docker-compose.yml` | `app-net` | `redis_data` | `redis-cli ping` | — | 0.5 vCPU / 512 MB |
 | `gitlab` | Upstream Omnibus image | `docker/gitlab/docker-compose.yml` | `app-net`, `proxy-net` | `gitlab_config`, `gitlab_logs`, `gitlab_data` | `/-/health` | — | 4 vCPU / 8 GB |

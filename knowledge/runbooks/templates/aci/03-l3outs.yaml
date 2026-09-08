@@ -1,0 +1,83 @@
+# Fill the values marked FILL_ME_IN.
+# This file describes logical and physical BGP/OSPF L3Out intent.
+# Do not put BGP/OSPF passwords here; use Vault references.
+
+tenant: ACI:Sales
+
+l3outs:
+  - name: BGP_L3Out
+    vrf: Presales_VRF
+    domain: ExtL3Dom
+    protocol: bgp                 # bgp or ospf
+    description: eBGP to external Nexus; transit with OSPF_L3Out
+
+    node_profiles:
+      - name: L101
+        nodes:
+          - pod_id: 1
+            node_id: 101
+            router_id: 10.3.3.3
+            router_id_as_loopback: false
+        interface_profiles:
+          - name: BGP_L3Out_interfaceProfile
+            interfaces:
+              - pod_id: 1
+                node_id: 101
+                module: 1
+                port: 4
+                svi: true
+                vlan: 51
+                mode: regular
+                ip: 172.16.1.5/30
+                mtu: inherit
+                bgp_peers:
+                  - ip: 172.16.1.6
+                    remote_as: 65002
+                    local_as: 65003
+                    admin_state: true
+                    ttl: 1
+                    weight: 0
+                    allowed_self_as_count: 3
+                ospf:
+                  - name: FILL_ME_IN      # Only if this interface also runs OSPF
+                    policy: FILL_ME_IN
+
+    external_endpoint_groups:
+      - name: Nexus_ExtNet
+        subnets:
+          - prefix: 172.16.200.200/32
+            import_security: true
+            export_route_control: false
+            shared_route_control: false
+            shared_security: false
+        provided_contracts:
+          - FileServices_Ct
+        consumed_contracts:
+          - FILL_ME_IN        # Optional consumed contract
+
+  - name: OSPF_L3Out
+    vrf: Presales_VRF
+    domain: ExtL3Dom
+    protocol: ospf
+    ospf_area: 0.0.0.0
+    ospf_area_type: regular
+    description: OSPF to external Catalyst
+    node_profiles:
+      - name: OSPF_NP
+        nodes:
+          - pod_id: 1
+            node_id: 102
+            router_id: 10.1.1.1
+            router_id_as_loopback: false
+        interface_profiles:
+          - name: OSPF_IP
+            interfaces:
+              - pod_id: 1
+                node_id: 102
+                module: 1
+                port: 1
+                svi: true
+                vlan: 20
+                mode: regular
+                ip: 172.16.1.1/30
+                mtu: inherit

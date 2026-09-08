@@ -32,23 +32,33 @@ _secret_json="$(curl -sSf --header "X-Vault-Token: ${VAULT_TOKEN}" \
   return 1 2>/dev/null || exit 1
 }
 
-_exports="$(echo "${_secret_json}" | python3 -c '
-import json, sys
+_vault_value() {
+  printf '%s' "${_secret_json}" | python3 -c '
+import json
+import sys
 data = json.load(sys.stdin)["data"]["data"]
-aci_url = data["aci_url"]
-aci_username = data["aci_username"]
-aci_password = data["aci_password"]
+print(data.get(sys.argv[1], ""))
+' "$1"
+}
+
+export TF_VAR_aci_url="$(_vault_value aci_url)"
+export TF_VAR_aci_username="$(_vault_value aci_username)"
+export TF_VAR_aci_password="$(_vault_value aci_password)"
+_vmm_vcenter_username="$(_vault_value vmm_vcenter_username)"
+_vmm_vcenter_password="$(_vault_value vmm_vcenter_password)"
+if [[ -n "${_vmm_vcenter_username}" ]]; then
+  export TF_VAR_vmm_vcenter_username="${_vmm_vcenter_username}"
+fi
+if [[ -n "${_vmm_vcenter_password}" ]]; then
+  export TF_VAR_vmm_vcenter_password="${_vmm_vcenter_password}"
+fi
 # Present since 2026-07-04; fall back to "true" for older secrets written
 # before this field existed (this Vault only ever stores the lab ACI
 # simulator, which always uses a self-signed certificate).
-aci_insecure = data.get("aci_insecure", "true")
-print(f"export TF_VAR_aci_url={json.dumps(aci_url)}")
-print(f"export TF_VAR_aci_username={json.dumps(aci_username)}")
-print(f"export TF_VAR_aci_password={json.dumps(aci_password)}")
-print(f"export TF_VAR_aci_insecure={json.dumps(aci_insecure)}")
-')"
+export TF_VAR_aci_insecure="$(_vault_value aci_insecure)"
+if [[ -z "${TF_VAR_aci_insecure}" ]]; then
+  export TF_VAR_aci_insecure="true"
+fi
+unset _secret_json _vmm_vcenter_username _vmm_vcenter_password
 
-eval "${_exports}"
-unset _secret_json _exports
-
-echo "[vault] Exported TF_VAR_aci_url, TF_VAR_aci_username, TF_VAR_aci_password, TF_VAR_aci_insecure from Vault (${VAULT_ADDR})"
+echo "[vault] Exported password-based ACI Terraform variables from Vault (${VAULT_ADDR})"

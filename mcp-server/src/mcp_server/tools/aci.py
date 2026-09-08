@@ -8,7 +8,12 @@ Fabric Policy objects, following the same pattern. Also covers
 create_vmm_domain -- ADR-020 Phase D's VMM Domain integration -- and
 bind_epg_domain -- ADR-020 Phase D's follow-on EPG-to-Domain binding. Also
 covers create_security_domain and create_local_user -- ADR-020 Phase F's
-RBAC/Security Domains/Local Users coverage.
+RBAC/Security Domains/Local Users coverage. Also covers, ported from
+copilot/aci-platform-comparison (2026-09-08): create_vrf_route_leak,
+create_leaf_interface_profile/create_interface_selector/
+create_static_path_binding, physical/protocol L3Out node/interface/BGP/OSPF
+tools, and L4-L7/PBR/Service Graph tools -- see Platform-Status-and-Pending-
+Items.md for their plan-validated-only status on this simulator.
 """
 from __future__ import annotations
 
@@ -16,20 +21,37 @@ from mcp_server.clients.nautobot import NautobotClient
 from mcp_server.schemas.aci import (
     BindEpgDomainRequest,
     CreateAepRequest,
+    CreateBgpPeerRequest,
     CreateBridgeDomainRequest,
     CreateContractRequest,
     CreateEpgRequest,
+    CreateInterfaceSelectorRequest,
+    CreateL3OutInterfaceProfileRequest,
+    CreateL3OutInterfaceRequest,
+    CreateL3OutNodeProfileRequest,
     CreateL3OutRequest,
+    CreateL4L7DeviceRequest,
     CreateLeafInterfacePolicyGroupRequest,
+    CreateLeafInterfaceProfileRequest,
     CreateLocalUserRequest,
+    CreateOneArmServiceGraphRequest,
+    CreateOspfInterfacePolicyRequest,
+    CreateOspfInterfaceRequest,
+    CreatePbrContractRequest,
+    CreatePbrPolicyRequest,
     CreatePhysicalDomainRequest,
+    CreateProtocolL3OutRequest,
     CreateSecurityDomainRequest,
+    CreateServiceGraphRequest,
+    CreateStaticPathBindingRequest,
     CreateTenantRequest,
     CreateVlanPoolRequest,
     CreateVmmDomainRequest,
     CreateVrfRequest,
+    CreateVrfRouteLeakRequest,
 )
 from mcp_server.tools.registry import registry
+
 
 
 @registry.register(
@@ -324,6 +346,93 @@ def create_leaf_interface_policy_group(
     }
 
 
+# Ported from copilot/aci-platform-comparison (2026-09-08). Not ported:
+# their duplicate create_vlan_pool/create_physical_domain/
+# create_leaf_interface_policy_group (this side's own versions above are
+# already live-verified, including over the real MCP protocol, and remain
+# canonical), create_aaep (superseded by this side's create_aep),
+# bind_epg_to_physical_domain/bind_epg_to_vmm_domain (superseded by
+# bind_epg_domain below -- see schemas/aci.py's own comment on why). See
+# Platform-Status-and-Pending-Items.md: the physical/protocol L3Out tools
+# below are plan-validated only on this simulator (no real `pathep-[...]`
+# interface data); VRF route-leak/L4-L7/PBR tools are not simulator-blocked
+# but have not yet had a real apply+destroy cycle run in this repo either.
+@registry.register(
+    name="create_vrf_route_leak",
+    domain="cisco_aci",
+    description="Create shared-services or L3Out-associated VRF route-leak intent between two existing VRFs in the same Tenant. Writes to Nautobot only; Terraform applies the destination-VRF leak resource later.",
+    schema=CreateVrfRouteLeakRequest,
+)
+def create_vrf_route_leak(request: CreateVrfRouteLeakRequest, *, nautobot: NautobotClient) -> dict:
+    result = nautobot.create_vrf_route_leak(**request.model_dump())
+    return {
+        "vrf_route_leak": result,
+        "note": f"VRF route leak '{request.name}' written to tenant '{request.tenant}'. Review the next Terraform plan before approval.",
+    }
+
+
+def _fabric_tool(name: str, schema, method: str, description: str):
+    def decorator(function):
+        return registry.register(name=name, domain="cisco_aci", description=description, schema=schema)(function)
+    return decorator
+
+
+@_fabric_tool("create_leaf_interface_profile", CreateLeafInterfaceProfileRequest, "create_leaf_interface_profile", "Create a leaf interface profile intent.")
+def create_leaf_interface_profile(request: CreateLeafInterfaceProfileRequest, *, nautobot: NautobotClient) -> dict:
+    return {"leaf_interface_profile": nautobot.create_leaf_interface_profile(**request.model_dump())}
+
+
+@_fabric_tool("create_interface_selector", CreateInterfaceSelectorRequest, "create_interface_selector", "Create a leaf interface selector bound to an IPG.")
+def create_interface_selector(request: CreateInterfaceSelectorRequest, *, nautobot: NautobotClient) -> dict:
+    return {"interface_selector": nautobot.create_interface_selector(**request.model_dump())}
+
+
+@_fabric_tool("create_static_path_binding", CreateStaticPathBindingRequest, "create_static_path_binding", "Bind an EPG to a static leaf path.")
+def create_static_path_binding(request: CreateStaticPathBindingRequest, *, nautobot: NautobotClient) -> dict:
+    return {"static_path": nautobot.create_static_path_binding(**request.model_dump())}
+
+
+@registry.register(name="create_bgp_l3out", domain="cisco_aci", description="Create a BGP-enabled L3Out intent in Nautobot.", schema=CreateProtocolL3OutRequest)
+def create_bgp_l3out(request: CreateProtocolL3OutRequest, *, nautobot: NautobotClient) -> dict:
+    return {"l3out": nautobot.create_protocol_l3out(protocol="bgp", **request.model_dump())}
+
+
+@registry.register(name="create_ospf_l3out", domain="cisco_aci", description="Create an OSPF-enabled L3Out intent in Nautobot.", schema=CreateProtocolL3OutRequest)
+def create_ospf_l3out(request: CreateProtocolL3OutRequest, *, nautobot: NautobotClient) -> dict:
+    return {"l3out": nautobot.create_protocol_l3out(protocol="ospf", **request.model_dump())}
+
+
+@registry.register(name="create_l3out_node_profile", domain="cisco_aci", description="Add a logical node profile to an L3Out.", schema=CreateL3OutNodeProfileRequest)
+def create_l3out_node_profile(request: CreateL3OutNodeProfileRequest, *, nautobot: NautobotClient) -> dict:
+    return {"node_profile": nautobot.create_l3out_node_profile(**request.model_dump())}
+
+
+@registry.register(name="create_l3out_interface_profile", domain="cisco_aci", description="Add an interface profile to an L3Out node profile.", schema=CreateL3OutInterfaceProfileRequest)
+def create_l3out_interface_profile(request: CreateL3OutInterfaceProfileRequest, *, nautobot: NautobotClient) -> dict:
+    return {"interface_profile": nautobot.create_l3out_interface_profile(**request.model_dump())}
+
+
+@registry.register(name="create_l3out_interface", domain="cisco_aci", description="Add an SVI or routed interface to an L3Out interface profile.", schema=CreateL3OutInterfaceRequest)
+def create_l3out_interface(request: CreateL3OutInterfaceRequest, *, nautobot: NautobotClient) -> dict:
+    return {"interface": nautobot.create_l3out_interface(**request.model_dump())}
+
+
+@registry.register(name="create_bgp_peer", domain="cisco_aci", description="Add a BGP peer to an L3Out interface.", schema=CreateBgpPeerRequest)
+def create_bgp_peer(request: CreateBgpPeerRequest, *, nautobot: NautobotClient) -> dict:
+    return {"bgp_peer": nautobot.create_bgp_peer(**request.model_dump())}
+
+
+@registry.register(name="create_ospf_interface", domain="cisco_aci", description="Add OSPF intent to an L3Out interface.", schema=CreateOspfInterfaceRequest)
+def create_ospf_interface(request: CreateOspfInterfaceRequest, *, nautobot: NautobotClient) -> dict:
+    return {"ospf_interface": nautobot.create_ospf_interface(**request.model_dump())}
+
+
+@registry.register(name="create_ospf_interface_policy", domain="cisco_aci", description="Create an OSPF interface policy with network type, timers, passive control, and authentication intent.", schema=CreateOspfInterfacePolicyRequest)
+def create_ospf_interface_policy(request: CreateOspfInterfacePolicyRequest, *, nautobot: NautobotClient) -> dict:
+    result = nautobot.create_ospf_interface_policy(**request.model_dump())
+    return {"ospf_interface_policy": result, "note": f"OSPF interface policy '{request.name}' written to tenant '{request.tenant}'."}
+
+
 @registry.register(
     name="create_vmm_domain",
     domain="cisco_aci",
@@ -406,3 +515,61 @@ def create_local_user(request: CreateLocalUserRequest, *, nautobot: NautobotClie
         "local_user": result,
         "note": f"Local User '{request.name}' written to Location '{request.location}'. Set TF_VAR_local_user_passwords[\"{request.name}\"] before the next terraform apply. Use show_status(name=<any tenant>) to check the pipeline run.",
     }
+
+
+# Ported from copilot/aci-platform-comparison (2026-09-08) -- L4-L7/PBR/
+# Service Graph tools, genuinely new and non-overlapping.
+@registry.register(
+    name="create_l4l7_device",
+    domain="cisco_aci",
+    description="Create a logical Cisco ACI L4-L7 device with consumer/provider logical interfaces by writing non-secret intent to the Tenant's aci_l4l7_services Nautobot Custom Field.",
+    schema=CreateL4L7DeviceRequest,
+)
+def create_l4l7_device(request: CreateL4L7DeviceRequest, *, nautobot: NautobotClient) -> dict:
+    result = nautobot.create_l4l7_device(**request.model_dump())
+    return {"l4l7_device": result, "note": f"L4-L7 device '{request.name}' written to tenant '{request.tenant}'."}
+
+
+@registry.register(
+    name="create_service_graph",
+    domain="cisco_aci",
+    description="Create a Cisco ACI Service Graph intent that binds an existing Contract to a logical L4-L7 device. It does not create or store service-device credentials.",
+    schema=CreateServiceGraphRequest,
+)
+def create_service_graph(request: CreateServiceGraphRequest, *, nautobot: NautobotClient) -> dict:
+    result = nautobot.create_service_graph(**request.model_dump())
+    return {"service_graph": result, "note": f"Service Graph '{request.name}' written to tenant '{request.tenant}'."}
+
+
+@registry.register(
+    name="create_one_arm_service_graph",
+    domain="cisco_aci",
+    description="Create a one-arm ADC/load-balancer Service Graph with one logical interface and one PBR redirect-policy binding. The tool writes non-secret intent to Nautobot only.",
+    schema=CreateOneArmServiceGraphRequest,
+)
+def create_one_arm_service_graph(request: CreateOneArmServiceGraphRequest, *, nautobot: NautobotClient) -> dict:
+    result = nautobot.create_one_arm_service_graph(**request.model_dump())
+    return {"service_graph": result, "note": f"One-arm Service Graph '{request.name}' written to tenant '{request.tenant}'."}
+
+
+@registry.register(
+    name="create_pbr_policy",
+    domain="cisco_aci",
+    description="Create a Cisco ACI policy-based redirect policy with one destination by writing non-secret intent to the Tenant's aci_l4l7_services Nautobot Custom Field.",
+    schema=CreatePbrPolicyRequest,
+)
+def create_pbr_policy(request: CreatePbrPolicyRequest, *, nautobot: NautobotClient) -> dict:
+    result = nautobot.create_pbr_policy(**request.model_dump())
+    return {"pbr_policy": result, "note": f"PBR policy '{request.name}' written to tenant '{request.tenant}'."}
+
+
+@registry.register(
+    name="create_pbr_contract",
+    domain="cisco_aci",
+    description="Create a Contract attached to a Service Graph and bind it to existing consumer and provider VLAN-backed EPGs. The tool writes intent to Nautobot only.",
+    schema=CreatePbrContractRequest,
+)
+def create_pbr_contract(request: CreatePbrContractRequest, *, nautobot: NautobotClient) -> dict:
+    result = nautobot.create_pbr_contract(**request.model_dump())
+    return {"pbr_contract": result, "note": f"PBR Contract '{request.name}' bound to EPGs in tenant '{request.tenant}'."}
+

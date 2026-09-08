@@ -43,7 +43,7 @@ Checked via `GET http://localhost:9090/api/v1/targets`:
 | Job | Target | Health | Detail |
 |---|---|---|---|
 | `prometheus` | `localhost:9090/metrics` | **up** | self-scrape, healthy |
-| `nautobot` | `host.docker.internal:8080/metrics` | **down** | `HTTP 406 Not Acceptable` |
+| `isolated-nautobot` | `host.docker.internal:8081/metrics` | **down** | Historical validation result for the former endpoint; recheck the isolated instance before relying on this row. |
 | `platform-api` | `host.docker.internal:8000/metrics` | **down** | `HTTP 404 Not Found` |
 
 **Finding:** Prometheus itself is correctly configured and reachable. Neither Nautobot nor Platform API currently expose a Prometheus-format `/metrics` endpoint — Nautobot's `406` suggests the endpoint exists but requires the Prometheus exporter plugin/content negotiation not yet enabled; Platform API's `404` confirms no `/metrics` route exists in its FastAPI app at all. This is a **real, confirmed gap**, not a Prometheus misconfiguration. Tracked as a Phase 2 action item (§10).

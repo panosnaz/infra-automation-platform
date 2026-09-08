@@ -1,0 +1,513 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [4 0 R 6 0 R 8 0 R 10 0 R 12 0 R 14 0 R 16 0 R 18 0 R] /Count 8 >>
+endobj
+3 0 obj
+<< /Length 3230 >>
+stream
+BT
+/F1 8 Tf
+45 755 Td
+10 TL
+(LOCAL VS COLLEAGUE REPOSITORY COMPARISON) Tj T*
+() Tj T*
+(Date: 2026-09-07) Tj T*
+(Remote repository: panosnaz/infra-automation-platform, branch master, observed HEAD 09b02c8) Tj T*
+(\(feat\(aci\): Syslog/Fault monitoring policies \(ADR-020 Phase G\)\)) Tj T*
+(Local repository: C:\\MCP\\INFRA-AUTOMATION-PLATFORM) Tj T*
+() Tj T*
+(EXECUTIVE SUMMARY) Tj T*
+() Tj T*
+(The two repositories share the same Platform v2 architecture and execution model, but they have) Tj T*
+(diverged in feature focus. The colleague's repository is ahead in platform-wide ACI coverage:) Tj T*
+(RBAC/security domains/local users, COOP/ISIS, and fault/syslog monitoring policies. The local) Tj T*
+(checkout is ahead in the feature work developed during this session: physical/protocol L3Out) Tj T*
+(intent, BGP/OSPF peer and interface modeling, VRF route-leak intent, L4-L7/PBR/service graphs,) Tj T*
+(one-arm ADC graphs, OSPF interface policies, and editable lab templates.) Tj T*
+() Tj T*
+(This is a comparison, not a merge recommendation. Remote code was inspected read-only; no fetch,) Tj T*
+(pull, merge, or copy was performed.) Tj T*
+() Tj T*
+(SHARED FOUNDATION) Tj T*
+() Tj T*
+(Both repositories use the same architectural boundaries:) Tj T*
+() Tj T*
+(- Nautobot is the source of truth.) Tj T*
+(- A generator produces NetAsCode-style YAML.) Tj T*
+(- Terraform consumes the generated YAML and manages APIC desired state.) Tj T*
+(- GitLab provides validation, policy, plan, approval, apply, verification, and knowledge capture) Tj T*
+(stages.) Tj T*
+(- Vault supplies runtime secrets.) Tj T*
+(- MCP tools write intent to Nautobot rather than directly orchestrating Terraform.) Tj T*
+(- Unit tests protect transformer/schema/tool behavior.) Tj T*
+() Tj T*
+(FEATURE COMPARISON) Tj T*
+() Tj T*
+(| Area | Local checkout | Colleague remote HEAD |) Tj T*
+(|---|---|---|) Tj T*
+(| Core Tenant/VRF/BD/EPG | Implemented and tested | Implemented and tested |) Tj T*
+(| Contracts/Filters/Subjects | Implemented | Implemented |) Tj T*
+(| Logical L3Out | Implemented | Implemented |) Tj T*
+(| VLAN pools, Physical Domains, AAEP, IPG | Implemented | Implemented/refined |) Tj T*
+(| Leaf profiles/selectors/static paths | Implemented locally in current worktree; plan-validated |) Tj T*
+(Access-policy work is present in remote history and MCP catalogue |) Tj T*
+(| VMM Domain | Implemented locally; plan-validated | Implemented, with refined domain-binding API |) Tj T*
+(| Physical/protocol L3Out | Local implementation includes node/interface profiles, SVI/path) Tj T*
+(attachment, BGP peers, OSPF interfaces, and OSPF policy | Not evident in the inspected remote) Tj T*
+(Terraform/MCP excerpts; verify before porting any related work |) Tj T*
+(| VRF route leaking | Local create_vrf_route_leak, generator, aci_vrf_leak_epg_bd_subnet,) Tj T*
+(two-scenario fixture | Not evident in inspected remote excerpts |) Tj T*
+(| L4-L7/PBR/Service Graph | Local logical two-arm and one-arm support with PBR bindings | Not) Tj T*
+(evident in inspected remote excerpts |) Tj T*
+(| OSPF interface policy | Local tool/resource supports network type, timers, passive flag, auth) Tj T*
+(metadata | Not evident in inspected remote excerpts |) Tj T*
+ET
+endstream
+endobj
+4 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 19 0 R >> >> /Contents 3 0 R >>
+endobj
+5 0 obj
+<< /Length 3747 >>
+stream
+BT
+/F1 8 Tf
+45 755 Td
+10 TL
+(| RBAC/security domains/local users | Not present in local current implementation | Implemented in) Tj T*
+(remote Phase F |) Tj T*
+(| COOP/ISIS/Pod Policy Groups | Not present locally | Implemented in remote Phase E |) Tj T*
+(| Fault lifecycle/syslog monitoring | Not present locally | Implemented in remote Phase G |) Tj T*
+(| EVPN domain | Implemented locally and live-verified | Implemented and live-verified |) Tj T*
+() Tj T*
+(DETAILED DIFFERENCE TABLES) Tj T*
+() Tj T*
+(PLATFORM AND ARCHITECTURE) Tj T*
+() Tj T*
+(| Difference | Local checkout | Colleague remote | Assessment |) Tj T*
+(|---|---|---|---|) Tj T*
+(| Primary ACI baseline | Platform v2 pipeline plus locally developed ACI extensions | Same Platform) Tj T*
+(v2 baseline, with later ADR-020 phases | Architecture is shared; differences are feature phases,) Tj T*
+(not a competing design |) Tj T*
+(| Source of truth | Nautobot objects and JSON Custom Fields | Nautobot objects and JSON Custom) Tj T*
+(Fields | Equivalent principle |) Tj T*
+(| Desired-state artifact | Generated NetAsCode-style YAML under platform/netascode/aci/ | Same) Tj T*
+(artifact and path | Compatible contract; schema changes must be reconciled |) Tj T*
+(| Pipeline ownership | GitLab pipeline owns validation, policy, plan, approval, apply,) Tj T*
+(verification, capture | Same lifecycle | Equivalent |) Tj T*
+(| MCP responsibility | Writes intent; does not orchestrate Terraform | Same documented boundary |) Tj T*
+(Equivalent |) Tj T*
+(| ACI coverage emphasis | Physical/protocol L3Out, route leaks, L4-L7/PBR, OSPF policy | RBAC,) Tj T*
+(COOP/ISIS, fault/syslog monitoring | Complementary feature priorities |) Tj T*
+(| Remote progress marker | Local report date: 2026-09-07 | Remote HEAD 09b02c8, Syslog/Fault Phase) Tj T*
+(G, observed 4 days before report date | Remote has newer upstream feature history in platform-wide) Tj T*
+(policy areas |) Tj T*
+() Tj T*
+(TERRAFORM MODULE DIFFERENCES) Tj T*
+() Tj T*
+(| Capability | Local Terraform implementation | Remote evidence observed | Difference / action |) Tj T*
+(|---|---|---|---|) Tj T*
+(| Tenant/VRF/BD/Subnet | aci_tenant, aci_vrf, aci_bridge_domain, aci_subnet | Same resource family) Tj T*
+(| No material difference identified |) Tj T*
+(| EPGs | aci_application_profile, aci_application_epg | Same Phase A family; remote tests also) Tj T*
+(cover EPG domains | Compare relation schema before reconciliation |) Tj T*
+(| Contracts/Filters | aci_filter, aci_filter_entry, aci_contract, aci_contract_subject,) Tj T*
+(aci_epg_to_contract | Same Phase A family | No material difference identified |) Tj T*
+(| Logical L3Out | aci_l3_outside, external EPG, external subnet | Same logical L3Out baseline |) Tj T*
+(Both require physical/protocol extensions for full routing |) Tj T*
+(| VLAN/access objects | VLAN pools, ranges, physical domains, AAEPs, IPGs | Remote has refined) Tj T*
+(Access/Fabric Policy work | Remote may have better append/update semantics; compare exact JSON) Tj T*
+(schemas |) Tj T*
+(| IPG policy resources | CDP, LLDP, link-level, spanning-tree, port-security | Remote access-policy) Tj T*
+(work is present | Local added dedicated policy relations and provider enum mappings |) Tj T*
+(| Leaf interface path | Leaf profile, access selector, EPG static path | Remote access-policy work) Tj T*
+(exists in history/catalogue | Compare physical path resource semantics before merging |) Tj T*
+(| EPG domain binding | Local separate physical/VMM binding paths | Remote consolidated) Tj T*
+(bind_epg_domain API and domain-aware schema | API consolidation opportunity; not a safe mechanical) Tj T*
+(merge |) Tj T*
+(| VMM | VMM domain/controller/credential and VLAN-pool relation | Remote VMM with refined) Tj T*
+ET
+endstream
+endobj
+6 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 19 0 R >> >> /Contents 5 0 R >>
+endobj
+7 0 obj
+<< /Length 4132 >>
+stream
+BT
+/F1 8 Tf
+45 755 Td
+10 TL
+(EPG/domain semantics | Compare credential relation and EPG relation handling |) Tj T*
+(| BGP L3Out | Logical node/profile, fabric node, interface profile, path/SVI attachment, BGP) Tj T*
+(protocol and peer resources | Not evident in inspected remote excerpts | Local feature appears) Tj T*
+(ahead; confirm with full remote file-level diff before merge |) Tj T*
+(| OSPF L3Out | OSPF interface profile and typed OSPF policy | Not evident in inspected remote) Tj T*
+(excerpts | Local feature appears ahead |) Tj T*
+(| OSPF interface policy | aci_ospf_interface_policy, provider enum translation point-to-point ->) Tj T*
+(p2p, broadcast -> bcast | Not evident in inspected remote excerpts | Local feature appears ahead |) Tj T*
+(| VRF route leaking | aci_vrf_leak_epg_bd_subnet with destination VRF, subnet, advertisement flag |) Tj T*
+(Not evident in inspected remote excerpts | Local feature appears ahead; source-VRF provider) Tj T*
+(limitation remains |) Tj T*
+(| L4-L7/PBR | Logical device, graph, logical contexts, redirect policies/destinations | Not evident) Tj T*
+(in inspected remote excerpts | Local feature appears ahead in inspected scope |) Tj T*
+(| One-arm ADC graph | Dedicated one-arm tool and one-context Terraform path | Not evident in) Tj T*
+(inspected remote excerpts | Local feature appears ahead |) Tj T*
+(| COOP/ISIS | Not present locally | Remote typed aci_coop_policy, aci_isis_domain_policy and Pod) Tj T*
+(Policy Groups | Remote ahead; candidate feature to port conceptually |) Tj T*
+(| RBAC | Not present locally | Remote AAA/security-domain/local-user Terraform resources | Remote) Tj T*
+(ahead; secrets need careful local adaptation |) Tj T*
+(| Fault/syslog monitoring | Not present locally | Remote Phase G singleton policies with) Tj T*
+(destroy-safe handling | Remote ahead; preserve content_on_destroy safety pattern |) Tj T*
+() Tj T*
+(MCP TOOL AND SCHEMA DIFFERENCES) Tj T*
+() Tj T*
+(| MCP area | Local checkout | Colleague remote | Difference / action |) Tj T*
+(|---|---|---|---|) Tj T*
+(| Core tools | Tenant, VRF, BD, EPG, Contract, L3Out, route leak | Same core plus refined access) Tj T*
+(APIs | Shared baseline |) Tj T*
+(| VLAN pool | create_vlan_pool exists in local current worktree | Remote has create_vlan_pool with) Tj T*
+(append-range semantics | Remote API is more mature; compare range merge/idempotency |) Tj T*
+(| Physical domain | create_physical_domain | Remote create_physical_domain | Compare defaults and) Tj T*
+(prerequisite validation |) Tj T*
+(| AAEP | create_aaep | Remote create_aep naming | Naming/API compatibility issue; choose one) Tj T*
+(canonical public name or alias |) Tj T*
+(| IPG | create_leaf_interface_policy_group | Remote same concept | Compare policy relation fields |) Tj T*
+(| Leaf profiles/selectors | Local tools exist | Remote access-policy catalogue exists | Compare) Tj T*
+(exact request schema and live inventory validation |) Tj T*
+(| Static path | Local create_static_path_binding | Remote access-policy work present | Compare path) Tj T*
+(DN, encapsulation, and update semantics |) Tj T*
+(| EPG domain bindings | Separate bind_epg_to_physical_domain and bind_epg_to_vmm_domain |) Tj T*
+(Consolidated bind_epg_domain with domain_type | Remote API is more general; local split API is more) Tj T*
+(explicit |) Tj T*
+(| VMM | create_vmm_domain | create_vmm_domain | Remote schema/docs are more mature |) Tj T*
+(| L3Out protocols | Local BGP/OSPF L3Out, node/interface, peer, OSPF policy tools | Not evident in) Tj T*
+(inspected remote tools | Local appears ahead |) Tj T*
+(| VRF leak | Local create_vrf_route_leak | Not evident in inspected remote tools | Local appears) Tj T*
+(ahead |) Tj T*
+(| L4-L7/PBR | Local two-arm and one-arm tools | Not evident in inspected remote tools | Local) Tj T*
+(appears ahead |) Tj T*
+(| RBAC/security | Not present locally | create_security_domain, create_local_user | Remote ahead |) Tj T*
+(| Status | show_status | show_status and same pipeline-status concept | Shared |) Tj T*
+(| Secret boundary | Local avoids raw VMM/OSPF secrets in MCP; uses references/runtime variables |) Tj T*
+ET
+endstream
+endobj
+8 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 19 0 R >> >> /Contents 7 0 R >>
+endobj
+9 0 obj
+<< /Length 3822 >>
+stream
+BT
+/F1 8 Tf
+45 755 Td
+10 TL
+(Remote local-user password also uses Terraform-sensitive runtime input | Same security direction;) Tj T*
+(reconcile secret variable names carefully |) Tj T*
+() Tj T*
+(GENERATOR AND INTENT SCHEMA DIFFERENCES) Tj T*
+() Tj T*
+(| Intent surface | Local checkout | Colleague remote | Difference / action |) Tj T*
+(|---|---|---|---|) Tj T*
+(| Location fabric policies | VLAN pools, domains, AAEPs, IPGs, leaf profiles/selectors, VMM, policy) Tj T*
+(settings | Also expanded with COOP/ISIS, Pod Policy Groups, monitoring policies | Remote has) Tj T*
+(broader fabric policy schema |) Tj T*
+(| Tenant policy | VRFs, BDs, EPGs, contracts, L3Outs, route leaks, L4-L7 services, OSPF policies |) Tj T*
+(Same baseline plus remote Phase F/G surfaces | Schemas need additive merge, not replacement |) Tj T*
+(| EPG custom fields | Physical/VMM bindings and static paths | Remote uses domain-aware) Tj T*
+(aci_epg_domains style in inspected tests | This is a likely reconciliation hotspot |) Tj T*
+(| L3Out schema | Node profiles, interface profiles, interfaces, BGP peers, OSPF entries | Remote) Tj T*
+(baseline excerpts did not show equivalent full protocol path | Validate before combining |) Tj T*
+(| Generator tests | 25 transformer tests in latest local focused run | Remote transformer tests) Tj T*
+(cover additional COOP/ISIS, AAA, Pod Policy, syslog/fault keys | Remote has broader generator) Tj T*
+(coverage |) Tj T*
+() Tj T*
+(TEST AND VALIDATION DIFFERENCES) Tj T*
+() Tj T*
+(| Test/validation layer | Local checkout | Colleague remote | Difference / action |) Tj T*
+(|---|---|---|---|) Tj T*
+(| Transformer unit tests | tests/unit/test_transformer.py; 25 passing in latest focused run | Same) Tj T*
+(file covers more remote phases, including AAA and monitoring | Remote has broader current test) Tj T*
+(surface |) Tj T*
+(| MCP schema tests | mcp-server/tests/unit/test_schemas_aci.py | Same file with more Phase F/access) Tj T*
+(schemas | Remote ahead in catalogue coverage |) Tj T*
+(| MCP tool tests | mcp-server/tests/unit/test_tools_aci.py | Same file covers VLAN pools, AAEP/IPG,) Tj T*
+(VMM/domain binding, RBAC | Remote ahead in those areas |) Tj T*
+(| Registry tests | mcp-server/tests/unit/test_registry.py | Same registry/signature checks | Shared) Tj T*
+(quality gate |) Tj T*
+(| EVPN tests | Local EVPN transformer/MCP/pyATS-equivalent tests | Remote EVPN tests and live) Tj T*
+(validation | Both have second-domain coverage |) Tj T*
+(| Terraform validation | Local fmt, validate, APIC-backed temporary-state plans for new local) Tj T*
+(fixtures | Remote repository documents broader Phase E/F/G implementation; full local execution not) Tj T*
+(performed from this comparison | Run both suites after reconciliation |) Tj T*
+(| Physical L3Out validation | Local plan validated 22 to add, 0 to change, 0 to destroy for) Tj T*
+(combined access/L3Out fixture | Not established from inspected remote excerpts | Local plan) Tj T*
+(evidence exists; apply still requires approval |) Tj T*
+(| OSPF policy validation | Local APIC-backed plan validated 23 to add, 0 to change, 0 to destroy |) Tj T*
+(Not established from inspected remote excerpts | Local plan evidence exists |) Tj T*
+(| IPG policy validation | Local APIC-backed plan validated 27 to add, 0 to change, 0 to destroy |) Tj T*
+(Not established from inspected remote excerpts | Local plan evidence exists |) Tj T*
+(| Live apply status | No apply performed for the newly developed local access/protocol/L4-L7 scope) Tj T*
+(| Remote README/history documents live verification for several earlier domains and newer platform) Tj T*
+(phases | Do not infer apply readiness from plan alone |) Tj T*
+() Tj T*
+(OPERATIONAL AND DOCUMENTATION DIFFERENCES) Tj T*
+() Tj T*
+(| Area | Local checkout | Colleague remote | Difference / action |) Tj T*
+ET
+endstream
+endobj
+10 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 19 0 R >> >> /Contents 9 0 R >>
+endobj
+11 0 obj
+<< /Length 3312 >>
+stream
+BT
+/F1 8 Tf
+45 755 Td
+10 TL
+(|---|---|---|---|) Tj T*
+(| Local Nautobot endpoint | Isolated instance on port 8081 in current workspace | Remote README) Tj T*
+(contains older port-8080/default credential references in its active-lab section | Use local) Tj T*
+(administration guide, not remote README values |) Tj T*
+(| Provider version | Local ACI provider pinned to 2.20.0 and schema-checked locally | Remote uses) Tj T*
+(the same project lineage but version must be checked before merge | Re-run provider schema) Tj T*
+(comparison |) Tj T*
+(| Current ADR state | Local ADR-020 includes locally developed Phase D-G style additions from this) Tj T*
+(session | Remote ADR-020/commits contain its own Phase E/F/G progression | Reconcile ADR history) Tj T*
+(manually; do not overwrite decisions |) Tj T*
+(| Templates | Local four-file ACI lab templates under knowledge/runbooks/templates/aci/ | Not) Tj T*
+(established in inspected remote tree | Keep local templates as scenario-specific input aids |) Tj T*
+(| Report confidence | Local counts and plan results verified in this worktree | Remote comparison) Tj T*
+(based on public page/raw files and commit/tree evidence | Full commit-level diff still requires a) Tj T*
+(separately approved read-only clone/fetch process |) Tj T*
+() Tj T*
+(DIFFERENCE SUMMARY) Tj T*
+() Tj T*
+(| Category | Local advantage | Remote advantage |) Tj T*
+(|---|---|---|) Tj T*
+(| New network-service features | Full physical/protocol L3Out path, route leaks, L4-L7/PBR, one-arm) Tj T*
+(ADC, OSPF policy | None identified in inspected scope |) Tj T*
+(| Platform-wide ACI policy | None identified for COOP/ISIS, RBAC, monitoring | COOP/ISIS, Pod) Tj T*
+(Policy Groups, RBAC/security domains/local users, fault/syslog monitoring |) Tj T*
+(| MCP API maturity | More detailed L3Out/L4-L7 operations | More consolidated/refined access and) Tj T*
+(RBAC APIs |) Tj T*
+(| Generator coverage | Local new service-chain and route-leak intent | Broader platform-policy) Tj T*
+(intent and tests |) Tj T*
+(| Validation evidence | Local APIC-backed plans for newly added scopes | Remote documented/live) Tj T*
+(evidence for several established phases |) Tj T*
+() Tj T*
+(RECOMMENDED RECONCILIATION ORDER) Tj T*
+() Tj T*
+(1. Compare remote Phase E/F/G Terraform resources and transformer sections against local) Tj T*
+(main.tf/transformer.py manually.) Tj T*
+(2. Port concepts, not files: COOP/ISIS, RBAC, and monitoring resources should be adapted to the) Tj T*
+(local isolated-stack paths and secret conventions.) Tj T*
+(3. Preserve local L3Out protocol, VRF-leak, L4-L7/PBR, OSPF policy, and template work unless remote) Tj T*
+(has a verified newer equivalent.) Tj T*
+(4. Reconcile MCP naming, especially remote bind_epg_domain versus local split physical/VMM binding) Tj T*
+(tools.) Tj T*
+(5. Add/merge unit tests before changing generated YAML schema.) Tj T*
+(6. Run both local test suites and Terraform validation.) Tj T*
+(7. Run APIC-backed plans with temporary state.) Tj T*
+(8. Apply only after explicit review and approval.) Tj T*
+() Tj T*
+(LOCAL TERRAFORM REFERENCES) Tj T*
+() Tj T*
+(Primary module:) Tj T*
+() Tj T*
+(- [platform/terraform/aci/main.tf]\(../../platform/terraform/aci/main.tf\)) Tj T*
+(- [platform/terraform/aci/providers.tf]\(../../platform/terraform/aci/providers.tf\)) Tj T*
+ET
+endstream
+endobj
+12 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 19 0 R >> >> /Contents 11 0 R >>
+endobj
+13 0 obj
+<< /Length 3176 >>
+stream
+BT
+/F1 8 Tf
+45 755 Td
+10 TL
+(- [platform/terraform/aci/variables.tf]\(../../platform/terraform/aci/variables.tf\)) Tj T*
+() Tj T*
+(The local ACI module currently contains 52 Terraform resource blocks. Relevant resource families) Tj T*
+(include:) Tj T*
+() Tj T*
+(- Core: aci_tenant, aci_vrf, aci_bridge_domain, aci_subnet, aci_application_profile,) Tj T*
+(aci_application_epg) Tj T*
+(- Policy: aci_filter, aci_filter_entry, aci_contract, aci_contract_subject, aci_epg_to_contract) Tj T*
+(- Logical L3Out: aci_l3_outside, aci_external_network_instance_profile, aci_l3_ext_subnet) Tj T*
+(- Access: aci_vlan_pool, aci_ranges, aci_physical_domain, aci_attachable_access_entity_profile,) Tj T*
+(aci_leaf_access_port_policy_group) Tj T*
+(- IPG policies: aci_cdp_interface_policy, aci_lldp_interface_policy,) Tj T*
+(aci_link_level_interface_policy, aci_spanning_tree_interface_policy,) Tj T*
+(aci_port_security_interface_policy) Tj T*
+(- Physical access: aci_leaf_interface_profile, aci_access_port_selector, aci_epg_to_domain,) Tj T*
+(aci_epg_to_static_path) Tj T*
+(- L3Out protocol path: aci_logical_node_profile, aci_logical_node_to_fabric_node,) Tj T*
+(aci_logical_interface_profile, aci_l3out_path_attachment, aci_l3out_floating_svi,) Tj T*
+(aci_l3out_bgp_protocol_profile, aci_bgp_peer_connectivity_profile,) Tj T*
+(aci_l3out_ospf_interface_profile, aci_ospf_interface_policy) Tj T*
+(- VMM/L4-L7: VMM domain/controller/credential resources, L4-L7 device/interface, service graph,) Tj T*
+(logical contexts, redirect policies/destinations) Tj T*
+(- VRF leaks: aci_vrf_leak_epg_bd_subnet) Tj T*
+() Tj T*
+(The local provider is pinned to CiscoDevNet/aci 2.20.0 in providers.tf and all new resource fields) Tj T*
+(were checked against its local schema.) Tj T*
+() Tj T*
+(LOCAL MCP REFERENCES) Tj T*
+() Tj T*
+(Primary files:) Tj T*
+() Tj T*
+(- [mcp-server/src/mcp_server/tools/aci.py]\(../../mcp-server/src/mcp_server/tools/aci.py\)) Tj T*
+(- [mcp-server/src/mcp_server/schemas/aci.py]\(../../mcp-server/src/mcp_server/schemas/aci.py\)) Tj T*
+(-) Tj T*
+([mcp-server/src/mcp_server/clients/nautobot.py]\(../../mcp-server/src/mcp_server/clients/nautobot.py\)) Tj T*
+() Tj T*
+(Local feature families include:) Tj T*
+() Tj T*
+(- Core: create_tenant, create_vrf, create_bridge_domain, create_epg) Tj T*
+(- Policy/L3Out: create_contract, create_l3out, create_vrf_route_leak) Tj T*
+(- Access: create_vlan_pool, create_physical_domain, create_aaep,) Tj T*
+(create_leaf_interface_policy_group, create_leaf_interface_profile, create_interface_selector,) Tj T*
+(create_static_path_binding, bind_epg_to_physical_domain, bind_epg_to_vmm_domain) Tj T*
+(- L3Out protocols: create_bgp_l3out, create_ospf_l3out, create_l3out_node_profile,) Tj T*
+(create_l3out_interface_profile, create_l3out_interface, create_bgp_peer, create_ospf_interface,) Tj T*
+(create_ospf_interface_policy) Tj T*
+(- VMM: create_vmm_domain) Tj T*
+(- L4-L7: create_l4l7_device, create_service_graph, create_one_arm_service_graph, create_pbr_policy,) Tj T*
+(create_pbr_contract) Tj T*
+(- Status: show_status) Tj T*
+() Tj T*
+(Remote MCP comparison: the inspected remote branch explicitly includes refined create_vlan_pool,) Tj T*
+ET
+endstream
+endobj
+14 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 19 0 R >> >> /Contents 13 0 R >>
+endobj
+15 0 obj
+<< /Length 3574 >>
+stream
+BT
+/F1 8 Tf
+45 755 Td
+10 TL
+(create_physical_domain, create_aep, create_leaf_interface_policy_group, bind_epg_domain,) Tj T*
+(create_security_domain, and create_local_user APIs. Its access schemas use append/update semantics) Tj T*
+(and domain-type-aware EPG bindings. The local names are compatible in intent but should not be) Tj T*
+(blindly copied because the local worktree has additional L3Out/L4-L7 behavior and a different) Tj T*
+(schema evolution.) Tj T*
+() Tj T*
+(UNIT-TEST REFERENCES) Tj T*
+() Tj T*
+(Local test files:) Tj T*
+() Tj T*
+(- [tests/unit/test_transformer.py]\(../../tests/unit/test_transformer.py\): generator regression and) Tj T*
+(emitted YAML coverage, including VRF/BD depth, EPGs, contracts, L3Outs, access policies, VMM,) Tj T*
+(L4-L7, and route leaks.) Tj T*
+(- [mcp-server/tests/unit/test_schemas_aci.py]\(../../mcp-server/tests/unit/test_schemas_aci.py\):) Tj T*
+(Pydantic validation for ACI MCP requests.) Tj T*
+(- [mcp-server/tests/unit/test_tools_aci.py]\(../../mcp-server/tests/unit/test_tools_aci.py\):) Tj T*
+(tool-to-client argument/response behavior.) Tj T*
+(- [mcp-server/tests/unit/test_registry.py]\(../../mcp-server/tests/unit/test_registry.py\): catalogue) Tj T*
+(and schema-signature guarantees.) Tj T*
+(- [tests/unit/test_evpn_transformer.py]\(../../tests/unit/test_evpn_transformer.py\) and EVPN MCP) Tj T*
+(tests: second-domain regression coverage.) Tj T*
+() Tj T*
+(The last local focused validation recorded during this work was 25 transformer tests and 39 MCP) Tj T*
+(schema/tool/registry tests passing. The local combined access/L3Out plan validated 22 to add, 0 to) Tj T*
+(change, 0 to destroy; the OSPF policy plan validated 23 to add, 0 to change, 0 to destroy; the IPG) Tj T*
+(policy plan validated 27 to add, 0 to change, 0 to destroy.) Tj T*
+() Tj T*
+(Remote test references observed in the repository tree and raw files:) Tj T*
+() Tj T*
+(- tests/unit/test_transformer.py: broad transformer coverage, including access policies, VMM,) Tj T*
+(COOP/ISIS, Pod Policy Groups, fault/syslog policies, and AAA policy emission.) Tj T*
+(- mcp-server/tests/unit/test_tools_aci.py: tool-level tests for VLAN pools, Physical Domains,) Tj T*
+(AAEPs, IPGs, VMM, domain binding, Security Domains, and Local Users.) Tj T*
+(- mcp-server/tests/unit/test_schemas_aci.py: request validation for the expanded remote tool) Tj T*
+(catalogue.) Tj T*
+(- mcp-server/tests/unit/test_registry.py: MCP registry/signature checks.) Tj T*
+(- EVPN transformer, MCP, integration, and pyATS-equivalent tests remain present in both project) Tj T*
+(lines.) Tj T*
+() Tj T*
+(RECOMMENDED RECONCILIATION) Tj T*
+() Tj T*
+(1. Treat the remote branch as the reference for Phase E/F/G ACI coverage: COOP/ISIS, RBAC/security) Tj T*
+(domains/local users, and fault/syslog monitoring.) Tj T*
+(2. Preserve the local L3Out protocol, VRF-leak, L4-L7/PBR, one-arm service graph, OSPF-policy, and) Tj T*
+(lab-template work unless the remote branch has a newer equivalent after direct file comparison.) Tj T*
+(3. Compare schema/API changes before any merge. In particular, remote bind_epg_domain is a) Tj T*
+(consolidated physical/VMM operation, while the local checkout currently has separate) Tj T*
+(bind_epg_to_physical_domain and bind_epg_to_vmm_domain tools.) Tj T*
+(4. Reconcile generated YAML schema changes before combining Terraform modules; do not merge main.tf) Tj T*
+(mechanically.) Tj T*
+(5. Run both repositories' unit suites and Terraform validation after reconciliation.) Tj T*
+(6. Perform APIC-backed plans with temporary state before any apply.) Tj T*
+ET
+endstream
+endobj
+16 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 19 0 R >> >> /Contents 15 0 R >>
+endobj
+17 0 obj
+<< /Length 530 >>
+stream
+BT
+/F1 8 Tf
+45 755 Td
+10 TL
+() Tj T*
+(LIMITATIONS) Tj T*
+() Tj T*
+(This report is based on read-only inspection of the public remote repository page/raw files and the) Tj T*
+(current local worktree. It does not claim a commit-level semantic diff of every file. No remote) Tj T*
+(code was fetched, merged, or copied. The remote README contains older operational values in places;) Tj T*
+(use the local repository's current administration guide and isolated-stack configuration for local) Tj T*
+(credentials and endpoints.) Tj T*
+ET
+endstream
+endobj
+18 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 19 0 R >> >> /Contents 17 0 R >>
+endobj
+19 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+xref
+0 20
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000162 00000 n 
+0000003444 00000 n 
+0000003571 00000 n 
+0000007370 00000 n 
+0000007497 00000 n 
+0000011681 00000 n 
+0000011808 00000 n 
+0000015682 00000 n 
+0000015810 00000 n 
+0000019175 00000 n 
+0000019304 00000 n 
+0000022533 00000 n 
+0000022662 00000 n 
+0000026289 00000 n 
+0000026418 00000 n 
+0000027000 00000 n 
+0000027129 00000 n 
+trailer
+<< /Size 20 /Root 1 0 R >>
+startxref
+27200
+%%EOF

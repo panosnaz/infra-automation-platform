@@ -1,0 +1,18 @@
+apic:
+  tenants:
+    - name: route-leak-plan-test
+      vrfs:
+        - name: Shared_Services_VRF
+        - name: App_VRF
+        - name: External_VRF
+      vrf_route_leaks:
+        - name: shared-to-app
+          source_vrf: Shared_Services_VRF
+          destination_vrf: App_VRF
+          subnet: 10.10.10.0/24
+          allow_l3out_advertisement: false
+        - name: l3out-to-app
+          source_vrf: External_VRF
+          destination_vrf: App_VRF
+          subnet: 172.16.200.200/32
+          allow_l3out_advertisement: true

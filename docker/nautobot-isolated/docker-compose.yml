@@ -1,0 +1,231 @@
+name: infra-automation-nautobot-isolated
+
+x-nautobot-base: &nautobot-base
+  build:
+    context: .
+    dockerfile: Dockerfile
+  image: infra-automation-lab/nautobot-isolated:local
+  env_file:
+    - path: .env
+      required: false
+  volumes:
+    - ./config/nautobot_config.py:/opt/nautobot/nautobot_config.py:ro
+    - ./config/uwsgi.ini:/opt/nautobot/uwsgi.ini:ro
+    - isolated_nautobot_static:/opt/nautobot/static
+    - isolated_nautobot_media:/opt/nautobot/media
+  depends_on:
+    isolated-postgres:
+      condition: service_healthy
+    isolated-redis:
+      condition: service_healthy
+  restart: unless-stopped
+  networks:
+    - isolated-net
+
+services:
+  isolated-postgres:
+    image: postgres:14-alpine
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      POSTGRES_DB: "${NAUTOBOT_DB_NAME:-nautobot_isolated}"
+      POSTGRES_USER: "${NAUTOBOT_DB_USER:-nautobot}"
+      POSTGRES_PASSWORD: "${NAUTOBOT_DB_PASSWORD:?Set NAUTOBOT_DB_PASSWORD in .env}"
+    volumes:
+      - isolated_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    deploy:
+      resources:
+        limits:
+          cpus: "0.75"
+          memory: 512M
+    restart: unless-stopped
+    networks:
+      - isolated-net
+
+  isolated-redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--requirepass", "${NAUTOBOT_REDIS_PASSWORD}", "--appendonly", "yes"]
+    volumes:
+      - isolated_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${NAUTOBOT_REDIS_PASSWORD}", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 256M
+    restart: unless-stopped
+    networks:
+      - isolated-net
+
+  isolated-volume-init:
+    image: alpine:latest
+    command: >
+      sh -c "mkdir -p /media /static &&
+      chown -R 999:999 /media /static &&
+      chmod -R u+rwX /media /static"
+    volumes:
+      - isolated_nautobot_media:/media
+      - isolated_nautobot_static:/static
+    restart: "no"
+    networks:
+      - isolated-net
+
+  isolated-nautobot-init:
+    <<: *nautobot-base
+    depends_on:
+      isolated-volume-init:
+        condition: service_completed_successfully
+      isolated-postgres:
+        condition: service_healthy
+      isolated-redis:
+        condition: service_healthy
+    command: >
+      sh -c "nautobot-server migrate &&
+      nautobot-server post_upgrade &&
+      nautobot-server collectstatic --no-input"
+    restart: "no"
+
+  isolated-nautobot:
+    <<: *nautobot-base
+    ports:
+      - "8081:8080"
+    depends_on:
+      isolated-nautobot-init:
+        condition: service_completed_successfully
+      isolated-postgres:
+        condition: service_healthy
+      isolated-redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health/"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: "1.25"
+          memory: 1536M
+
+  isolated-celery-worker:
+    <<: *nautobot-base
+    command: ["nautobot-server", "celery", "worker", "--loglevel", "INFO", "--concurrency=1"]
+    depends_on:
+      isolated-nautobot-init:
+        condition: service_completed_successfully
+      isolated-postgres:
+        condition: service_healthy
+      isolated-redis:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "0.75"
+          memory: 768M
+
+  isolated-celery-beat:
+    <<: *nautobot-base
+    command: ["nautobot-server", "celery", "beat", "--loglevel", "INFO"]
+    depends_on:
+      isolated-nautobot-init:
+        condition: service_completed_successfully
+      isolated-postgres:
+        condition: service_healthy
+      isolated-redis:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          # 384M, then 768M were both OOM-killed by the entrypoint's
+          # `nautobot-server post_upgrade` step (runs on every start before
+          # beat itself launches) -- confirmed via `docker stats` sitting at
+          # ~100% of the 768M limit. Bumped again to give real headroom.
+          memory: 1024M
+
+  # Optional: not started by the default lightweight profile.
+  gitlab:
+    image: gitlab/gitlab-ce:17.2.2-ce.0
+    profiles: ["gitlab"]
+    hostname: isolated-gitlab.local
+    ports:
+      - "8929:8929"
+      - "8922:22"
+    environment:
+      GITLAB_OMNIBUS_CONFIG: |
+        external_url 'http://localhost:8929'
+        gitlab_rails['gitlab_shell_ssh_port'] = 8922
+        prometheus_monitoring['enable'] = false
+        alertmanager['enable'] = false
+        registry['enable'] = false
+        gitlab_kas['enable'] = false
+        puma['worker_processes'] = 1
+        sidekiq['concurrency'] = 5
+    volumes:
+      - isolated_gitlab_config:/etc/gitlab
+      - isolated_gitlab_logs:/var/log/gitlab
+      - isolated_gitlab_data:/var/opt/gitlab
+    shm_size: "128m"
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2G
+    restart: unless-stopped
+    networks:
+      - isolated-net
+
+  # Optional: starts alongside gitlab (same profile). Unregistered until you
+  # run `docker exec ... gitlab-runner register` with a token from the
+  # GitLab UI (Settings -> CI/CD -> Runners -> New instance runner).
+  gitlab-runner:
+    image: gitlab/gitlab-runner:latest
+    profiles: ["gitlab"]
+    depends_on:
+      - gitlab
+    volumes:
+      - isolated_gitlab_runner_config:/etc/gitlab-runner
+      - /var/run/docker.sock:/var/run/docker.sock
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+    restart: unless-stopped
+    networks:
+      - isolated-net
+
+networks:
+  isolated-net:
+    name: infra-automation-nautobot-isolated-net
+
+volumes:
+  isolated_postgres_data:
+    name: infra-automation-nautobot-isolated-postgres
+  isolated_redis_data:
+    name: infra-automation-nautobot-isolated-redis
+  isolated_nautobot_static:
+    name: infra-automation-nautobot-isolated-static
+  isolated_nautobot_media:
+    name: infra-automation-nautobot-isolated-media
+  isolated_gitlab_config:
+    name: infra-automation-nautobot-isolated-gitlab-config
+  isolated_gitlab_logs:
+    name: infra-automation-nautobot-isolated-gitlab-logs
+  isolated_gitlab_data:
+    name: infra-automation-nautobot-isolated-gitlab-data
+  isolated_gitlab_runner_config:
+    name: infra-automation-nautobot-isolated-gitlab-runner-config
