@@ -110,7 +110,7 @@ docker/          All lab infrastructure: Nautobot, Vault, GitLab CE + Runner,
 
 | Service | URL | Notes |
 |---|---|---|
-| Nautobot | `http://localhost:8081` | repository-local isolated instance; credentials are stored in `docker/nautobot-isolated/.env` |
+| Nautobot | `http://localhost:8080` | admin/admin, API token `0123456789abcdef0123456789abcdef01234567` |
 | GitLab CE | `http://localhost:8929` / `http://gitlab.local:8929` | project `root/nautobot-infra-automation` — the execution engine |
 | HashiCorp Vault | `http://localhost:8200` | root token in `docker/vault/state/vault-keys.txt` (gitignored) |
 | MinIO | `http://localhost:9000` | bucket `knowledge-capture` — durable Knowledge Capture log |
@@ -119,8 +119,8 @@ docker/          All lab infrastructure: Nautobot, Vault, GitLab CE + Runner,
 Start the lab (each service is its own independent Compose stack under `docker/` — see `docker/README.md` for why they're kept separate and for full per-service startup commands):
 
 ```bash
-# Nautobot (repository-local isolated stack)
-cd docker/nautobot-isolated && docker compose up -d
+# Nautobot (nested git repo; managed via its own invoke tasks)
+cd docker/nautobot && invoke start
 
 # HashiCorp Vault (secrets — populates itself on first start)
 cd docker/vault && docker compose up -d

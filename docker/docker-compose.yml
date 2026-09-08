@@ -12,13 +12,26 @@
 #   cd docker && docker compose up -d gitlab      # just one service
 #   cd docker && docker compose down              # whole lab down
 #
-# The isolated Nautobot/PostgreSQL/Redis/Celery stack is included from this
-# repository. It is the only platform stack supported by this Compose entry
-# point; no nested or independently managed Docker repository is required.
+# The nautobot/postgres/redis/celery stack (docker/nautobot/) IS included
+# below by reference only -- its files live in an independently-managed
+# nested git repository (see knowledge/architecture/archive/Current-State-v1.md) and
+# are never edited from this repo, only pointed at. Including it (rather
+# than leaving it out) is deliberate: Compose reconciles ALL resources under
+# a shared project name during `up`/`down`, so a second, separate `docker
+# compose` invocation reusing the same project name without declaring
+# nautobot's resources would see them as orphaned and attempt to remove them
+# (this happened once during setup -- Docker's own safety check blocked it
+# because the network was in active use, but it should never be attempted in
+# the first place). Its own default network still auto-allocates a subnet
+# from Docker's 172.16.0.0/12 pool -- a known, low-severity residual risk
+# since nautobot itself never talks to the ACI simulator directly -- see
+# knowledge/architecture/Platform-v2-As-Built.md §4.
 name: "infra-automation-lab"
 
 include:
-  - path: "nautobot-isolated/docker-compose.yml"
+  - path: "nautobot/environments/docker-compose.base.yml"
+  - path: "nautobot/environments/docker-compose.postgres.yml"
+  - path: "nautobot/environments/docker-compose.local.yml"
   - path: "vault/docker-compose.yml"
   - path: "platform-api/docker-compose.yml"
   - path: "mcp-server/docker-compose.yml"
@@ -52,5 +65,3 @@ networks:
     ipam:
       config:
         - subnet: "10.200.5.0/24"
-  isolated-net:
-    name: "infra-automation-nautobot-isolated-net"

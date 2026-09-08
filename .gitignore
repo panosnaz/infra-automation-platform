@@ -1,3 +1,6 @@
+# Nested git repo — handle as submodule or separate decision
+docker/nautobot/
+
 # Vault unseal keys — never commit
 docker/vault/state/*.txt
 docker/vault/state/*.json
@@ -32,6 +35,9 @@ dist/
 *.env
 !*.example.env
 !creds.example.env
+
+# Generator output — produced by generate_aci.py, not source
+platform/netascode/aci/tenants.yaml
 
 # Terraform variable files with real credentials
 terraform.tfvars

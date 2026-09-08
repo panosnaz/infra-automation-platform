@@ -347,15 +347,6 @@ locals {
     s.name => s
   }
 
-  epg_domain_bindings = merge([
-    for epg_key, epg in local.endpoint_groups : merge(
-      { for d in lookup(epg, "physical_domains", []) :
-      "${epg_key}/physical/${d}" => { epg = epg, domain = d, kind = "physical" } },
-      { for d in lookup(epg, "vmm_domains", []) :
-      "${epg_key}/vmm/${d.name}" => { epg = epg, domain = d.name, kind = "vmm", details = d } },
-    )
-  ]...)
-
   static_path_bindings = merge([
     for epg_key, epg in local.endpoint_groups : {
       for p in lookup(epg, "static_paths", []) :
@@ -1095,14 +1086,6 @@ resource "aci_access_port_selector" "this" {
   name                                      = each.value.name
   port_selector_type                        = lookup(each.value, "port_selector_type", "range")
   relation_to_leaf_access_port_policy_group = { target_dn = aci_leaf_access_port_policy_group.this[each.value.policy_group].id }
-}
-
-resource "aci_epg_to_domain" "this" {
-  for_each           = local.epg_domain_bindings
-  application_epg_dn = aci_application_epg.this["${each.value.epg.tenant_name}/${each.value.epg.ap_name}/${each.value.epg.name}"].id
-  tdn                = each.value.kind == "physical" ? aci_physical_domain.this[each.value.domain].id : aci_vmm_domain.this[each.value.domain].id
-  encap              = each.value.kind == "vmm" ? lookup(each.value.details, "encap", null) : null
-  encap_mode         = each.value.kind == "vmm" ? lookup(each.value.details, "mode", null) : null
 }
 
 resource "aci_epg_to_static_path" "this" {

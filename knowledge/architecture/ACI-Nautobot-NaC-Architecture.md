@@ -59,18 +59,16 @@ Ansible roles continue working unchanged while the Terraform NaC path matures.
 
 - Docker Desktop with Compose v2 support
 - At least 4 GB RAM allocated to Docker
-- The repository-local isolated stack in `docker/nautobot-isolated/`
+- Git
 
 ### Setup Steps
 
-The platform uses only the repository-local isolated Nautobot stack. Do not clone or
-depend on an external Nautobot Docker repository.
+Clone the official Nautobot Docker Compose stack:
 
 ```bash
-cd docker/nautobot-isolated
-cp .env.example .env
-# Set every CHANGE-ME value in .env, then start the local stack.
-docker compose up -d
+git clone https://github.com/nautobot/nautobot-docker-compose.git
+cd nautobot-docker-compose
+cp environments/local.env.example environments/local.env
 ```
 
 Add the ACI SSOT plugin to `local_requirements.txt` in the repo root.
@@ -95,7 +93,7 @@ docker compose up -d
 docker compose exec nautobot nautobot-server createsuperuser
 ```
 
-Nautobot UI will be available at `http://localhost:8081`.
+Nautobot UI will be available at `http://localhost:8080`.
 
 ### Plugin Registration
 
@@ -154,7 +152,7 @@ Only BD subnets (gateways with masks) map to IPAM Prefixes and IP Addresses.
 
 ### Running the First Sync
 
-1. Open Nautobot UI at `http://localhost:8081`.
+1. Open Nautobot UI at `http://localhost:8080`.
 2. Navigate to **Plugins > SSoT > Jobs**.
 3. Select the **ACI** data source job.
 4. Enter APIC URL (`https://172.30.46.103`), username, password, and set verify_ssl to
@@ -210,7 +208,7 @@ into Nautobot via the REST API:
 import yaml
 import requests
 
-NAUTOBOT_URL = "http://localhost:8081"
+NAUTOBOT_URL = "http://localhost:8080"
 TOKEN = "your-nautobot-token"
 
 headers = {"Authorization": f"Token {TOKEN}", "Content-Type": "application/json"}
@@ -318,7 +316,7 @@ import yaml
 import requests
 from collections import defaultdict
 
-NAUTOBOT_URL = os.environ.get("NAUTOBOT_URL", "http://localhost:8081")
+NAUTOBOT_URL = os.environ.get("NAUTOBOT_URL", "http://localhost:8080")
 TOKEN = os.environ.get("NAUTOBOT_TOKEN")
 headers = {"Authorization": f"Token {TOKEN}"}
 
@@ -704,7 +702,7 @@ terraform apply
 
 - [ ] Clone `nautobot-docker-compose` and add `nautobot-ssot[aci]` to `local_requirements.txt`
 - [ ] Run `docker compose build` to install the plugin, then `docker compose up -d`
-- [ ] Create superuser and confirm Nautobot UI at `http://localhost:8081`
+- [ ] Create superuser and confirm Nautobot UI at `http://localhost:8080`
 - [ ] Confirm `nautobot_ssot` is listed under **Plugins** in the UI
 - [ ] Run the ACI SSOT sync job against `172.30.46.103` with simulator credentials
 - [ ] Validate: Tenants, VRFs, Prefixes, and Devices populated in the UI

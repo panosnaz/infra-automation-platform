@@ -58,7 +58,9 @@ All services run under **one Docker Compose project name: `infra-automation-lab`
 
 | Included file | Service(s) |
 |---|---|
-| `nautobot-isolated/docker-compose.yml` | `isolated-nautobot`, `isolated-celery-worker`, `isolated-celery-beat`, `isolated-postgres`, `isolated-redis` |
+| `nautobot/environments/docker-compose.base.yml` | `nautobot`, `celery_worker`, `celery_beat`, `redis` |
+| `nautobot/environments/docker-compose.postgres.yml` | `db` (Postgres) |
+| `nautobot/environments/docker-compose.local.yml` | Local dev overrides (ports, bind mounts) for `nautobot`/`celery_worker` |
 | `vault/docker-compose.yml` | `vault` |
 | `platform-api/docker-compose.yml` | `platform-api` (legacy), `opa` |
 | `mcp-server/docker-compose.yml` | `mcp-server` |
@@ -118,7 +120,7 @@ Three explicit, centrally-managed Docker networks (deliberately outside Docker's
 | `infra-automation-lab_obs-net` | `10.200.4.0/24` | Prometheus, Grafana, Loki |
 | `infra-automation-lab_proxy-net` | `10.200.5.0/24` | Traefik |
 
-The repository-local isolated Nautobot stack uses the explicitly named `infra-automation-nautobot-isolated-net`; it does not depend on a nested or independently managed Docker repository.
+The Nautobot stack's own compose files (managed in a nested, independently-versioned repo) still auto-allocate their own default network subnet from the `172.16.0.0/12` pool — a known, low-severity residual risk since Nautobot itself never talks to the ACI simulator directly.
 
 Containers reach host-published services via `host.docker.internal` (via `extra_hosts: host-gateway`), not via container names, except within the same compose-managed network.
 
@@ -139,7 +141,7 @@ All persistent data lives in **named Docker volumes** (not bind mounts, except w
 | `infra-automation-lab_loki_data` | Loki | Log chunks/index |
 | `infra-automation-lab_minio_data` | MinIO | Object storage (Knowledge Capture bucket) |
 
-Bind mounts (host filesystem, not volumes): `docker/nautobot-isolated/config/nautobot_config.py`, `docker/nautobot-isolated/jobs/`, `docker/vault/config`, `docker/vault/init`, `docker/vault/state` (contains `vault-keys.txt` — gitignored), `docker/other-containers/*/*.yml` config files, `docker/other-containers/grafana/provisioning/`.
+Bind mounts (host filesystem, not volumes): `docker/nautobot/config/nautobot_config.py`, `docker/nautobot/jobs/`, `docker/vault/config`, `docker/vault/init`, `docker/vault/state` (contains `vault-keys.txt` — gitignored), `docker/other-containers/*/*.yml` config files, `docker/other-containers/grafana/provisioning/`.
 
 `docker compose down` (without `-v`) never deletes named volumes — this is what makes container recreation safe. Only `docker compose down -v` or `docker volume rm` destroys data.
 
@@ -147,7 +149,7 @@ Bind mounts (host filesystem, not volumes): `docker/nautobot-isolated/config/nau
 
 Two mechanisms exist side by side:
 
-1. **Environment files** (`docker/nautobot-isolated/.env`, gitignored) — used directly by the isolated Nautobot/Postgres/Redis containers via `env_file:`.
+1. **Environment files** (`docker/nautobot/environments/creds.env`, gitignored) — used directly by the Nautobot/Postgres/Redis containers via `env_file:`.
 2. **HashiCorp Vault** (`secret/lab/nautobot`, `secret/lab/aci`, `secret/lab/platform`) — used by Terraform, Ansible, and the generator when run manually outside CI. See [§6](#6-hashicorp-vault).
 
 Required environment variables that **must** be exported before running `docker compose up -d` from `docker/` (the compose files fail fast with a clear error if missing):
@@ -202,7 +204,7 @@ docker compose up -d --no-deps <service-name>
 
 **Requires Manual Configuration** — no automated update/upgrade tooling exists for this lab. In practice:
 - Application code changes (`mcp-server`, `platform-api`): `docker compose build <service>` then `docker compose up -d --no-deps <service>` from `docker/`.
-- Nautobot: rebuilt with `docker compose build` in `docker/nautobot-isolated/` (see [§2.11](#211-common-administration-tasks)).
+- Nautobot: rebuilt via `invoke build` in `docker/nautobot/` (see [§2.11](#211-common-administration-tasks)).
 - Third-party images (GitLab, Vault, Grafana, Prometheus, Loki, MinIO, Traefik): pin/change the image tag in the relevant compose file, then `docker compose pull <service> && docker compose up -d --no-deps <service>` from `docker/`.
 
 ### 1.10 Disaster Recovery Considerations
@@ -223,33 +225,35 @@ docker compose up -d --no-deps <service-name>
 `infra-automation-lab-nautobot-1`
 
 ### 2.2 Service URL
-`http://localhost:8081`
+`http://localhost:8080`
 
 ### 2.3 Default Ports
 `8080` (HTTP, web UI + REST/GraphQL API)
 
 ### 2.4 Login URL
-`http://localhost:8081/login/`
+`http://localhost:8080/login/`
 
 ### 2.5 Default Administrator Credentials
 | Field | Value | Source |
 |---|---|---|
-| Username | `admin` | `NAUTOBOT_SUPERUSER_NAME` in `docker/nautobot-isolated/.env` |
-| Password | local value | `NAUTOBOT_SUPERUSER_PASSWORD` in the local ignored `.env` |
-| Email | local value | `NAUTOBOT_SUPERUSER_EMAIL` in the local ignored `.env` |
-| API Token | local value | `NAUTOBOT_SUPERUSER_API_TOKEN` in the local ignored `.env` |
+| Username | `admin` | `NAUTOBOT_SUPERUSER_NAME` in `docker/nautobot/environments/creds.env` |
+| Password | `admin` | `NAUTOBOT_SUPERUSER_PASSWORD` in the same file |
+| Email | `admin@example.com` | `NAUTOBOT_SUPERUSER_EMAIL` |
+| API Token | `0123456789abcdef0123456789abcdef01234567` | `NAUTOBOT_SUPERUSER_API_TOKEN` — a fixed 40-char lab dev token used throughout this platform's automation |
 
 ### 2.6 Authentication Method
-Django session auth (web UI, username/password) and Token auth (API — `Authorization: Token <token>` header). No SSO/LDAP is configured in the isolated stack.
+Django session auth (web UI, username/password) and Token auth (API — `Authorization: Token <token>` header). No SSO/LDAP configured by default, though `docker/nautobot/environments/docker-compose.ldap.yml` exists as an optional overlay (`NAUTOBOT_AUTH_LDAP_*` variables in `local.env`, currently placeholder `"changeme"` values — **Requires Manual Configuration** if LDAP is desired).
 
 ### 2.7 Important Configuration Files
 | File | Purpose |
 |---|---|
-| `docker/nautobot-isolated/config/nautobot_config.py` | Main Nautobot settings (bind-mounted, live-editable without rebuild) |
-| `docker/nautobot-isolated/.env` | Local settings and secrets — **gitignored** |
-| `docker/nautobot-isolated/docker-compose.yml` | Service definitions and isolated port/network configuration |
-| `docker/nautobot-isolated/jobs/` | Custom Nautobot Jobs (bind-mounted, live-editable) |
-| `docker/nautobot-isolated/Dockerfile` | Repository-local custom image build |
+| `docker/nautobot/config/nautobot_config.py` | Main Nautobot settings (bind-mounted, live-editable without rebuild) — enables the `nautobot_ssot` plugin with `enable_aci = True` |
+| `docker/nautobot/environments/local.env` | Non-secret settings (DB host, Redis host, log level, `ALLOWED_HOSTS`, etc.) |
+| `docker/nautobot/environments/creds.env` | Secrets (DB/Redis passwords, secret key, superuser credentials, ACI simulator credentials) — **gitignored** |
+| `docker/nautobot/environments/docker-compose.base.yml` | Service definitions for `nautobot`, `celery_worker`, `celery_beat`, `redis` |
+| `docker/nautobot/environments/docker-compose.local.yml` | Local dev overrides: exposes port 8080, bind-mounts config/jobs for live editing |
+| `docker/nautobot/jobs/` | Custom Nautobot Jobs (bind-mounted, live-editable) |
+| `docker/nautobot/environments/Dockerfile` | Custom image build (base: `ghcr.io/nautobot/nautobot-dev`, installs `nautobot-ssot[aci]` via Poetry from `docker/nautobot/pyproject.toml`) |
 
 ### 2.8 Persistent Volumes and Stored Data
 `environments_postgres_data` (external volume, holds the actual Nautobot database — see [§3](#3-postgresql-nautobot-database)). Nautobot's own container is stateless; all durable data lives in Postgres.
@@ -267,20 +271,25 @@ Django session auth (web UI, username/password) and Token auth (API — `Authori
 
 ### 2.10 Health Check / Status Verification
 ```bash
-curl http://localhost:8081/health/                 # Django health endpoint
-curl -H "Authorization: Token <NAUTOBOT_TOKEN>" http://localhost:8081/api/   # API root, version info
+curl http://localhost:8080/health/                 # Django health endpoint
+curl -H "Authorization: Token 0123456789abcdef0123456789abcdef01234567" http://localhost:8080/api/   # API root, version info
 docker compose ps nautobot                           # container-level healthcheck status (from docker/)
 ```
 Container healthcheck: an internal `urllib.request` fetch of `http://127.0.0.1:8080/`, every 30s.
 
 ### 2.11 Common Administration Tasks
-Run from `docker/nautobot-isolated/` with Docker Compose:
+All wrapped in `invoke` tasks, run from `docker/nautobot/`:
 ```bash
-docker compose build
-docker compose up -d / docker compose stop / docker compose restart
-docker compose ps
-docker compose exec isolated-nautobot nautobot-server shell
-docker compose exec isolated-nautobot nautobot-server migrate
+invoke build            # rebuild the custom Nautobot image
+invoke start / stop / restart
+invoke destroy           # CAUTION: removes containers AND volumes
+invoke ps                 # status of all lab containers
+invoke nbshell            # Django shell inside Nautobot
+invoke cli                # interactive shell inside the nautobot container
+invoke createsuperuser
+invoke migrate
+invoke post_upgrade
+invoke db_export / invoke db_import   # database export/import
 ```
 
 ### 2.12 Log Locations and Viewing
@@ -306,16 +315,16 @@ docker compose up -d --no-deps celery_worker celery_beat   # after nautobot is h
 
 ### 2.16 Common Troubleshooting Steps
 - **Container unhealthy / won't start:** check `docker compose logs nautobot` for migration errors; confirm `db` is healthy first (`docker compose ps db`).
-- **API returns 401/403:** confirm the token matches `NAUTOBOT_SUPERUSER_API_TOKEN` in `docker/nautobot-isolated/.env`; tokens are also viewable/creatable at `http://localhost:8081/user/api-tokens/`.
-- **Job/plugin not showing up:** confirm `docker/nautobot-isolated/jobs/` is correctly bind-mounted and that `nautobot_config.py` lists the plugin in `PLUGINS`/`PLUGINS_CONFIG`.
-- **GraphQL query errors:** test directly with `curl -X POST http://localhost:8081/api/graphql/ -H "Authorization: Token <token>" -d '{"query": "{ tenants { name } }"}'`.
+- **API returns 401/403:** confirm the token matches `NAUTOBOT_SUPERUSER_API_TOKEN` in `creds.env`; tokens are also viewable/creatable at `http://localhost:8080/user/api-tokens/`.
+- **Job/plugin not showing up:** confirm `docker/nautobot/jobs/` is correctly bind-mounted (via `docker-compose.local.yml`) and that `nautobot_config.py` lists the plugin in `PLUGINS`/`PLUGINS_CONFIG`.
+- **GraphQL query errors:** test directly with `curl -X POST http://localhost:8080/api/graphql/ -H "Authorization: Token <token>" -d '{"query": "{ tenants { name } }"}'`.
 
 ### API Endpoint, Token Management, Database Connection, Plugins, Jobs (Nautobot specifics requested)
-- **API endpoint:** `http://localhost:8081/api/` (REST), `http://localhost:8081/api/graphql/` (GraphQL).
-- **API token management:** Web UI → `http://localhost:8081/user/api-tokens/`, or `POST /api/users/tokens/` (admin can also manage others' tokens via `/api/users/tokens/` as superuser). The platform's own automation uses a token from the isolated stack's local environment.
+- **API endpoint:** `http://localhost:8080/api/` (REST), `http://localhost:8080/api/graphql/` (GraphQL).
+- **API token management:** Web UI → `http://localhost:8080/user/api-tokens/`, or `POST /api/users/tokens/` (admin can also manage others' tokens via `/api/users/tokens/` as superuser). The platform's own automation (generator, MCP Server) all use the single fixed dev token above; production use would require per-integration tokens.
 - **Database connection:** `db:5432`, database `nautobot`, user `nautobot`, password from `NAUTOBOT_DB_PASSWORD` (`creds.env`, default `changeme`).
-- **Installed plugins:** `nautobot_ssot` with `enable_aci = True` (ACI Data Source sync job) — configured in `docker/nautobot-isolated/config/nautobot_config.py`.
-- **Jobs and scheduled tasks:** custom Jobs live in `docker/nautobot-isolated/jobs/` (bind-mounted); the "Cisco ACI Data Source" SSoT job is run manually or on a schedule via Nautobot's own Jobs UI (`http://localhost:8081/extras/jobs/`). Celery Beat (`isolated-celery-beat` container) handles any periodic task scheduling.
+- **Installed plugins:** `nautobot_ssot` with `enable_aci = True` (ACI Data Source sync job) — configured in `docker/nautobot/config/nautobot_config.py`.
+- **Jobs and scheduled tasks:** custom Jobs live in `docker/nautobot/jobs/` (bind-mounted); the "Cisco ACI Data Source" SSoT job is run manually or on a schedule via Nautobot's own Jobs UI (`http://localhost:8080/extras/jobs/`). Celery Beat (`celery_beat` container) handles any periodic task scheduling.
 - **Device synchronization:** the `nautobot_ssot` ACI Data Source job syncs Tenants/VRFs reliably (3 of the lab's 4 tenants arrived this way, per ADR-001's brownfield note) — its Device/Interface sync path has 3 known, unfixed bugs ([ADR-020](knowledge/adr/ADR-020-ACI-Domain-Coverage-Expansion.md) §Phase B) and is not usable today. The lab's 2 real leaf Devices were created manually, bypassing the sync entirely.
 - **Object import/export:** Nautobot's built-in CSV import/export (per-model, via the web UI list views) plus `invoke db_export`/`db_import` for full-database operations.
 - **Backup and restore:** see [§2.13](#213-backup-considerations) above; restore via `invoke db_import <file>`.
@@ -330,13 +339,13 @@ docker compose up -d --no-deps celery_worker celery_beat   # after nautobot is h
 **Service URL:** not exposed on the host by default (internal `db:5432` only)
 **Default ports:** `5432` (container-internal only — no host port mapping in the current compose files)
 **Login:** no web UI; connect with any Postgres client to `db:5432` from within the `app-net`/Nautobot network, or `docker exec -it infra-automation-lab-db-1 psql -U nautobot -d nautobot`
-**Credentials:** user `nautobot`, password from `NAUTOBOT_DB_PASSWORD` (`docker/nautobot-isolated/.env`)
+**Credentials:** user `nautobot`, password from `NAUTOBOT_DB_PASSWORD` (`docker/nautobot/environments/creds.env`, default `changeme`)
 **Authentication method:** Postgres native password auth
-**Configuration files:** `docker/nautobot-isolated/docker-compose.yml`
+**Configuration files:** `docker/nautobot/environments/docker-compose.postgres.yml` (`max_connections=1000` set via command-line flag)
 **Persistent volume:** `environments_postgres_data` (declared `external: true` — never deleted by `docker compose down -v`)
 **Environment variables:** `POSTGRES_USER`, `POSTGRES_DB` (both derived from `NAUTOBOT_DB_USER`/`NAUTOBOT_DB_NAME`), `POSTGRES_PASSWORD`
 **Health check:** `pg_isready --username=$POSTGRES_USER --dbname=$POSTGRES_DB` (container healthcheck, every 10s)
-**Common admin tasks:** use Docker Compose commands from `docker/nautobot-isolated/`; direct `psql` access via `docker exec`
+**Common admin tasks:** `invoke db_export`/`invoke db_import` (from `docker/nautobot/`); direct `psql` access via `docker exec`
 **Logs:** `docker compose logs -f db` (from `docker/`)
 **Backup considerations:** `pg_dump` via `invoke db_export`, or raw volume backup (see [§2.13](#213-backup-considerations))
 **Dependencies:** none (base service); `nautobot` depends on it
@@ -374,7 +383,7 @@ docker compose up -d --no-deps celery_worker celery_beat   # after nautobot is h
 
 **Container names:** `infra-automation-lab-celery_worker-1`, `infra-automation-lab-celery_beat-1`
 **Service URL / ports:** none published — these are background workers, no web interface
-**Login:** N/A (no UI); inspect via Nautobot's own Jobs UI (`http://localhost:8081/extras/jobs/`) which shows job run history/results
+**Login:** N/A (no UI); inspect via Nautobot's own Jobs UI (`http://localhost:8080/extras/jobs/`) which shows job run history/results
 **Credentials:** same `creds.env`/`local.env` as Nautobot (shared `env_file`)
 **Configuration:** entrypoint overridden inline in `docker-compose.base.yml` (`nautobot-server celery worker -l $NAUTOBOT_LOG_LEVEL --events` / `celery beat -l $NAUTOBOT_LOG_LEVEL`)
 **Persistent volumes:** none (stateless — task state lives in Redis/Postgres)
@@ -794,7 +803,7 @@ cd docker && docker compose up -d --no-deps mcp-server
 
 | Component | Purpose | URL | Admin Login | Configuration Location | Logs | Health Check |
 |---|---|---|---|---|---|---|
-| **Nautobot** | Source of Truth (network inventory/state) | http://localhost:8081 | `admin` / local isolated `.env` | `docker/nautobot-isolated/config/nautobot_config.py`, `.env` | `docker compose logs -f isolated-nautobot` | `GET /health/` |
+| **Nautobot** | Source of Truth (network inventory/state) | http://localhost:8080 | `admin` / `admin` (`creds.env`) | `docker/nautobot/config/nautobot_config.py`, `environments/*.env` | `docker compose logs -f nautobot` | `GET /health/` |
 | **PostgreSQL** | Nautobot database | internal `db:5432` | `nautobot` / `NAUTOBOT_DB_PASSWORD` | `docker-compose.postgres.yml` | `docker compose logs -f db` | `pg_isready` |
 | **Redis** | Celery broker / Nautobot cache | internal `redis:6379` | password `NAUTOBOT_REDIS_PASSWORD` | `docker-compose.base.yml` | `docker compose logs -f redis` | None configured |
 | **Celery Worker/Beat** | Async job execution/scheduling | N/A (no UI) | N/A | `docker-compose.base.yml` | `docker compose logs -f celery_worker` | Process-presence check |

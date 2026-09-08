@@ -1,1 +1,0 @@
-platform/terraform/aci/scripts/load-vault-creds.sh: line 20: set: pipefail: invalid option name
