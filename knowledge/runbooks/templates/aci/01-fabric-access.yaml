@@ -1,0 +1,52 @@
+# Fill the values marked FILL_ME_IN.
+# This file describes fabric-wide access policy intent.
+# Do not put passwords, tokens, private keys, or certificates here.
+
+fabric:
+  location: ACI-Lab
+
+  vlan_pools:
+    - name: ExtL3_Pool
+      alloc_mode: static
+      ranges:
+        - from: vlan-51
+          to: vlan-60
+          alloc_mode: static
+          role: external
+
+  physical_domains:
+    - name: ExtL3Dom
+      vlan_pool: ExtL3_Pool
+
+  aeps:
+    - name: ExtL3_AAEP
+      domains:
+        - ExtL3Dom
+
+  leaf_interface_policy_groups:
+    - name: ExtL3_IPG
+      aep: ExtL3_AAEP
+      policies:
+        lldp:
+          enabled: yes
+          receive: yes
+          transmit: yes
+        cdp:
+          enabled: yes
+        speed: auto
+        duplex: auto
+        spanning_tree: none
+        port_security: false
+        storm_control: false
+
+  leaf_interface_profiles:
+    - name: Leaf101_Profile
+      pod_id: 1
+      node_id: 101
+
+  interface_selectors:
+    - name: eth1-5
+      leaf_interface_profile: Leaf101_Profile
+      policy_group: ExtL3_IPG
+      module: 1
+      port: 5

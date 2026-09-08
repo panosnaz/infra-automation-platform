@@ -1,0 +1,31 @@
+# Fill the values marked FILL_ME_IN.
+# Authentication values are never entered here. Use a Vault reference only.
+
+tenant: ACI:Sales
+
+ospf_interface_policies:
+  - name: OSPF_p2p
+    network_type: point-to-point
+    hello_interval: 10           # Confirm with external router
+    dead_interval: 40            # Confirm with external router
+    passive: false
+    authentication_type: FILL_ME_IN  # md5, simple, keychain, or null
+    authentication_secret_ref: FILL_ME_IN  # Vault reference, never raw key
+    authentication_key_id: FILL_ME_IN
+    cost: FILL_ME_IN             # Optional
+    priority: FILL_ME_IN         # Optional
+
+route_leaks:
+  - name: shared-services-to-presales
+    source_vrf: Shared_Services_VRF
+    destination_vrf: Presales_VRF
+    subnet: FILL_ME_IN             # Shared-services subnet from the lab
+    allow_l3out_advertisement: false
+    description: Shared Services route leak to Presales
+
+  - name: external-to-presales
+    source_vrf: FILL_ME_IN         # External_VRF if used
+    destination_vrf: Presales_VRF
+    subnet: 172.16.200.200/32
+    allow_l3out_advertisement: true
+    description: Advertise leaked external route through BGP_L3Out

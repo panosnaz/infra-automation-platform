@@ -20,7 +20,7 @@ content.**
 docker/
 ├── README.md
 ├── docker-compose.yml                # root entry point: shared project name + networks via `include:` -- see below
-├── nautobot/                        # Nautobot stack (nested git repo, see below)
+├── nautobot-isolated/               # repository-local isolated Nautobot stack
 ├── vault/                            # HashiCorp Vault -- secrets for Terraform/Ansible/pyATS/MCP Server
 ├── mcp-server/                       # MCP Server container
 ├── platform-api/                     # OPA only today -- the legacy platform-api app is archived, see below
@@ -38,8 +38,8 @@ docker/
 
 From `docker/`, `docker compose up -d` (or `down`) at the root starts/stops every service
 under one shared Compose project (`infra-automation-lab`) via `include:` — see the comment
-block at the top of `docker/docker-compose.yml` for why the Nautobot stack is included by
-reference rather than owned here, and the operational hazards in
+block at the top of `docker/docker-compose.yml` for the local isolated Nautobot stack, and
+the operational hazards in
 [`Platform-Status-and-Pending-Items.md`](../knowledge/architecture/Platform-Status-and-Pending-Items.md)
 §3 for why `docker compose down` should never be run scoped to a single service's own
 subdirectory. Required environment variables and the full startup sequence are in
@@ -49,9 +49,8 @@ subdirectory. Required environment variables and the full startup sequence are i
 
 ## Nautobot stack
 
-The rest of this document covers the Nautobot stack specifically, since it's managed
-differently from every other service (its own nested git repository, `invoke` task runner
-instead of plain `docker compose`, and a custom-built image).
+The rest of this document covers the repository-local isolated Nautobot stack, which uses
+plain Docker Compose and a custom-built image.
 
 ---
 
@@ -129,7 +128,7 @@ Applied by `docker-compose.local.yml` to `nautobot` and `celery_worker`:
 All common operations are wrapped in `tasks.py` and run with `invoke`:
 
 ```bash
-# from docker/nautobot/
+# from docker/nautobot-isolated/
 invoke build          # Build the custom Nautobot image
 invoke start          # Start the full stack (detached)
 invoke stop           # Stop all containers
@@ -152,7 +151,7 @@ invoke db_import      # Import database from file
 
 | Item | Value |
 |---|---|
-| URL | http://localhost:8080 |
+| URL | http://localhost:8081 |
 | Default credentials | Set in `creds.env` (`NAUTOBOT_SUPERUSER_*`) |
 
 ---

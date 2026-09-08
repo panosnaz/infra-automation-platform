@@ -45,7 +45,7 @@ sys.path.insert(0, str(_HERE))
 from generator.evpn_client import NautobotEvpnClient
 from generator.evpn_transformer import build_evpn_fabric_yaml
 
-_DEFAULT_URL = "http://localhost:8080"
+_DEFAULT_URL = "http://localhost:8081"
 # Default output: platform/netascode/evpn/ (sibling of platform/python/)
 _DEFAULT_OUTPUT = _HERE.parent / "netascode" / "evpn"
 

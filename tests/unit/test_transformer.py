@@ -540,3 +540,177 @@ def test_fabric_and_access_policies_aggregated_across_multiple_locations():
 
     names = {p["name"] for p in result["apic"]["fabric_policies"]["vlan_pools"]}
     assert names == {"pool-a", "pool-b"}
+
+
+def test_vmm_domains_emitted_from_location_custom_field():
+    locations = [
+        _location(
+            "ACI-Lab",
+            aci_fabric_policies={
+                "vmm_domains": [
+                    {
+                        "name": "vmware-domain",
+                        "vendor": "VMware",
+                        "vlan_pool": "pool1",
+                        "controller": {
+                            "name": "vcenter",
+                            "host_or_ip": "vcenter.example.com",
+                            "root_cont_name": "Datacenter",
+                            "dvs_version": "unmanaged",
+                        },
+                        "credential": {"name": "vcenter-cred"},
+                    }
+                ]
+            },
+        )
+    ]
+
+    result = build_netascode_yaml([], prefixes=[], locations=locations)
+
+    assert result["apic"]["fabric_policies"]["vmm_domains"] == [
+        {
+            "name": "vmware-domain",
+            "vendor": "VMware",
+            "vlan_pool": "pool1",
+            "controller": {
+                "name": "vcenter",
+                "host_or_ip": "vcenter.example.com",
+                "root_cont_name": "Datacenter",
+                "dvs_version": "unmanaged",
+            },
+            "credential": {"name": "vcenter-cred"},
+        }
+    ]
+
+
+def test_vmm_domains_aggregated_across_locations():
+    locations = [
+        _location("site-a", aci_fabric_policies={"vmm_domains": [{"name": "vmm-a"}]}),
+        _location("site-b", aci_fabric_policies={"vmm_domains": [{"name": "vmm-b"}]}),
+    ]
+
+    result = build_netascode_yaml([], prefixes=[], locations=locations)
+
+    names = {d["name"] for d in result["apic"]["fabric_policies"]["vmm_domains"]}
+    assert names == {"vmm-a", "vmm-b"}
+
+
+def test_l4l7_services_emitted_from_tenant_custom_field():
+    tenants = [
+        {
+            "name": "ACI:acme",
+            "description": "",
+            "vrfs": [],
+            "_custom_field_data": {
+                "aci_l4l7_services": {
+                    "devices": [
+                        {
+                            "name": "fw",
+                            "service_type": "FW",
+                            "logical_interfaces": [{"name": "inside"}, {"name": "outside"}],
+                        }
+                    ],
+                    "service_graphs": [
+                        {"name": "fw-graph", "contract": "web-to-db", "device": "fw"}
+                    ],
+                    "redirect_policies": [
+                        {"name": "web-pbr", "destinations": [{"ip": "10.0.0.10", "mac": "00:11:22:33:44:55"}]}
+                    ],
+                }
+            },
+        }
+    ]
+
+    result = build_netascode_yaml(tenants, prefixes=[])
+
+    assert result["apic"]["tenants"][0]["services"] == {
+        "devices": [
+            {
+                "name": "fw",
+                "service_type": "FW",
+                "logical_interfaces": [{"name": "inside"}, {"name": "outside"}],
+            }
+        ],
+        "service_graphs": [{"name": "fw-graph", "contract": "web-to-db", "device": "fw"}],
+        "redirect_policies": [
+            {"name": "web-pbr", "destinations": [{"ip": "10.0.0.10", "mac": "00:11:22:33:44:55"}]}
+        ],
+    }
+
+
+def test_vrf_route_leaks_emitted_from_tenant_custom_field():
+    tenants = [
+        {
+            "name": "ACI:shared-services",
+            "description": "",
+            "vrfs": [],
+            "_custom_field_data": {
+                "aci_vrf_route_leaks": {
+                    "route_leaks": [
+                        {
+                            "name": "shared-to-app",
+                            "source_vrf": "Shared_Services_VRF",
+                            "destination_vrf": "App_VRF",
+                            "subnet": "10.10.10.0/24",
+                            "allow_l3out_advertisement": False,
+                        },
+                        {
+                            "name": "l3out-to-app",
+                            "source_vrf": "External_VRF",
+                            "destination_vrf": "App_VRF",
+                            "subnet": "172.16.200.200/32",
+                            "allow_l3out_advertisement": True,
+                        },
+                    ]
+                }
+            },
+        }
+    ]
+
+    result = build_netascode_yaml(tenants, prefixes=[])
+
+    assert result["apic"]["tenants"][0]["vrf_route_leaks"][1]["allow_l3out_advertisement"] is True
+    assert result["apic"]["tenants"][0]["vrf_route_leaks"][0]["source_vrf"] == "Shared_Services_VRF"
+
+
+def test_access_bindings_and_l3out_protocol_intent_are_preserved():
+    tenants = [
+        {
+            "name": "ACI:acme",
+            "description": "",
+            "vrfs": [],
+            "_custom_field_data": {
+                "aci_l3outs": {
+                    "l3outs": [
+                        {
+                            "name": "BGP_L3Out",
+                            "vrf": "app-vrf",
+                            "protocol": "bgp",
+                            "node_profiles": [{"name": "L101", "nodes": [{"node_id": 101}]}],
+                        }
+                    ]
+                }
+            },
+        }
+    ]
+    vlans = [
+        {
+            "name": "web-epg",
+            "tenant": {"name": "ACI:acme"},
+            "description": "",
+            "_custom_field_data": {
+                "aci_application_profile": "web-ap",
+                "aci_epg_bridge_domain": "web-bd",
+                "aci_physical_domains": ["ExtL3Dom"],
+                "aci_vmm_domains": [{"name": "vcenter", "encap": "vlan-200", "mode": "regular"}],
+                "aci_static_paths": [{"pod_id": 1, "node_id": 101, "module": 1, "port": 5, "encap": "vlan-120", "mode": "regular"}],
+            },
+        }
+    ]
+    result = build_netascode_yaml(tenants, prefixes=[], vlans=vlans)
+
+    assert result["apic"]["tenants"][0]["l3outs"][0]["protocol"] == "bgp"
+    epg = result["apic"]["tenants"][0]["application_profiles"][0]["endpoint_groups"][0]
+    assert epg["physical_domains"] == ["ExtL3Dom"]
+    assert epg["vmm_domains"][0]["name"] == "vcenter"
+    assert epg["static_paths"][0]["port"] == 5

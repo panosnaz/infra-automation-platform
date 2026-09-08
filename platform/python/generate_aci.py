@@ -44,7 +44,7 @@ sys.path.insert(0, str(_HERE))
 from generator.client import NautobotClient
 from generator.transformer import build_netascode_yaml
 
-_DEFAULT_URL = "http://localhost:8080"
+_DEFAULT_URL = "http://localhost:8081"
 # Default output: platform/netascode/aci/ (sibling of platform/python/)
 _DEFAULT_OUTPUT = _HERE.parent / "netascode" / "aci"
 

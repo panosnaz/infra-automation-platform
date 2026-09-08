@@ -80,7 +80,7 @@ This repo is frequently opened alongside other repos in a multi-root workspace t
 
 ## Active lab (local GitLab CE + Nautobot + Vault)
 
-- Nautobot: `http://localhost:8080`, API token `0123456789abcdef0123456789abcdef01234567`
+- Nautobot: `http://localhost:8081` (repository-local isolated instance; token is stored in the local ignored `.env`)
 - ACI Simulator: `https://172.30.46.103` (self-signed cert, use `--no-verify`) — can go unreachable independent of this repo; check `docker network ls` for a subnet collision (a real recurring bug class here, see [`Current-State-v1.md`](knowledge/architecture/archive/Current-State-v1.md)) before assuming a genuine external outage
 - GitLab CE: `http://localhost:8929` / `http://gitlab.local:8929`, project `root/nautobot-infra-automation`
 - HashiCorp Vault: `http://localhost:8200` — root token in `docker/vault/state/vault-keys.txt` (gitignored, regenerated on each init)

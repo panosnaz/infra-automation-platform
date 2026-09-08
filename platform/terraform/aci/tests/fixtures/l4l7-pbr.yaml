@@ -1,0 +1,79 @@
+apic:
+  fabric_policies:
+    vmm_domains:
+      - name: l4l7-vmm
+        vendor: VMware
+  tenants:
+    - name: l4l7-plan-test
+      vrfs:
+        - name: l4l7-vrf
+      bridge_domains:
+        - name: consumer-bd
+          vrf: l4l7-vrf
+          subnets:
+            - ip: 10.250.1.1/24
+              private: true
+        - name: provider-bd
+          vrf: l4l7-vrf
+          subnets:
+            - ip: 10.250.2.1/24
+              private: true
+      application_profiles:
+        - name: l4l7-ap
+          endpoint_groups:
+            - name: consumer-epg
+              bridge_domain: consumer-bd
+              consumed_contracts: [consumer-to-provider]
+            - name: provider-epg
+              bridge_domain: provider-bd
+              provided_contracts: [consumer-to-provider]
+      filters:
+        - name: tcp-filter
+          entries:
+            - name: default
+              ether_type: ip
+              ip_protocol: tcp
+      contracts:
+        - name: consumer-to-provider
+          scope: context
+          subjects:
+            - name: consumer-to-provider-subj
+              filters: [tcp-filter]
+              service_graph: fw-graph
+      services:
+        devices:
+          - name: fw
+            service_type: FW
+            device_type: Virtual
+            function_type: GoTo
+            managed: false
+            context_aware: single-Context
+            vmm_domain: l4l7-vmm
+            logical_interfaces:
+              - name: consumer
+              - name: provider
+        service_graphs:
+          - name: fw-graph
+            contract: consumer-to-provider
+            device: fw
+            consumer:
+              logical_interface: consumer
+              redirect_policy: DB_PBR
+              l3_destination: false
+            provider:
+              logical_interface: provider
+              redirect_policy: Backup_PBR
+              l3_destination: false
+            node_name: node-1
+            template_type: FW_ROUTED
+        redirect_policies:
+          - name: DB_PBR
+            destination_type: L3
+            destinations:
+              - ip: 10.250.1.10
+                mac: "00:11:22:33:44:55"
+          - name: Backup_PBR
+            destination_type: L3
+            destinations:
+              - ip: 10.250.2.10
+                mac: "00:11:22:33:44:66"

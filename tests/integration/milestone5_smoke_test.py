@@ -41,7 +41,7 @@ from mcp_server.schemas.aci import CreateTenantRequest  # noqa: E402
 from mcp_server.tools.aci import create_tenant  # noqa: E402
 from mcp_server.tools.generic import ShowStatusRequest, show_status  # noqa: E402
 
-NAUTOBOT_URL = os.environ.get("NAUTOBOT_URL", "http://localhost:8080")
+NAUTOBOT_URL = os.environ.get("NAUTOBOT_URL", "http://localhost:8081")
 NAUTOBOT_TOKEN = os.environ.get("NAUTOBOT_TOKEN")
 GITLAB_URL = os.environ.get("GITLAB_URL", "http://localhost:8929")
 GITLAB_TOKEN = os.environ.get("GITLAB_TOKEN", "")

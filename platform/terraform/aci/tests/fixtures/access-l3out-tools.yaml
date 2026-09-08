@@ -1,0 +1,112 @@
+apic:
+  fabric_policies:
+    vlan_pools:
+      - name: ExtL3_Pool
+        alloc_mode: static
+        ranges:
+          - from: vlan-51
+            to: vlan-60
+            alloc_mode: static
+            role: external
+  access_policies:
+    physical_domains:
+      - name: ExtL3Dom
+        vlan_pool: ExtL3_Pool
+    aeps:
+      - name: ExtL3_AAEP
+        domains: [ExtL3Dom]
+    leaf_interface_policy_groups:
+      - name: ExtL3_IPG
+        aep: ExtL3_AAEP
+        policies:
+          lldp:
+            enabled: true
+            receive: true
+            transmit: true
+          cdp:
+            enabled: true
+          speed: auto
+          duplex: auto
+          spanning_tree: bpdu-guard
+          port_security: false
+    leaf_interface_profiles:
+      - name: Leaf101_Profile
+        node_id: 101
+        pod_id: 1
+    interface_selectors:
+      - name: eth1-5
+        leaf_interface_profile: Leaf101_Profile
+        policy_group: ExtL3_IPG
+        module: 1
+        port: 5
+  tenants:
+    - name: access-l3out-plan-test
+      ospf_interface_policies:
+        - name: OSPF_p2p
+          network_type: point-to-point
+          hello_interval: 10
+          dead_interval: 40
+          passive: false
+          authentication_type: md5
+          authentication_secret_ref: vault/aci/ospf/p2p
+          authentication_key_id: 1
+      vrfs:
+        - name: Presales_VRF
+      l3outs:
+        - name: BGP_L3Out
+          vrf: Presales_VRF
+          protocol: bgp
+          domain: ExtL3Dom
+          node_profiles:
+            - name: L101
+              nodes:
+                - node_id: 101
+                  pod_id: 1
+                  router_id: 10.3.3.3
+                  router_id_as_loopback: false
+              interface_profiles:
+                - name: BGP_L3Out_interfaceProfile
+                  interfaces:
+                    - node_id: 101
+                      pod_id: 1
+                      module: 1
+                      port: 4
+                      svi: true
+                      vlan: 51
+                      mode: regular
+                      ip: 172.16.1.5/30
+                      mtu: inherit
+                      bgp_peers:
+                        - ip: 172.16.1.6
+                          remote_as: 65002
+                          local_as: 65003
+                          admin_state: true
+                          ttl: 1
+                          weight: 0
+                          allowed_self_as_count: 3
+        - name: OSPF_L3Out
+          vrf: Presales_VRF
+          protocol: ospf
+          domain: ExtL3Dom
+          node_profiles:
+            - name: OSPF_NP
+              nodes:
+                - node_id: 102
+                  pod_id: 1
+                  router_id: 10.1.1.1
+                  router_id_as_loopback: false
+              interface_profiles:
+                - name: OSPF_IP
+                  interfaces:
+                    - node_id: 102
+                      pod_id: 1
+                      module: 1
+                      port: 1
+                      svi: true
+                      vlan: 20
+                      mode: regular
+                      ip: 172.16.1.1/30
+                      mtu: inherit
+                      ospf:
+                        - name: ospf0
+                          policy: OSPF_p2p

@@ -111,6 +111,18 @@ def build_netascode_yaml(
         if l3outs:
             entry["l3outs"] = l3outs
 
+        ospf_policies = list((tenant.get("_custom_field_data") or {}).get("aci_ospf_interface_policies", {}).get("policies") or [])
+        if ospf_policies:
+            entry["ospf_interface_policies"] = ospf_policies
+
+        vrf_route_leaks = _build_vrf_route_leaks(tenant.get("_custom_field_data") or {})
+        if vrf_route_leaks:
+            entry["vrf_route_leaks"] = vrf_route_leaks
+
+        services = _build_l4l7_services(tenant.get("_custom_field_data") or {})
+        if services:
+            entry["services"] = services
+
         aci_tenants.append(entry)
 
     result: dict[str, Any] = {"apic": {"tenants": aci_tenants}}
@@ -263,6 +275,13 @@ def _build_application_profiles(vlans: list[dict[str, Any]]) -> list[dict[str, A
         if consumed := epg_contracts.get("consumed"):
             epg["consumed_contracts"] = list(consumed)
 
+        if physical_domains := cf.get("aci_physical_domains"):
+            epg["physical_domains"] = list(physical_domains)
+        if vmm_domains := cf.get("aci_vmm_domains"):
+            epg["vmm_domains"] = list(vmm_domains)
+        if static_paths := cf.get("aci_static_paths"):
+            epg["static_paths"] = list(static_paths)
+
         aps[ap_name].append(epg)
 
     return [
@@ -309,12 +328,45 @@ def _build_l3outs(tenant_cf: dict[str, Any]) -> list[dict[str, Any]]:
     return list(data.get("l3outs") or [])
 
 
+def _build_vrf_route_leaks(tenant_cf: dict[str, Any]) -> list[dict[str, Any]]:
+    """Build tenant ``vrf_route_leaks`` from the ``aci_vrf_route_leaks``
+    JSON Custom Field.
+
+    ``source_vrf`` is retained in the generated intent for auditability and
+    validation, while the installed CiscoDevNet/aci provider resource accepts
+    the destination VRF and leaked subnet only.
+    """
+    data = tenant_cf.get("aci_vrf_route_leaks") or {}
+    return list(data.get("route_leaks") or [])
+
+
+def _build_l4l7_services(tenant_cf: dict[str, Any]) -> dict[str, Any]:
+    """Build tenant ``services`` from the ``aci_l4l7_services`` JSON
+    Custom Field.
+
+    L4-L7 devices, service graphs, and PBR redirect policies are tenant
+    scoped ACI objects without a natural first-class Nautobot equivalent,
+    so they follow the existing Contract/L3Out Custom-Field-JSON pattern.
+    Concrete device discovery is deliberately excluded: the installed ACI
+    provider supports logical devices/interfaces, service graphs, and PBR
+    destinations, but not the example's concrete VMware device resources.
+    """
+    data = tenant_cf.get("aci_l4l7_services") or {}
+    services: dict[str, Any] = {}
+    for key in ("devices", "service_graphs", "redirect_policies"):
+        values = list(data.get(key) or [])
+        if values:
+            services[key] = values
+    return services
+
+
 def _build_fabric_and_access_policies(
     locations: list[dict[str, Any]],
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Build apic.fabric_policies and apic.access_policies from each
     Location's ``aci_fabric_policies`` JSON Custom Field (ADR-020 Phase B,
-    logical-only scope; Phase C adds POD-wide NTP/DNS/SNMP -- ADR-020 Phase C).
+    logical-only scope; Phase C adds POD-wide NTP/DNS/SNMP; Phase D adds
+    VMware VMM Domains).
 
     VLAN Pools/Physical Domains/AEPs/Leaf Interface Policy Groups are
     fabric-wide (not Tenant-scoped) objects with no natural Nautobot home,
@@ -342,6 +394,7 @@ def _build_fabric_and_access_policies(
     physical_domains: list[dict[str, Any]] = []
     aeps: list[dict[str, Any]] = []
     leaf_interface_policy_groups: list[dict[str, Any]] = []
+    vmm_domains: list[dict[str, Any]] = []
     ntp: dict[str, Any] = {}
     dns: dict[str, Any] = {}
     snmp: dict[str, Any] = {}
@@ -353,6 +406,7 @@ def _build_fabric_and_access_policies(
         physical_domains.extend(data.get("physical_domains") or [])
         aeps.extend(data.get("aeps") or [])
         leaf_interface_policy_groups.extend(data.get("leaf_interface_policy_groups") or [])
+        vmm_domains.extend(data.get("vmm_domains") or [])
         # POD-wide policies are singletons -- last Location with the field
         # set wins, rather than merged/appended like the list-shaped keys
         # above (multiple Locations setting conflicting NTP/DNS/SNMP config
@@ -367,6 +421,8 @@ def _build_fabric_and_access_policies(
     fabric_policies: dict[str, Any] = {}
     if vlan_pools:
         fabric_policies["vlan_pools"] = vlan_pools
+    if vmm_domains:
+        fabric_policies["vmm_domains"] = vmm_domains
     if ntp:
         fabric_policies["ntp"] = ntp
     if dns:
@@ -381,6 +437,13 @@ def _build_fabric_and_access_policies(
         access_policies["aeps"] = aeps
     if leaf_interface_policy_groups:
         access_policies["leaf_interface_policy_groups"] = leaf_interface_policy_groups
+    for key in ("leaf_interface_profiles", "interface_selectors"):
+        values = []
+        for location in locations:
+            data = (location.get("_custom_field_data") or {}).get("aci_fabric_policies") or {}
+            values.extend(data.get(key) or [])
+        if values:
+            access_policies[key] = values
 
     return fabric_policies, access_policies
 

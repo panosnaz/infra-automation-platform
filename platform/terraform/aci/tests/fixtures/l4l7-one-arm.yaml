@@ -1,0 +1,39 @@
+apic:
+  fabric_policies:
+    vmm_domains:
+      - name: adc-vmm
+        vendor: VMware
+  tenants:
+    - name: one-arm-plan-test
+      contracts:
+        - name: client-to-app
+          scope: context
+          subjects:
+            - name: client-to-app-subj
+              service_graph: adc-graph
+      services:
+        devices:
+          - name: adc
+            service_type: ADC
+            device_type: VIRTUAL
+            function_type: GoTo
+            managed: false
+            context_aware: single-Context
+            vmm_domain: adc-vmm
+            logical_interfaces:
+              - name: client
+        service_graphs:
+          - name: adc-graph
+            contract: client-to-app
+            device: adc
+            consumer:
+              logical_interface: client
+              redirect_policy: adc-pbr
+              l3_destination: false
+            template_type: ONE_NODE_ADC_ONE_ARM
+        redirect_policies:
+          - name: adc-pbr
+            destination_type: L3
+            destinations:
+              - ip: 10.251.1.10
+                mac: "00:11:22:33:44:77"

@@ -17,7 +17,7 @@ http:
     nautobot:
       loadBalancer:
         servers:
-          - url: "http://host.docker.internal:8080"
+          - url: "http://host.docker.internal:8081"
     gitlab:
       loadBalancer:
         servers:

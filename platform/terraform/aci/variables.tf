@@ -21,6 +21,20 @@ variable "aci_insecure" {
   default     = false
 }
 
+variable "vmm_vcenter_username" {
+  description = "vCenter username for VMware VMM Domain controller association."
+  type        = string
+  sensitive   = true
+  default     = null
+}
+
+variable "vmm_vcenter_password" {
+  description = "vCenter password for VMware VMM Domain controller association."
+  type        = string
+  sensitive   = true
+  default     = null
+}
+
 variable "netascode_yaml_file" {
   description = "Path to the NetAsCode tenants YAML file produced by the generator."
   type        = string
