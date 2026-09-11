@@ -22,6 +22,7 @@ variables:
   KNOWLEDGE_CAPTURE_PATH: "knowledge_capture/aci-deployments.jsonl"
   CI_ENVIRONMENT_NAME: "lab"
   NAUTOBOT_URL: "http://host.docker.internal:8080"
+  ACI_TENANT_SCOPE: "sales"
   MINIO_ENDPOINT: "http://localhost:9000"
   MINIO_KNOWLEDGE_BUCKET: "knowledge-capture"
   MINIO_KNOWLEDGE_KEY: "aci/deployments.jsonl"
@@ -50,6 +51,7 @@ generate_nac:
   variables:
     <<: *aci_job_vars
     NAUTOBOT_URL: "http://host.docker.internal:8080"
+    ACI_TENANT_SCOPE: "sales"
 
 validate_nac:
   extends: ".validate_nac"

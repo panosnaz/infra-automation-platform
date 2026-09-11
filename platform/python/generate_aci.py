@@ -107,6 +107,13 @@ def main() -> None:
         sys.exit(1)
     print(f"[generator]   tenants={len(tenants)}  prefixes={len(prefixes)}  vlans={len(vlans)}  locations={len(locations)}")
 
+    tenant_scope = os.environ.get("ACI_TENANT_SCOPE", "").strip()
+    if tenant_scope:
+        tenants = [t for t in tenants if t["name"].removeprefix("ACI:") == tenant_scope]
+        prefixes = [p for p in prefixes if (p.get("tenant") or {}).get("name", "").removeprefix("ACI:") == tenant_scope]
+        vlans = [v for v in vlans if (v.get("tenant") or {}).get("name", "").removeprefix("ACI:") == tenant_scope]
+        print(f"[generator]   tenant scope={tenant_scope}")
+
     data = build_netascode_yaml(
         tenants=tenants,
         prefixes=prefixes,
