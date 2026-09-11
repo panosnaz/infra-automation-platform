@@ -968,7 +968,7 @@ resource "aci_l3out_bgp_protocol_profile" "this" {
 
 resource "aci_rest_managed" "bgp_peer" {
   for_each   = local.bgp_peers
-  dn         = "uni/tn-${each.value.tenant_name}/out-${each.value.l3out_name}/lnodep-${each.value.node_profile_name}/lifp-${each.value.interface_profile_name}/bgpPeerP-[${each.value.ip}]"
+  dn         = "uni/tn-${each.value.tenant_name}/out-${each.value.l3out_name}/lnodep-${each.value.node_profile_name}/peerP-[${each.value.ip}]"
   class_name = "bgpPeerP"
   content = {
     addr             = each.value.ip
@@ -1035,17 +1035,15 @@ resource "aci_vlan_pool" "this" {
   description = lookup(each.value, "description", null)
 }
 
-resource "aci_rest_managed" "vlan_range" {
+resource "aci_ranges" "this" {
   for_each = local.vlan_pool_ranges
 
-  dn         = "uni/infra/vlanns-[${each.value.vlan_pool_name}]-${each.value.pool_alloc_mode}/from-vlan-${each.value.from}-to-vlan-${each.value.to}"
-  class_name = "fvnsEncapBlk"
-  content = {
-    from      = "vlan-${each.value.from}"
-    to        = "vlan-${each.value.to}"
-    allocMode = lookup(each.value, "alloc_mode", "static")
-    role      = lookup(each.value, "role", "external")
-  }
+  vlan_pool_dn = aci_vlan_pool.this[each.value.vlan_pool_name].id
+  from         = "vlan-${each.value.from}"
+  to           = "vlan-${each.value.to}"
+  alloc_mode   = lookup(each.value, "alloc_mode", "inherit")
+  role         = lookup(each.value, "role", "external")
+  description  = lookup(each.value, "description", null)
 }
 
 # ---------------------------------------------------------------------------
