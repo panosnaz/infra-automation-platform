@@ -26,12 +26,25 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+import time
 from datetime import datetime, timezone
 
 import yaml
 
 NAUTOBOT_URL = os.environ.get("NAUTOBOT_URL", "http://host.docker.internal:8080").rstrip("/")
 NAUTOBOT_TOKEN = os.environ.get("NAUTOBOT_TOKEN", "")
+
+
+def _open_with_retries(req: urllib.request.Request):
+    last_error = None
+    for attempt in range(3):
+        try:
+            return urllib.request.urlopen(req, timeout=15)
+        except (urllib.error.URLError, TimeoutError) as exc:
+            last_error = exc
+            if attempt < 2:
+                time.sleep(2**attempt)
+    raise last_error
 
 
 def _nautobot_api(method: str, path: str, body: dict | None = None) -> dict:
@@ -46,7 +59,7 @@ def _nautobot_api(method: str, path: str, body: dict | None = None) -> dict:
             "Content-Type": "application/json",
         },
     )
-    with urllib.request.urlopen(req) as resp:
+    with _open_with_retries(req) as resp:
         return json.loads(resp.read())
 
 
@@ -72,7 +85,7 @@ def _pyats_verify_status() -> str:
         headers={"PRIVATE-TOKEN": status_token},
     )
     try:
-        with urllib.request.urlopen(req) as resp:
+        with _open_with_retries(req) as resp:
             jobs = json.loads(resp.read())
     except Exception as exc:  # pragma: no cover -- best-effort, never fatal
         print(f"WARNING: could not query pyats_verify status: {exc}", file=sys.stderr)
