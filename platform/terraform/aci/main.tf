@@ -442,7 +442,7 @@ locals {
   bgp_peers = merge([
     for interface_key, i in local.l3out_interfaces : {
       for p in lookup(i, "bgp_peers", []) :
-      "${interface_key}/${p.ip}" => merge(p, { interface_key = interface_key, l3out_key = i.l3out_key, l3out_name = i.l3out_name, node_profile_key = i.node_profile_key, node_profile_name = i.node_profile_name, tenant_name = i.tenant_name })
+      "${interface_key}/${p.ip}" => merge(p, { interface_key = interface_key, interface_profile_name = i.interface_profile_name, l3out_key = i.l3out_key, l3out_name = i.l3out_name, node_profile_key = i.node_profile_key, node_profile_name = i.node_profile_name, tenant_name = i.tenant_name })
     }
   ]...)
   ospf_interfaces = merge([
