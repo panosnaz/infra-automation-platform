@@ -136,6 +136,7 @@ apic:
           scope:
           - shared-rtctrl
           - shared-security
+          - import-security
       node_profiles:
       - name: OSPF_NP
         nodes:
