@@ -47,39 +47,53 @@ variables:
 
 generate_nac:
   extends: ".generate_nac"
-  variables: *aci_job_vars
+  variables:
+    <<: *aci_job_vars
+    NAUTOBOT_URL: "http://host.docker.internal:8080"
 
 validate_nac:
   extends: ".validate_nac"
   needs: ["generate_nac"]
-  variables: *aci_job_vars
+  variables:
+    <<: *aci_job_vars
+    NAUTOBOT_URL: "http://host.docker.internal:8080"
 
 policy_check:
   extends: ".policy_check"
   needs: ["validate_nac"]
-  variables: *aci_job_vars
+  variables:
+    <<: *aci_job_vars
+    NAUTOBOT_URL: "http://host.docker.internal:8080"
 
 terraform_plan:
   extends: ".terraform_plan"
   needs: ["policy_check"]
-  variables: *aci_job_vars
+  variables:
+    <<: *aci_job_vars
+    NAUTOBOT_URL: "http://host.docker.internal:8080"
 
 terraform_apply:
   extends: ".terraform_apply"
   needs: ["terraform_plan"]
-  variables: *aci_job_vars
+  variables:
+    <<: *aci_job_vars
+    NAUTOBOT_URL: "http://host.docker.internal:8080"
   environment:
     name: "lab"
 
 ansible_configure:
   extends: ".ansible_configure"
   needs: ["terraform_apply"]
-  variables: *aci_job_vars
+  variables:
+    <<: *aci_job_vars
+    NAUTOBOT_URL: "http://host.docker.internal:8080"
 
 pyats_verify:
   extends: ".pyats_verify"
   needs: ["ansible_configure"]
-  variables: *aci_job_vars
+  variables:
+    <<: *aci_job_vars
+    NAUTOBOT_URL: "http://host.docker.internal:8080"
 
 # needs generate_nac explicitly (not just the normal upstream chain) so this
 # job always downloads the freshly-generated NETASCODE_YAML artifact, even
@@ -94,7 +108,9 @@ write_results:
     - job: "generate_nac"
     - job: "pyats_verify"
       optional: true
-  variables: *aci_job_vars
+  variables:
+    <<: *aci_job_vars
+    NAUTOBOT_URL: "http://host.docker.internal:8080"
 
 knowledge_capture:
   extends: ".knowledge_capture"
@@ -103,4 +119,6 @@ knowledge_capture:
     - job: "pyats_verify"
       optional: true
     - job: "write_results"
-  variables: *aci_job_vars
+  variables:
+    <<: *aci_job_vars
+    NAUTOBOT_URL: "http://host.docker.internal:8080"
