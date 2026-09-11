@@ -25,7 +25,7 @@
 include:
   - local: "pipelines/includes/common.gitlab-ci.yml"
 
-variables:
+.evpn_job_vars: &evpn_job_vars
   NETASCODE_YAML: "platform/netascode/evpn/fabric.yaml"
   POLICY_DOMAIN: "vxlan_evpn"
   TERRAFORM_DIR: "platform/terraform/evpn"
@@ -41,14 +41,17 @@ variables:
 
 evpn_generate_nac:
   extends: ".generate_nac"
+  variables: *evpn_job_vars
 
 evpn_validate_nac:
   extends: ".validate_nac"
   needs: ["evpn_generate_nac"]
+  variables: *evpn_job_vars
 
 evpn_policy_check:
   extends: ".policy_check"
   needs: ["evpn_validate_nac"]
+  variables: *evpn_job_vars
 
 # EVPN-specific, not part of the shared stage templates (ADR-021 §12): the
 # real Nexus 9000v lab devices (172.30.46.220-223) are only reachable from
@@ -78,6 +81,7 @@ evpn_lab_connectivity_check:
           "wget -q -O /dev/null -S --no-check-certificate --timeout=8 https://${ip}/ins 2>&1 | grep -q '401 Unauthorized'" 30
       done
   needs: ["evpn_policy_check"]
+  variables: *evpn_job_vars
   resource_group: "evpn-jump-host-${CI_ENVIRONMENT_NAME}"
 
 # EVPN-specific, not the shared .terraform_plan/.terraform_apply templates
@@ -98,6 +102,7 @@ evpn_terraform_plan:
   script:
     - pipelines/scripts/cml-terraform-run.sh "VXLAN-EVPN-MultiSite" "jump-host" "." "${TERRAFORM_DIR}" "plan"
   needs: ["evpn_lab_connectivity_check"]
+  variables: *evpn_job_vars
   # Same jump-host lock as evpn_lab_connectivity_check above (found during a
   # post-wiring audit -- these custom jobs don't extend .terraform_plan, so
   # they never inherited its own resource_group either).
@@ -120,6 +125,7 @@ evpn_terraform_apply:
   script:
     - pipelines/scripts/cml-terraform-run.sh "VXLAN-EVPN-MultiSite" "jump-host" "." "${TERRAFORM_DIR}" "apply"
   needs: ["evpn_terraform_plan"]
+  variables: *evpn_job_vars
   environment:
     name: "lab"
   resource_group: "evpn-jump-host-${CI_ENVIRONMENT_NAME}"
@@ -139,6 +145,7 @@ evpn_ansible_configure:
     - pipelines/scripts/cml-provision-py-env.sh "VXLAN-EVPN-MultiSite" "jump-host"
     - pipelines/scripts/cml-ansible-run.sh "VXLAN-EVPN-MultiSite" "jump-host" "." "${ANSIBLE_DIR}" "verify-fabric.yml"
   needs: ["evpn_terraform_apply"]
+  variables: *evpn_job_vars
   resource_group: "evpn-jump-host-${CI_ENVIRONMENT_NAME}"
 
 # ADR-021 §19: not the shared .pyats_verify template -- pyATS itself can't
@@ -158,6 +165,7 @@ evpn_pyats_verify:
   script:
     - pipelines/scripts/cml-verify-fabric-run.sh "VXLAN-EVPN-MultiSite" "jump-host" "tests/pyats/evpn/verify_fabric_features.py"
   needs: ["evpn_ansible_configure"]
+  variables: *evpn_job_vars
   resource_group: "evpn-jump-host-${CI_ENVIRONMENT_NAME}"
 
 evpn_write_results:
@@ -166,6 +174,7 @@ evpn_write_results:
     - job: "evpn_generate_nac"
     - job: "evpn_pyats_verify"
       optional: true
+  variables: *evpn_job_vars
 
 evpn_knowledge_capture:
   extends: ".knowledge_capture"
@@ -175,3 +184,4 @@ evpn_knowledge_capture:
       optional: true
     - job: "evpn_write_results"
       optional: true
+  variables: *evpn_job_vars
