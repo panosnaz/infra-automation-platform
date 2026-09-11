@@ -25,6 +25,7 @@ from __future__ import annotations
 import ipaddress
 import re
 import sys
+from copy import deepcopy
 from collections import defaultdict
 from typing import Any
 
@@ -353,7 +354,17 @@ def _build_l3outs(tenant_cf: dict[str, Any]) -> list[dict[str, Any]]:
     local validation of e.g. ``scope``/``aggregate`` strings.
     """
     data = tenant_cf.get("aci_l3outs") or {}
-    return list(data.get("l3outs") or [])
+    l3outs = deepcopy(list(data.get("l3outs") or []))
+    for l3out in l3outs:
+        for node_profile in l3out.get("node_profiles", []):
+            for interface_profile in node_profile.get("interface_profiles", []):
+                for interface in interface_profile.get("interfaces", []):
+                    # APIC/XML uses "trunk" for an SVI path; the installed
+                    # CiscoDevNet/aci provider represents the same path as
+                    # mode="regular".
+                    if interface.get("mode") == "trunk":
+                        interface["mode"] = "regular"
+    return l3outs
 
 
 def _build_vrf_route_leaks(tenant_cf: dict[str, Any]) -> list[dict[str, Any]]:

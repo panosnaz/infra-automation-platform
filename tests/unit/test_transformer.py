@@ -51,6 +51,29 @@ def test_explicit_aci_gateway_ip_overrides_prefix_network_host_guess():
     assert bd["subnets"][0]["ip"] == "10.0.1.254/24"
 
 
+def test_l3out_trunk_mode_maps_to_provider_regular_mode():
+    tenants = [_tenant("ACI:acme", vrfs=[{"name": "acme-vrf"}])]
+    tenants[0]["_custom_field_data"] = {
+        "aci_l3outs": {
+            "l3outs": [{
+                "name": "bgp-out",
+                "vrf": "acme-vrf",
+                "node_profiles": [{
+                    "name": "node-profile",
+                    "interface_profiles": [{
+                        "name": "interface-profile",
+                        "interfaces": [{"node_id": 101, "mode": "trunk"}],
+                    }],
+                }],
+            }]
+        }
+    }
+
+    l3out = build_netascode_yaml(tenants, [])["apic"]["tenants"][0]["l3outs"][0]
+
+    assert l3out["node_profiles"][0]["interface_profiles"][0]["interfaces"][0]["mode"] == "regular"
+
+
 def test_bridge_domain_can_leave_subnet_under_epg():
     tenants = [_tenant("ACI:acme", vrfs=[{"name": "shared-vrf"}])]
     prefixes = [
