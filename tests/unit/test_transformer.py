@@ -74,6 +74,17 @@ def test_l3out_trunk_mode_maps_to_provider_regular_mode():
     assert l3out["node_profiles"][0]["interface_profiles"][0]["interfaces"][0]["mode"] == "regular"
 
 
+def test_l3out_shared_security_scope_includes_import_security():
+    tenants = [_tenant("ACI:acme", vrfs=[{"name": "acme-vrf"}])]
+    tenants[0]["_custom_field_data"] = {
+        "aci_l3outs": {"l3outs": [{"name": "ospf-out", "vrf": "acme-vrf", "external_epgs": [{"name": "ext", "subnets": [{"ip": "10.0.0.0/24", "scope": ["shared-security"]}]}]}]}
+    }
+
+    subnet = build_netascode_yaml(tenants, [])["apic"]["tenants"][0]["l3outs"][0]["external_epgs"][0]["subnets"][0]
+
+    assert subnet["scope"] == ["shared-security", "import-security"]
+
+
 def test_bridge_domain_can_leave_subnet_under_epg():
     tenants = [_tenant("ACI:acme", vrfs=[{"name": "shared-vrf"}])]
     prefixes = [

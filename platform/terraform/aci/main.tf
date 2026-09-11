@@ -950,6 +950,7 @@ resource "aci_l3out_path_attachment" "this" {
 resource "aci_l3out_floating_svi" "this" {
   for_each                     = { for k, i in local.l3out_interfaces : k => i if try(i.svi, false) }
   logical_interface_profile_dn = aci_logical_interface_profile.this[each.value.interface_profile_key].id
+  if_inst_t                    = "ext-svi"
   node_dn                      = "topology/pod-${each.value.pod_id}/node-${each.value.node_id}"
   encap                        = "vlan-${each.value.vlan}"
   addr                         = lookup(each.value, "ip", null)
@@ -965,7 +966,6 @@ resource "aci_l3out_bgp_protocol_profile" "this" {
 resource "aci_bgp_peer_connectivity_profile" "this" {
   for_each                = local.bgp_peers
   parent_dn               = aci_l3out_bgp_protocol_profile.this[each.value.l3out_key].id
-  logical_node_profile_dn = aci_logical_node_profile.this[each.value.node_profile_key].id
   addr                    = each.value.ip
   as_number               = tostring(each.value.remote_as)
   local_asn               = tostring(each.value.local_as)

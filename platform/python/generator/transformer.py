@@ -364,6 +364,11 @@ def _build_l3outs(tenant_cf: dict[str, Any]) -> list[dict[str, Any]]:
                     # mode="regular".
                     if interface.get("mode") == "trunk":
                         interface["mode"] = "regular"
+        for epg in l3out.get("external_epgs", []):
+            for subnet in epg.get("subnets", []):
+                scope = subnet.get("scope", [])
+                if "shared-security" in scope and "import-security" not in scope:
+                    scope.append("import-security")
     return l3outs
 
 
