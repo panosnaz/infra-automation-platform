@@ -294,7 +294,10 @@ locals {
   vlan_pool_ranges = merge([
     for pool_name, pool in local.vlan_pools : {
       for r in lookup(pool, "ranges", []) :
-      "${pool_name}/${r.from}" => merge(r, { vlan_pool_name = pool_name })
+      "${pool_name}/${r.from}" => merge(r, {
+        vlan_pool_name  = pool_name
+        pool_alloc_mode = pool.alloc_mode
+      })
     }
   ]...)
 
@@ -1035,7 +1038,7 @@ resource "aci_vlan_pool" "this" {
 resource "aci_rest_managed" "vlan_range" {
   for_each = local.vlan_pool_ranges
 
-  dn         = "uni/infra/vlanns-[${each.value.vlan_pool_name}]-${each.value.alloc_mode}/from-${each.value.from}-to-${each.value.to}"
+  dn         = "uni/infra/vlanns-[${each.value.vlan_pool_name}]-${each.value.pool_alloc_mode}/from-${each.value.from}-to-${each.value.to}"
   class_name = "fvnsEncapBlk"
   content = {
     from      = tostring(each.value.from)
