@@ -430,13 +430,13 @@ locals {
   l3out_interface_profiles = merge([
     for profile_key, profile in local.l3out_node_profiles : {
       for p in lookup(profile, "interface_profiles", []) :
-      "${profile_key}/${p.name}" => merge(p, { node_profile_key = profile_key, tenant_name = profile.tenant_name, l3out_name = profile.l3out_name, l3out_key = profile.l3out_key })
+      "${profile_key}/${p.name}" => merge(p, { node_profile_key = profile_key, node_profile_name = profile.name, tenant_name = profile.tenant_name, l3out_name = profile.l3out_name, l3out_key = profile.l3out_key })
     }
   ]...)
   l3out_interfaces = merge([
     for ip_key, profile in local.l3out_interface_profiles : {
       for i in lookup(profile, "interfaces", []) :
-      "${ip_key}/${i.node_id}/${i.module}/${i.port}" => merge(i, { interface_profile_key = ip_key, node_profile_key = profile.node_profile_key, node_profile_name = profile.name, l3out_key = profile.l3out_key, l3out_name = profile.l3out_name, tenant_name = profile.tenant_name })
+      "${ip_key}/${i.node_id}/${i.module}/${i.port}" => merge(i, { interface_profile_key = ip_key, interface_profile_name = profile.name, node_profile_key = profile.node_profile_key, node_profile_name = profile.node_profile_name, l3out_key = profile.l3out_key, l3out_name = profile.l3out_name, tenant_name = profile.tenant_name })
     }
   ]...)
   bgp_peers = merge([
@@ -968,7 +968,7 @@ resource "aci_l3out_bgp_protocol_profile" "this" {
 
 resource "aci_rest_managed" "bgp_peer" {
   for_each   = local.bgp_peers
-  dn         = "uni/tn-${each.value.tenant_name}/out-${each.value.l3out_name}/lnodep-${each.value.node_profile_name}/protp/peerP-[${each.value.ip}]"
+  dn         = "uni/tn-${each.value.tenant_name}/out-${each.value.l3out_name}/lnodep-${each.value.node_profile_name}/lifp-${each.value.interface_profile_name}/bgpP/peerP-[${each.value.ip}]"
   class_name = "bgpPeerP"
   content = {
     addr             = each.value.ip
@@ -1038,7 +1038,7 @@ resource "aci_vlan_pool" "this" {
 resource "aci_rest_managed" "vlan_range" {
   for_each = local.vlan_pool_ranges
 
-  dn         = "uni/infra/vlanns-[${each.value.vlan_pool_name}]-${each.value.pool_alloc_mode}/from-${each.value.from}-to-${each.value.to}"
+  dn         = "uni/infra/vlanns-[${each.value.vlan_pool_name}]-${each.value.pool_alloc_mode}/from-vlan-${each.value.from}-to-vlan-${each.value.to}"
   class_name = "fvnsEncapBlk"
   content = {
     from      = tostring(each.value.from)
