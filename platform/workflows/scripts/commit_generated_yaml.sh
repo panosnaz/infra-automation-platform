@@ -33,5 +33,10 @@ if git diff --cached --quiet; then
   echo "No generated-state changes to commit"
 else
   git commit -m "chore(netascode): regenerate ${NETASCODE_YAML} from Nautobot [skip ci]"
+  # The pipeline may have been created before another generated-state commit
+  # reached the same branch. Generated YAML is the only file in this commit,
+  # so update the branch tip atomically without overwriting unrelated work.
+  git fetch origin "${CI_COMMIT_REF_NAME}"
+  git rebase "origin/${CI_COMMIT_REF_NAME}"
   git push origin "HEAD:${CI_COMMIT_REF_NAME}"
 fi
