@@ -1,0 +1,183 @@
+apic:
+  tenants:
+  - name: alpha-bank
+    description: Created via raw MCP protocol test
+    vrfs:
+    - name: ALPHA-BANK-VRF
+    bridge_domains:
+    - name: ALPHA_BANK-BD
+      unicast_routing: true
+      subnets:
+      - ip: 10.202.61.1/24
+        public: false
+        private: true
+        shared: false
+      vrf: ALPHA-BANK-VRF
+  - name: sales
+    description: Workbook PBR/L3Out inventory imported; ready for fresh Terraform
+      plan
+    vrfs:
+    - name: Presales_VRF
+      description: Presales consumer VRF
+    - name: SharedServices_VRF
+      description: Shared services VRF for route leaking scenario
+    bridge_domains:
+    - name: Presales_BD
+      unicast_routing: true
+      subnets:
+      - ip: 10.0.1.254/24
+        public: false
+        private: false
+        shared: true
+      vrf: Presales_VRF
+    - name: SharedServices_BD
+      unicast_routing: true
+      vrf: SharedServices_VRF
+    application_profiles:
+    - name: eCommerce_AP
+      endpoint_groups:
+      - name: Web_EPG
+        bridge_domain: Presales_BD
+        description: Presales web consumer EPG
+        consumed_contracts:
+        - WebServices_Ct
+      - name: SharedServices_EPG
+        bridge_domain: SharedServices_BD
+        description: Shared services provider EPG
+        provided_contracts:
+        - WebServices_Ct
+        domains:
+        - name: Sales_PhyDom
+          domain_type: physical
+          deployment_immediacy: immediate
+          resolution_immediacy: immediate
+        subnets:
+        - ip: 10.0.4.254/24
+          scope:
+          - shared
+    filters:
+    - name: WebServices_Filter
+      entries:
+      - name: default
+        ether_type: ip
+        ip_protocol: unspecified
+    contracts:
+    - name: WebServices_Ct
+      scope: tenant
+      subjects:
+      - name: WebServices_Ct-subj
+        filters:
+        - WebServices_Filter
+      description: Shared services route leaking contract
+    l3outs:
+    - vrf: Presales_VRF
+      name: BGP_L3Out
+      domain: ExtL3Dom
+      protocol: bgp
+      description: Workbook BGP L3Out via leaf-a eth1/4
+      external_epgs:
+      - name: Nexus_ExtNet
+        subnets:
+        - ip: 172.16.200.200/32
+          scope:
+          - import-security
+        - ip: 172.16.100.100/32
+          scope:
+          - export-rtctrl
+        - ip: 172.16.1.0/30
+          scope:
+          - export-rtctrl
+      node_profiles:
+      - name: L101
+        nodes:
+        - pod_id: 1
+          node_id: 101
+          router_id: 10.3.3.3
+          router_id_as_loopback: false
+        interface_profiles:
+        - name: BGP_L3Out_interfaceProfile
+          interfaces:
+          - ip: 172.16.1.5/30
+            mtu: inherit
+            svi: true
+            mode: trunk
+            port: 4
+            vlan: 51
+            module: 1
+            pod_id: 1
+            node_id: 101
+            bgp_peers:
+            - ip: 172.16.1.6
+              ttl: 1
+              weight: 0
+              local_as: 65003
+              remote_as: 65002
+              admin_state: true
+              interface_key: 101/1/4
+              allowed_self_as_count: 3
+            interface_key: 101/1/4
+    - vrf: Presales_VRF
+      name: OSPF_L3Out
+      domain: ExtL3Dom
+      protocol: ospf
+      description: Workbook OSPF L3Out via leaf-b eth1/1
+      external_epgs:
+      - name: Cat_ExtNet
+        subnets:
+        - ip: 172.16.200.200/32
+          scope:
+          - export-rtctrl
+        - ip: 172.16.100.100/32
+          scope:
+          - import-security
+          - shared-rtctrl
+          - shared-security
+        - ip: 172.16.1.0/30
+          scope:
+          - shared-rtctrl
+          - shared-security
+      node_profiles:
+      - name: OSPF_NP
+        nodes:
+        - pod_id: 1
+          node_id: 102
+          router_id: 10.1.1.1
+          router_id_as_loopback: false
+        interface_profiles:
+        - name: OSPF_IP
+          interfaces:
+          - ip: 172.16.1.1/30
+            mtu: inherit
+            svi: true
+            mode: trunk
+            port: 1
+            vlan: 20
+            module: 1
+            pod_id: 1
+            node_id: 102
+            interface_key: OSPF_NP/OSPF_IP
+      ospf_interfaces:
+      - area: 0.0.0.0
+        name: ospf
+        policy: OSPF_bcast_pol
+        area_type: regular
+        interface_key: OSPF_NP/OSPF_IP
+  fabric_policies:
+    vlan_pools:
+    - name: Sales_PhyPool
+      ranges:
+      - to: 30
+        from: 10
+        role: external
+      alloc_mode: static
+  access_policies:
+    physical_domains:
+    - name: Sales_PhyDom
+      vlan_pool: Sales_PhyPool
+    aeps:
+    - name: HOST_AAEP
+      domains:
+      - Sales_PhyDom
+    leaf_interface_policy_groups:
+    - aep: HOST_AAEP
+      name: Host_Access_IPG
