@@ -100,7 +100,7 @@ apic:
           - ip: 172.16.1.5/30
             mtu: inherit
             svi: true
-            mode: trunk
+            mode: regular
             port: 4
             vlan: 51
             module: 1
@@ -149,7 +149,7 @@ apic:
           - ip: 172.16.1.1/30
             mtu: inherit
             svi: true
-            mode: trunk
+            mode: regular
             port: 1
             vlan: 20
             module: 1
