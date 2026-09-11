@@ -42,6 +42,47 @@ def test_baseline_output_unchanged_when_no_custom_fields_set():
     assert set(bd.keys()) == {"name", "unicast_routing", "subnets", "vrf"}
 
 
+def test_explicit_aci_gateway_ip_overrides_prefix_network_host_guess():
+    tenants = [_tenant("ACI:acme", vrfs=[{"name": "acme-vrf"}])]
+    prefix = _prefix("10.0.1.0/24", "ACI:acme", "acme-bd", "acme-vrf", {"aci_gateway_ip": "10.0.1.254/24"})
+
+    bd = build_netascode_yaml(tenants, [prefix])["apic"]["tenants"][0]["bridge_domains"][0]
+
+    assert bd["subnets"][0]["ip"] == "10.0.1.254/24"
+
+
+def test_bridge_domain_can_leave_subnet_under_epg():
+    tenants = [_tenant("ACI:acme", vrfs=[{"name": "shared-vrf"}])]
+    prefixes = [
+        {
+            **_prefix("192.0.2.0/32", "ACI:acme", "shared-bd", "shared-vrf"),
+            "description": "ACI Bridge Domain: shared-bd:acme -- no-subnet",
+        }
+    ]
+
+    bd = build_netascode_yaml(tenants, prefixes)["apic"]["tenants"][0]["bridge_domains"][0]
+
+    assert bd == {"name": "shared-bd", "unicast_routing": True, "vrf": "shared-vrf"}
+
+
+def test_epg_subnet_is_emitted_under_epg():
+    tenants = [_tenant("ACI:acme", vrfs=[{"name": "shared-vrf"}])]
+    prefixes = [_prefix("192.0.2.0/32", "ACI:acme", "shared-bd", "shared-vrf")]
+    vlans = [{
+        "name": "shared-epg",
+        "tenant": {"name": "ACI:acme"},
+        "_custom_field_data": {
+            "aci_application_profile": "app",
+            "aci_epg_bridge_domain": "shared-bd",
+            "aci_epg_subnets": {"subnets": [{"ip": "10.0.4.254/24", "scope": ["shared"]}]},
+        },
+    }]
+
+    epg = build_netascode_yaml(tenants, prefixes, vlans=vlans)["apic"]["tenants"][0]["application_profiles"][0]["endpoint_groups"][0]
+
+    assert epg["subnets"] == [{"ip": "10.0.4.254/24", "scope": ["shared"]}]
+
+
 def test_vrf_attribute_depth_emitted_when_custom_fields_set():
     tenants = [
         _tenant(

@@ -180,6 +180,7 @@ def test_create_bridge_domain_passes_gateway_ip_through():
                 "vrf": "acme-vrf",
                 "name": "acme-bd",
                 "gateway_ip": "10.0.0.1/24",
+                "subnet_scope": "private",
                 "description": "",
             },
         )

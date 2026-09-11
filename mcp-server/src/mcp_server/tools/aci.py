@@ -42,6 +42,8 @@ from mcp_server.schemas.aci import (
     CreateL4L7DeviceRequest,
     CreateLeafInterfacePolicyGroupRequest,
     CreateLeafInterfaceProfileRequest,
+    CreateFabricDeviceRequest,
+    CreateFabricInterfaceRequest,
     CreateLocalUserRequest,
     CreateOneArmServiceGraphRequest,
     CreateOspfInterfacePolicyRequest,
@@ -125,6 +127,7 @@ def create_bridge_domain(request: CreateBridgeDomainRequest, *, nautobot: Nautob
         vrf=request.vrf,
         name=request.name,
         gateway_ip=request.gateway_ip,
+        subnet_scope=request.subnet_scope,
         description=request.description,
     )
     return {
@@ -152,6 +155,10 @@ def create_epg(request: CreateEpgRequest, *, nautobot: NautobotClient) -> dict:
         bridge_domain=request.bridge_domain,
         name=request.name,
         vid=request.vid,
+        subnet=request.subnet,
+        subnet_scope=request.subnet_scope,
+        provided_contracts=request.provided_contracts,
+        consumed_contracts=request.consumed_contracts,
         description=request.description,
     )
     return {
@@ -389,6 +396,16 @@ def _fabric_tool(name: str, schema, method: str, description: str):
 @_fabric_tool("create_leaf_interface_profile", CreateLeafInterfaceProfileRequest, "create_leaf_interface_profile", "Create a leaf interface profile intent.")
 def create_leaf_interface_profile(request: CreateLeafInterfaceProfileRequest, *, nautobot: NautobotClient) -> dict:
     return {"leaf_interface_profile": nautobot.create_leaf_interface_profile(**request.model_dump())}
+
+
+@registry.register(name="create_fabric_device", domain="cisco_aci", description="Create or update an ACI fabric device in Nautobot DCIM.", schema=CreateFabricDeviceRequest)
+def create_fabric_device(request: CreateFabricDeviceRequest, *, nautobot: NautobotClient) -> dict:
+    return {"device": nautobot.create_fabric_device(**request.model_dump())}
+
+
+@registry.register(name="create_fabric_interface", domain="cisco_aci", description="Create or update a physical fabric interface in Nautobot DCIM.", schema=CreateFabricInterfaceRequest)
+def create_fabric_interface(request: CreateFabricInterfaceRequest, *, nautobot: NautobotClient) -> dict:
+    return {"interface": nautobot.create_fabric_interface(**request.model_dump())}
 
 
 @_fabric_tool("create_interface_selector", CreateInterfaceSelectorRequest, "create_interface_selector", "Create a leaf interface selector bound to an IPG.")

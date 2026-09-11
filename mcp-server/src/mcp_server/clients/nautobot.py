@@ -50,6 +50,78 @@ class NautobotClient:
             raise NautobotError(f"No 'Active' Status found for content type '{content_type}'")
         return status
 
+    def _get_or_create_device_role(self, name: str):
+        roles = self.api.extras.roles.filter(name=name)
+        role = next(iter(roles), None)
+        if role is None:
+            role = self.api.extras.roles.create(name=name, color="0047ab", content_types=["dcim.device"])
+        return role
+
+    def _get_or_create_device_type(self, model: str):
+        manufacturer = self.api.dcim.manufacturers.get(name="Cisco")
+        if manufacturer is None:
+            manufacturer = self.api.dcim.manufacturers.create(name="Cisco")
+        device_type = self.api.dcim.device_types.get(model=model)
+        if device_type is None:
+            device_type = self.api.dcim.device_types.create(
+                manufacturer=manufacturer.id,
+                model=model,
+                slug=model.lower().replace(" ", "-")[:50],
+                u_height=1,
+                is_full_depth=False,
+            )
+        return device_type
+
+    def create_fabric_device(
+        self, name: str, node_id: int, serial: str = "", role: str = "leaf",
+        location: str = "Isolated Lab Site", model: str = "Nexus 9000v", description: str = ""
+    ) -> dict:
+        try:
+            device = self.api.dcim.devices.get(name=name)
+            status = self._get_status("dcim.device")
+            device_role = self._get_or_create_device_role(role)
+            device_type = self._get_or_create_device_type(model)
+            location_obj = self.api.dcim.locations.get(name=location)
+            if location_obj is None:
+                raise NautobotError(f"Location '{location}' not found")
+            fields = {"aci_node_id": node_id}
+            payload = {
+                "name": name, "device_type": device_type.id, "status": status.id,
+                "role": device_role.id, "location": location_obj.id,
+                "serial": serial, "comments": description, "custom_fields": fields,
+            }
+            if device is None:
+                device = self.api.dcim.devices.create(**payload)
+            else:
+                device.update(payload)
+            return dict(device)
+        except pynautobot.RequestError as exc:
+            raise NautobotError(f"Nautobot rejected device '{name}': {exc}") from exc
+        except NautobotError:
+            raise
+        except Exception as exc:
+            raise NautobotError(f"Nautobot unreachable or auth failed: {exc}") from exc
+
+    def create_fabric_interface(self, device: str, name: str, description: str = "", enabled: bool = True) -> dict:
+        try:
+            device_obj = self.api.dcim.devices.get(name=device)
+            if device_obj is None:
+                raise NautobotError(f"Device '{device}' not found")
+            interface = self.api.dcim.interfaces.get(name=name, device_id=device_obj.id)
+            status = self._get_status("dcim.interface")
+            payload = {"device": device_obj.id, "name": name, "type": "1000base-t", "status": status.id, "description": description, "enabled": enabled}
+            if interface is None:
+                interface = self.api.dcim.interfaces.create(**payload)
+            else:
+                interface.update(payload)
+            return dict(interface)
+        except pynautobot.RequestError as exc:
+            raise NautobotError(f"Nautobot rejected interface '{device}:{name}': {exc}") from exc
+        except NautobotError:
+            raise
+        except Exception as exc:
+            raise NautobotError(f"Nautobot unreachable or auth failed: {exc}") from exc
+
     def _get_or_create_namespace(self, tenant_name: str):
         """Namespace-per-tenant convention already established by
         nautobot_ssot's ACI adapter (`load_vrfs()`: VRF namespace = the
@@ -85,7 +157,9 @@ class NautobotClient:
             raise NautobotError(f"Nautobot unreachable or auth failed: {exc}") from exc
         return dict(vrf)
 
-    def create_bridge_domain(self, tenant: str, vrf: str, name: str, gateway_ip: str, description: str = "") -> dict:
+    def create_bridge_domain(
+        self, tenant: str, vrf: str, name: str, gateway_ip: str | None = None, subnet_scope: str = "private", description: str = ""
+    ) -> dict:
         """Create a Bridge Domain (ADR-020 Phase A item 1 coverage). BD
         identity is derived from a Prefix's description
         (`"ACI Bridge Domain: <bd>:<tenant>"`, see transformer.py's module
@@ -109,17 +183,27 @@ class NautobotClient:
             # Tenant object's own .name (matches every BD nautobot-ssot
             # itself has ever written, e.g. "...:new-app-bd:new-app-tenant").
             bare_tenant_name = tenant_obj.name[4:] if tenant_obj.name.startswith("ACI:") else tenant_obj.name
+            no_subnet = gateway_ip is None
             bd_description = f"ACI Bridge Domain: {name}:{bare_tenant_name}"
+            if no_subnet:
+                bd_description += " -- no-subnet"
+            elif subnet_scope != "private":
+                bd_description += f" -- subnet-scope:{subnet_scope}"
             if description:
                 bd_description = f"{bd_description} -- {description}"
-            prefix = self.api.ipam.prefixes.create(
-                prefix=gateway_ip,
-                tenant=tenant_obj.id,
-                namespace=namespace_obj.id,
-                status=status_obj.id,
-                description=bd_description,
-            )
-            self.api.ipam.vrf_prefix_assignments.create(vrf=vrf_obj.id, prefix=prefix.id)
+            prefix = self.api.ipam.prefixes.get(prefix=gateway_ip or "192.0.2.0/32", tenant_id=tenant_obj.id)
+            if prefix is None:
+                prefix = self.api.ipam.prefixes.create(
+                    prefix=gateway_ip or "192.0.2.0/32",
+                    tenant=tenant_obj.id,
+                    namespace=namespace_obj.id,
+                    status=status_obj.id,
+                    description=bd_description,
+                    custom_fields={"aci_gateway_ip": gateway_ip} if gateway_ip else {},
+                )
+                self.api.ipam.vrf_prefix_assignments.create(vrf=vrf_obj.id, prefix=prefix.id)
+            else:
+                prefix.update({"description": bd_description, "custom_fields": {"aci_gateway_ip": gateway_ip} if gateway_ip else {}})
         except pynautobot.RequestError as exc:
             raise NautobotError(f"Nautobot rejected bridge domain '{name}': {exc}") from exc
         except NautobotError:
@@ -192,6 +276,10 @@ class NautobotClient:
         bridge_domain: str,
         name: str,
         vid: int,
+        subnet: str | None = None,
+        subnet_scope: str = "private",
+        provided_contracts: list[str] | None = None,
+        consumed_contracts: list[str] | None = None,
         description: str = "",
     ) -> dict:
         """Create an EPG (ADR-020 Phase A item 2 coverage) -- modeled as a
@@ -201,17 +289,29 @@ class NautobotClient:
         try:
             tenant_obj = self._get_tenant_or_raise(tenant)
             status_obj = self._get_status("ipam.vlan")
-            vlan = self.api.ipam.vlans.create(
-                name=name,
-                vid=vid,
-                tenant=tenant_obj.id,
-                status=status_obj.id,
-                description=description,
-                custom_fields={
-                    "aci_application_profile": application_profile,
-                    "aci_epg_bridge_domain": bridge_domain,
-                },
-            )
+            fields = {
+                "aci_application_profile": application_profile,
+                "aci_epg_bridge_domain": bridge_domain,
+            }
+            if subnet:
+                fields["aci_epg_subnets"] = {"subnets": [{"ip": subnet, "scope": [subnet_scope]}]}
+            if provided_contracts or consumed_contracts:
+                fields["aci_epg_contracts"] = {
+                    "provided": list(provided_contracts or []),
+                    "consumed": list(consumed_contracts or []),
+                }
+            vlan = self.api.ipam.vlans.get(name=name, tenant_id=tenant_obj.id)
+            if vlan is None:
+                vlan = self.api.ipam.vlans.create(
+                    name=name,
+                    vid=vid,
+                    tenant=tenant_obj.id,
+                    status=status_obj.id,
+                    description=description,
+                    custom_fields=fields,
+                )
+            else:
+                vlan.update({"vid": vid, "description": description, "custom_fields": fields})
         except pynautobot.RequestError as exc:
             raise NautobotError(f"Nautobot rejected EPG '{name}': {exc}") from exc
         except NautobotError:

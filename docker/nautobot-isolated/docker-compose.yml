@@ -170,18 +170,18 @@ services:
         alertmanager['enable'] = false
         registry['enable'] = false
         gitlab_kas['enable'] = false
-        puma['worker_processes'] = 1
-        sidekiq['concurrency'] = 5
+        puma['worker_processes'] = 0
+        sidekiq['concurrency'] = 2
     volumes:
       - isolated_gitlab_config:/etc/gitlab
       - isolated_gitlab_logs:/var/log/gitlab
       - isolated_gitlab_data:/var/opt/gitlab
-    shm_size: "128m"
+    shm_size: "256m"
     deploy:
       resources:
         limits:
           cpus: "2.0"
-          memory: 2G
+          memory: 4G
     restart: unless-stopped
     networks:
       - isolated-net

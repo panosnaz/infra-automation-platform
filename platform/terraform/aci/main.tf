@@ -73,6 +73,17 @@ locals {
     }
   ]...)
 
+  epg_subnets = merge([
+    for epg_key, epg in local.endpoint_groups : {
+      for subnet in lookup(epg, "subnets", []) :
+      "${epg_key}/${subnet.ip}" => merge(subnet, {
+        tenant_name = epg.tenant_name
+        ap_name     = epg.ap_name
+        epg_name    = epg.name
+      })
+    }
+  ]...)
+
   # ADR-020 Phase A item 3 -- Flat map of all Filters: "tenant/filter" => {...}
   filters = merge([
     for tn, t in local.tenants : {
@@ -658,6 +669,14 @@ resource "aci_application_epg" "this" {
       lookup(d, "deployment_immediacy", null) != null ? { deployment_immediacy = d.deployment_immediacy } : {},
     )
   ] : null
+}
+
+resource "aci_subnet" "epg" {
+  for_each = local.epg_subnets
+
+  parent_dn = aci_application_epg.this["${each.value.tenant_name}/${each.value.ap_name}/${each.value.epg_name}"].id
+  ip        = each.value.ip
+  scope     = lookup(each.value, "scope", ["private"])
 }
 
 # ---------------------------------------------------------------------------

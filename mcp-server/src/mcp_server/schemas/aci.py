@@ -67,7 +67,11 @@ class CreateBridgeDomainRequest(BaseModel):
     tenant: str = Field(description="Name of the existing Tenant this Bridge Domain belongs to.")
     vrf: str = Field(description="Name of the existing VRF (in the same tenant) this Bridge Domain is associated with.")
     name: str = Field(description="Bridge Domain name.")
-    gateway_ip: str = Field(description="Gateway IP and prefix length for the BD's subnet, e.g. '10.10.10.1/24'.")
+    gateway_ip: str | None = Field(
+        default=None,
+        description="Gateway IP/prefix for the BD subnet, or omit for a BD whose subnet is defined under an EPG.",
+    )
+    subnet_scope: str = Field(default="private", description="BD subnet scope, typically 'private' or 'shared'.")
     description: str = Field(default="", description="Optional free-text description")
 
     @field_validator("name")
@@ -86,6 +90,10 @@ class CreateEpgRequest(BaseModel):
     bridge_domain: str = Field(description="Bridge Domain name this EPG binds to (must already exist in this tenant).")
     name: str = Field(description="EPG name.")
     vid: int = Field(description="VLAN ID backing this EPG in Nautobot's IPAM (EPGs are modeled as VLANs).", ge=1, le=4094)
+    subnet: str | None = Field(default=None, description="Optional EPG subnet gateway, e.g. '10.0.4.254/24'.")
+    subnet_scope: str = Field(default="private", description="EPG subnet scope, typically 'private' or 'shared'.")
+    provided_contracts: list[str] = Field(default_factory=list)
+    consumed_contracts: list[str] = Field(default_factory=list)
     description: str = Field(default="", description="Optional free-text description")
 
     @field_validator("name")
@@ -298,6 +306,23 @@ class CreateLeafInterfaceProfileRequest(FabricPolicyRequest):
     node_id: int = Field(ge=1)
     pod_id: int = Field(default=1, ge=1)
     description: str = Field(default="", description="Optional description.")
+
+
+class CreateFabricDeviceRequest(BaseModel):
+    name: str
+    node_id: int = Field(ge=1)
+    serial: str = ""
+    role: str = "leaf"
+    location: str = "Isolated Lab Site"
+    model: str = "Nexus 9000v"
+    description: str = ""
+
+
+class CreateFabricInterfaceRequest(BaseModel):
+    device: str
+    name: str
+    description: str = ""
+    enabled: bool = True
 
 
 class CreateInterfaceSelectorRequest(FabricPolicyRequest):

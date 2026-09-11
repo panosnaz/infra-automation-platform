@@ -189,7 +189,7 @@ def _build_bridge_domains(prefixes: list[dict[str, Any]]) -> list[dict[str, Any]
         vrf_list: list[dict[str, Any]] = prefix.get("vrfs") or []
         vrf_name = vrf_list[0]["name"] if vrf_list else None
 
-        gateway_ip = _to_gateway_ip(network)
+        gateway_ip = (prefix.get("_custom_field_data") or {}).get("aci_gateway_ip") or _to_gateway_ip(network)
         if gateway_ip != network:
             # Nautobot has no explicit "this is the gateway" concept for a prefix —
             # it only stores the network address. We assume the first host is the
@@ -202,18 +202,16 @@ def _build_bridge_domains(prefixes: list[dict[str, Any]]) -> list[dict[str, Any]
                 file=sys.stderr,
             )
 
-        entry: dict[str, Any] = {
-            "name": bd_name,
-            "unicast_routing": True,
-            "subnets": [
+        entry: dict[str, Any] = {"name": bd_name, "unicast_routing": True}
+        if " -- no-subnet" not in description:
+            entry["subnets"] = [
                 {
                     "ip": gateway_ip,
                     "public": False,
-                    "private": True,
-                    "shared": False,
+                    "private": " -- subnet-scope:shared" not in description,
+                    "shared": " -- subnet-scope:shared" in description,
                 }
-            ],
-        }
+            ]
         if vrf_name:
             entry["vrf"] = vrf_name
 
@@ -299,6 +297,10 @@ def _build_application_profiles(vlans: list[dict[str, Any]]) -> list[dict[str, A
         epg_domains = cf.get("aci_epg_domains") or {}
         if domains := epg_domains.get("domains"):
             epg["domains"] = list(domains)
+
+        epg_subnets = cf.get("aci_epg_subnets") or {}
+        if subnets := epg_subnets.get("subnets"):
+            epg["subnets"] = list(subnets)
 
         # Ported from copilot/aci-platform-comparison (2026-09-08): EPG
         # static path bindings (port-level, distinct from domain binding

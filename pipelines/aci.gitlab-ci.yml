@@ -41,6 +41,7 @@ variables:
   ANSIBLE_DIR: "platform/ansible/aci"
   PYATS_DIR: "tests/pyats/aci"
   KNOWLEDGE_CAPTURE_PATH: "knowledge_capture/aci-deployments.jsonl"
+  NAUTOBOT_URL: "http://host.docker.internal:8080"
   MINIO_KNOWLEDGE_BUCKET: "knowledge-capture"
   MINIO_KNOWLEDGE_KEY: "aci/deployments.jsonl"
 
