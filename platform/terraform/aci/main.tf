@@ -433,13 +433,13 @@ locals {
   l3out_interfaces = merge([
     for ip_key, profile in local.l3out_interface_profiles : {
       for i in lookup(profile, "interfaces", []) :
-      "${ip_key}/${i.node_id}/${i.module}/${i.port}" => merge(i, { interface_profile_key = ip_key, node_profile_key = profile.node_profile_key, l3out_key = profile.l3out_key, tenant_name = profile.tenant_name })
+      "${ip_key}/${i.node_id}/${i.module}/${i.port}" => merge(i, { interface_profile_key = ip_key, node_profile_key = profile.node_profile_key, node_profile_name = profile.name, l3out_key = profile.l3out_key, l3out_name = profile.l3out_name, tenant_name = profile.tenant_name })
     }
   ]...)
   bgp_peers = merge([
     for interface_key, i in local.l3out_interfaces : {
       for p in lookup(i, "bgp_peers", []) :
-      "${interface_key}/${p.ip}" => merge(p, { interface_key = interface_key, l3out_key = i.l3out_key, node_profile_key = i.node_profile_key })
+      "${interface_key}/${p.ip}" => merge(p, { interface_key = interface_key, l3out_key = i.l3out_key, l3out_name = i.l3out_name, node_profile_key = i.node_profile_key, node_profile_name = i.node_profile_name, tenant_name = i.tenant_name })
     }
   ]...)
   ospf_interfaces = merge([
@@ -963,16 +963,19 @@ resource "aci_l3out_bgp_protocol_profile" "this" {
   logical_node_profile_dn = one([for k, p in local.l3out_node_profiles : aci_logical_node_profile.this[k].id if startswith(k, "${each.key}/")])
 }
 
-resource "aci_bgp_peer_connectivity_profile" "this" {
-  for_each                = local.bgp_peers
-  parent_dn               = aci_l3out_bgp_protocol_profile.this[each.value.l3out_key].id
-  addr                    = each.value.ip
-  as_number               = tostring(each.value.remote_as)
-  local_asn               = tostring(each.value.local_as)
-  admin_state             = try(each.value.admin_state ? "enabled" : "disabled", null)
-  ttl                     = tostring(lookup(each.value, "ttl", 1))
-  weight                  = tostring(lookup(each.value, "weight", 0))
-  allowed_self_as_cnt     = tostring(lookup(each.value, "allowed_self_as_count", 0))
+resource "aci_rest_managed" "bgp_peer" {
+  for_each   = local.bgp_peers
+  dn         = "uni/tn-${each.value.tenant_name}/out-${each.value.l3out_name}/lnodep-${each.value.node_profile_name}/protp/peerP-[${each.value.ip}]"
+  class_name = "bgpPeerP"
+  content = {
+    addr             = each.value.ip
+    asn              = tostring(each.value.remote_as)
+    localAsn         = tostring(each.value.local_as)
+    adminSt          = try(each.value.admin_state ? "enabled" : "disabled", "enabled")
+    ttl              = tostring(lookup(each.value, "ttl", 1))
+    weight           = tostring(lookup(each.value, "weight", 0))
+    allowedSelfAsCnt = tostring(lookup(each.value, "allowed_self_as_count", 0))
+  }
 }
 
 resource "aci_l3out_ospf_interface_profile" "this" {
@@ -1029,14 +1032,17 @@ resource "aci_vlan_pool" "this" {
   description = lookup(each.value, "description", null)
 }
 
-resource "aci_ranges" "this" {
+resource "aci_rest_managed" "vlan_range" {
   for_each = local.vlan_pool_ranges
 
-  vlan_pool_dn = aci_vlan_pool.this[each.value.vlan_pool_name].id
-  from         = each.value.from
-  to           = each.value.to
-  alloc_mode   = lookup(each.value, "alloc_mode", null)
-  role         = lookup(each.value, "role", null)
+  dn         = "uni/infra/vlanns-[${each.value.vlan_pool_name}]-${each.value.alloc_mode}/from-${each.value.from}-to-${each.value.to}"
+  class_name = "fvnsEncapBlk"
+  content = {
+    from      = tostring(each.value.from)
+    to        = tostring(each.value.to)
+    allocMode = lookup(each.value, "alloc_mode", "static")
+    role      = lookup(each.value, "role", "external")
+  }
 }
 
 # ---------------------------------------------------------------------------
