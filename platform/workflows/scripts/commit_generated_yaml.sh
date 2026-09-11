@@ -25,7 +25,9 @@ GIT_PUSH_HOST="${GIT_PUSH_HOST:-${CI_SERVER_HOST}}"
 git config user.email "platform-automation@lab.local"
 git config user.name "Platform Automation"
 git remote set-url origin "http://oauth2:${GIT_PUSH_TOKEN}@${GIT_PUSH_HOST}:${CI_SERVER_PORT}/${CI_PROJECT_PATH}.git"
-git add "${NETASCODE_YAML}"
+# The generated artifact is intentionally ignored for local worktrees, but CI
+# must force-add it so the desired-state artifact is committed to Git.
+git add -f "${NETASCODE_YAML}"
 
 if git diff --cached --quiet; then
   echo "No generated-state changes to commit"
