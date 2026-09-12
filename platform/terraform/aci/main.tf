@@ -269,6 +269,21 @@ locals {
     }
   ]...)
 
+  # Inferred OSPF policies for any L3Out referencing an interface policy
+  inferred_ospf_policies = merge([
+    for l3out_key, l3out in local.l3outs : {
+      for o in lookup(l3out, "ospf_interfaces", []) :
+      "${l3out.tenant_name}/${o.policy}" => {
+        tenant_name  = l3out.tenant_name
+        name         = o.policy
+        network_type = "broadcast"
+      }
+      if lookup(o, "policy", null) != null && !contains(keys(local.ospf_interface_policies), "${l3out.tenant_name}/${o.policy}")
+    }
+  ]...)
+
+  all_ospf_interface_policies = merge(local.ospf_interface_policies, local.inferred_ospf_policies)
+
   # Tenant-scoped VRF route leaks. The provider resource creates the leak
   # route under the destination VRF; source_vrf remains explicit intent
   # metadata because this provider version exposes no source-VRF argument.
@@ -442,13 +457,26 @@ locals {
   bgp_peers = merge([
     for interface_key, i in local.l3out_interfaces : {
       for p in lookup(i, "bgp_peers", []) :
-      "${interface_key}/${p.ip}" => merge(p, { interface_key = interface_key, interface_profile_name = i.interface_profile_name, l3out_key = i.l3out_key, l3out_name = i.l3out_name, node_profile_key = i.node_profile_key, node_profile_name = i.node_profile_name, tenant_name = i.tenant_name })
+      "${interface_key}/${p.ip}" => merge(p, {
+        interface_key          = interface_key
+        interface_profile_key  = i.interface_profile_key
+        interface_profile_name = i.interface_profile_name
+        l3out_key              = i.l3out_key
+        l3out_name             = i.l3out_name
+        node_profile_key       = i.node_profile_key
+        node_profile_name      = i.node_profile_name
+        tenant_name            = i.tenant_name
+      })
     }
   ]...)
   ospf_interfaces = merge([
-    for interface_key, i in local.l3out_interfaces : {
-      for o in lookup(i, "ospf", []) :
-      "${interface_key}/${o.name}" => merge(o, { interface_key = i.interface_profile_key, l3out_key = i.l3out_key, tenant_name = i.tenant_name })
+    for l3out_key, l3out in local.l3outs : {
+      for o in lookup(l3out, "ospf_interfaces", []) :
+      "${l3out_key}/${lookup(o, "interface_key", o.name)}" => merge(o, {
+        interface_key = "${l3out_key}/${lookup(o, "interface_key", o.name)}"
+        l3out_key     = l3out_key
+        tenant_name   = l3out.tenant_name
+      })
     }
   ]...)
 
@@ -940,9 +968,9 @@ resource "aci_logical_interface_profile" "this" {
 }
 
 resource "aci_l3out_path_attachment" "this" {
-  for_each                     = { for k, i in local.l3out_interfaces : k => i if !try(i.svi, false) }
+  for_each                     = local.l3out_interfaces
   logical_interface_profile_dn = aci_logical_interface_profile.this[each.value.interface_profile_key].id
-  if_inst_t                    = "l3-port"
+  if_inst_t                    = try(each.value.svi, false) ? "ext-svi" : (lookup(each.value, "vlan", null) != null ? "sub-interface" : "l3-port")
   target_dn                    = "topology/pod-${each.value.pod_id}/paths-${each.value.node_id}/pathep-[eth${each.value.module}/${each.value.port}]"
   addr                         = lookup(each.value, "ip", null)
   encap                        = lookup(each.value, "vlan", null) != null ? "vlan-${each.value.vlan}" : null
@@ -951,7 +979,7 @@ resource "aci_l3out_path_attachment" "this" {
 }
 
 resource "aci_l3out_floating_svi" "this" {
-  for_each                     = { for k, i in local.l3out_interfaces : k => i if try(i.svi, false) }
+  for_each                     = { for k, i in local.l3out_interfaces : k => i if try(i.floating, false) }
   logical_interface_profile_dn = aci_logical_interface_profile.this[each.value.interface_profile_key].id
   if_inst_t                    = "ext-svi"
   node_dn                      = "topology/pod-${each.value.pod_id}/node-${each.value.node_id}"
@@ -967,27 +995,34 @@ resource "aci_l3out_bgp_protocol_profile" "this" {
 }
 
 resource "aci_bgp_peer_connectivity_profile" "this" {
-  for_each                = local.bgp_peers
-  logical_node_profile_dn = aci_logical_node_profile.this[each.value.node_profile_key].id
-  addr                    = each.value.ip
-  as_number               = tostring(each.value.remote_as)
-  local_asn               = tostring(each.value.local_as)
-  admin_state             = try(each.value.admin_state ? "enabled" : "disabled", "enabled")
-  ttl                     = tostring(lookup(each.value, "ttl", 1))
-  weight                  = tostring(lookup(each.value, "weight", 0))
-  allowed_self_as_cnt     = tostring(lookup(each.value, "allowed_self_as_count", 0))
+  for_each            = local.bgp_peers
+  parent_dn           = aci_l3out_path_attachment.this[each.value.interface_key].id
+  addr                = each.value.ip
+  as_number           = tostring(each.value.remote_as)
+  local_asn           = tostring(each.value.local_as)
+  admin_state         = try(each.value.admin_state ? "enabled" : "disabled", "enabled")
+  ttl                 = tostring(lookup(each.value, "ttl", 1))
+  weight              = tostring(lookup(each.value, "weight", 0))
+  allowed_self_as_cnt = tostring(lookup(each.value, "allowed_self_as_count", 0))
+}
+
+resource "aci_l3out_ospf_external_policy" "this" {
+  for_each      = local.l3out_ospf_policies
+  l3_outside_dn = aci_l3_outside.this[each.key].id
+  area_id       = try(lookup(lookup(each.value, "ospf_interfaces", [])[0], "area", "0.0.0.0"), "0.0.0.0")
+  area_type     = try(lookup(lookup(each.value, "ospf_interfaces", [])[0], "area_type", "regular"), "regular")
 }
 
 resource "aci_l3out_ospf_interface_profile" "this" {
   for_each                     = local.ospf_interfaces
   logical_interface_profile_dn = aci_logical_interface_profile.this[each.value.interface_key].id
-  relation_ospf_rs_if_pol      = lookup(each.value, "policy", null) != null ? aci_ospf_interface_policy.this["${each.value.tenant_name}/${each.value.policy}"].id : null
+  relation_ospf_rs_if_pol      = lookup(each.value, "policy", null) != null ? try(aci_ospf_interface_policy.this["${each.value.tenant_name}/${each.value.policy}"].id, null) : null
   auth_type                    = lookup(each.value, "authentication_type", null)
   auth_key_id                  = lookup(each.value, "authentication_key_id", null)
 }
 
 resource "aci_ospf_interface_policy" "this" {
-  for_each = local.ospf_interface_policies
+  for_each = local.all_ospf_interface_policies
 
   tenant_dn = aci_tenant.this[each.value.tenant_name].id
   name      = each.value.name
