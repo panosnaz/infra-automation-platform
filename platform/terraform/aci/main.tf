@@ -966,19 +966,16 @@ resource "aci_l3out_bgp_protocol_profile" "this" {
   logical_node_profile_dn = one([for k, p in local.l3out_node_profiles : aci_logical_node_profile.this[k].id if startswith(k, "${each.key}/")])
 }
 
-resource "aci_rest_managed" "bgp_peer" {
-  for_each   = local.bgp_peers
-  dn         = "uni/tn-${each.value.tenant_name}/out-${each.value.l3out_name}/lnodep-${each.value.node_profile_name}/peerP-[${each.value.ip}]"
-  class_name = "bgpPeerP"
-  content = {
-    addr             = each.value.ip
-    asn              = tostring(each.value.remote_as)
-    localAsn         = tostring(each.value.local_as)
-    adminSt          = try(each.value.admin_state ? "enabled" : "disabled", "enabled")
-    ttl              = tostring(lookup(each.value, "ttl", 1))
-    weight           = tostring(lookup(each.value, "weight", 0))
-    allowedSelfAsCnt = tostring(lookup(each.value, "allowed_self_as_count", 0))
-  }
+resource "aci_bgp_peer_connectivity_profile" "this" {
+  for_each                = local.bgp_peers
+  logical_node_profile_dn = aci_logical_node_profile.this[each.value.node_profile_key].id
+  addr                    = each.value.ip
+  as_number               = tostring(each.value.remote_as)
+  local_asn               = tostring(each.value.local_as)
+  admin_state             = try(each.value.admin_state ? "enabled" : "disabled", "enabled")
+  ttl                     = tostring(lookup(each.value, "ttl", 1))
+  weight                  = tostring(lookup(each.value, "weight", 0))
+  allowed_self_as_cnt     = tostring(lookup(each.value, "allowed_self_as_count", 0))
 }
 
 resource "aci_l3out_ospf_interface_profile" "this" {
