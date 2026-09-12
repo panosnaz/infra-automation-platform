@@ -729,8 +729,9 @@ resource "aci_filter" "this" {
 resource "aci_filter_entry" "this" {
   for_each = local.filter_entries
 
-  filter_dn = aci_filter.this["${each.value.tenant_name}/${each.value.filter_name}"].id
-  name      = each.value.name
+  filter_dn   = aci_filter.this["${each.value.tenant_name}/${each.value.filter_name}"].id
+  name        = each.value.name
+  description = lookup(each.value, "description", null)
 
   # String-valued, null-when-unset attributes -- same lookup(...,null)
   # pattern as VRF/BD attribute depth (item 1). Valid value strings (e.g.
@@ -740,6 +741,17 @@ resource "aci_filter_entry" "this" {
   prot        = lookup(each.value, "ip_protocol", null)
   d_from_port = lookup(each.value, "dest_from_port", null)
   d_to_port   = lookup(each.value, "dest_to_port", null)
+  s_from_port = lookup(each.value, "source_from_port", null)
+  s_to_port   = lookup(each.value, "source_to_port", null)
+  arp_opc     = lookup(each.value, "arp_opcode", null)
+  icmpv4_t    = lookup(each.value, "icmpv4_type", null)
+  icmpv6_t    = lookup(each.value, "icmpv6_type", null)
+  match_dscp  = lookup(each.value, "match_dscp", null)
+  tcp_rules   = lookup(each.value, "tcp_rules", null)
+
+  # APIC represents these as "yes"/"no", not booleans.
+  stateful      = try(each.value.stateful ? "yes" : "no", null)
+  apply_to_frag = try(each.value.apply_to_fragments ? "yes" : "no", null)
 }
 
 # ---------------------------------------------------------------------------
@@ -759,6 +771,14 @@ resource "aci_contract_subject" "this" {
 
   contract_dn = aci_contract.this["${each.value.tenant_name}/${each.value.contract_name}"].id
   name        = each.value.name
+  description = lookup(each.value, "description", null)
+  prio        = lookup(each.value, "priority", null)
+  target_dscp = lookup(each.value, "target_dscp", null)
+
+  # APIC represents these as "yes"/"no", not booleans. rev_flt_ports only
+  # applies when the subject is bidirectional.
+  apply_both_directions = try(each.value.apply_both_directions ? "yes" : "no", null)
+  rev_flt_ports         = try(each.value.reverse_filter_ports ? "yes" : "no", null)
 
   # A Subject's Filter Chain -- relation_vz_rs_subj_filt_att accepts a Set of
   # Filter DNs directly (no separate aci_contract_subject_filter resource

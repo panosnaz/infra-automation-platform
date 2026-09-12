@@ -416,6 +416,128 @@ class NautobotClient:
             raise NautobotError(f"Nautobot unreachable or auth failed: {exc}") from exc
         return {"tenant": tenant, "contract": name, "filter": filter_name, "filters": filters, "contracts": contracts}
 
+    def create_filter(self, tenant: str, name: str, entries: list[dict], description: str = "") -> dict:
+        """Append a Filter with full vzEntry attribute depth into the
+        Tenant's `aci_contracts` Custom Field. Re-creating an existing
+        Filter name replaces its entry list rather than duplicating it."""
+        try:
+            tenant_obj = self._get_tenant_or_raise(tenant)
+            existing = dict(tenant_obj.custom_fields or {}).get("aci_contracts") or {}
+            filters = list(existing.get("filters") or [])
+            contracts = list(existing.get("contracts") or [])
+
+            entry: dict = {"name": name, "entries": entries}
+            if description:
+                entry["description"] = description
+
+            filters = [f for f in filters if f.get("name") != name]
+            filters.append(entry)
+
+            tenant_obj.update({"custom_fields": {"aci_contracts": {"filters": filters, "contracts": contracts}}})
+        except pynautobot.RequestError as exc:
+            raise NautobotError(f"Nautobot rejected filter '{name}': {exc}") from exc
+        except NautobotError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise NautobotError(f"Nautobot unreachable or auth failed: {exc}") from exc
+        return {"tenant": tenant, "filter": name, "entries": entries}
+
+    def create_filter_entry(self, tenant: str, filter_name: str, entry: dict) -> dict:
+        """Append one vzEntry to an existing Filter. Re-adding the same entry
+        name replaces it in place."""
+        try:
+            tenant_obj = self._get_tenant_or_raise(tenant)
+            existing = dict(tenant_obj.custom_fields or {}).get("aci_contracts") or {}
+            filters = list(existing.get("filters") or [])
+            contracts = list(existing.get("contracts") or [])
+
+            target = next((f for f in filters if f.get("name") == filter_name), None)
+            if target is None:
+                raise NautobotError(
+                    f"Filter '{filter_name}' not found in tenant '{tenant}'. Create it first with create_filter."
+                )
+
+            entries = [e for e in list(target.get("entries") or []) if e.get("name") != entry["name"]]
+            entries.append(entry)
+            target["entries"] = entries
+
+            tenant_obj.update({"custom_fields": {"aci_contracts": {"filters": filters, "contracts": contracts}}})
+        except pynautobot.RequestError as exc:
+            raise NautobotError(f"Nautobot rejected filter entry '{entry.get('name')}': {exc}") from exc
+        except NautobotError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise NautobotError(f"Nautobot unreachable or auth failed: {exc}") from exc
+        return {"tenant": tenant, "filter": filter_name, "entries": target["entries"]}
+
+    def create_contract_subject(self, tenant: str, contract: str, subject: dict) -> dict:
+        """Append a Subject to an existing Contract. Re-adding the same
+        subject name replaces it in place."""
+        try:
+            tenant_obj = self._get_tenant_or_raise(tenant)
+            existing = dict(tenant_obj.custom_fields or {}).get("aci_contracts") or {}
+            filters = list(existing.get("filters") or [])
+            contracts = list(existing.get("contracts") or [])
+
+            target = next((c for c in contracts if c.get("name") == contract), None)
+            if target is None:
+                raise NautobotError(
+                    f"Contract '{contract}' not found in tenant '{tenant}'. Create it first with create_contract."
+                )
+
+            known = {f.get("name") for f in filters}
+            missing = [f for f in subject["filters"] if f not in known]
+            if missing:
+                raise NautobotError(
+                    f"Filter(s) {missing} not found in tenant '{tenant}'. Create them first with create_filter."
+                )
+
+            subjects = [s for s in list(target.get("subjects") or []) if s.get("name") != subject["name"]]
+            subjects.append(subject)
+            target["subjects"] = subjects
+
+            tenant_obj.update({"custom_fields": {"aci_contracts": {"filters": filters, "contracts": contracts}}})
+        except pynautobot.RequestError as exc:
+            raise NautobotError(f"Nautobot rejected contract subject '{subject.get('name')}': {exc}") from exc
+        except NautobotError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise NautobotError(f"Nautobot unreachable or auth failed: {exc}") from exc
+        return {"tenant": tenant, "contract": contract, "subjects": target["subjects"]}
+
+    def bind_epg_contract(
+        self, tenant: str, application_profile: str, epg: str, contract: str, relation: str
+    ) -> dict:
+        """Bind a Contract to an EPG as provider or consumer -- appends to the
+        EPG's own `aci_epg_contracts` Custom Field (the EPG is modeled as a
+        Nautobot VLAN, same as `create_epg`/`bind_epg_domain`)."""
+        try:
+            tenant_obj = self._get_tenant_or_raise(tenant)
+            vlan = self.api.ipam.vlans.get(
+                name=epg, tenant_id=tenant_obj.id, cf_aci_application_profile=application_profile
+            )
+            if vlan is None:
+                raise NautobotError(
+                    f"EPG '{epg}' not found in tenant '{tenant}' / application profile '{application_profile}'"
+                )
+
+            existing = dict(vlan.custom_fields or {}).get("aci_epg_contracts") or {}
+            provided = list(existing.get("provided") or [])
+            consumed = list(existing.get("consumed") or [])
+
+            bucket = provided if relation == "provided" else consumed
+            if contract not in bucket:
+                bucket.append(contract)
+
+            vlan.update({"custom_fields": {"aci_epg_contracts": {"provided": provided, "consumed": consumed}}})
+        except pynautobot.RequestError as exc:
+            raise NautobotError(f"Nautobot rejected contract binding for EPG '{epg}': {exc}") from exc
+        except NautobotError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise NautobotError(f"Nautobot unreachable or auth failed: {exc}") from exc
+        return {"tenant": tenant, "epg": epg, "provided": provided, "consumed": consumed}
+
     def create_l3out(
         self,
         tenant: str,

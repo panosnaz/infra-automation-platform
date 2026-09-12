@@ -19,12 +19,16 @@ from __future__ import annotations
 
 from mcp_server.clients.nautobot import NautobotClient
 from mcp_server.schemas.aci import (
+    BindEpgContractRequest,
     BindEpgDomainRequest,
     CreateAepRequest,
     CreateBgpPeerRequest,
     CreateBridgeDomainRequest,
     CreateContractRequest,
+    CreateContractSubjectRequest,
     CreateEpgRequest,
+    CreateFilterRequest,
+    CreateFilterEntryRequest,
     CreateInterfaceSelectorRequest,
     CreateAccessPortProfileRequest,
     CreateAccessPortSelectorRequest,
@@ -223,6 +227,112 @@ def create_contract(request: CreateContractRequest, *, nautobot: NautobotClient)
     return {
         "contract": result,
         "note": f"Contract '{request.name}' written to Nautobot under tenant '{request.tenant}'. Use show_status(name='{request.tenant}') to check the next pipeline run.",
+    }
+
+
+@registry.register(
+    name="create_filter",
+    domain="cisco_aci",
+    description=(
+        "Create a standalone Filter with one or more entries (vzEntry) in an "
+        "existing Cisco ACI Tenant, with full attribute depth: source/"
+        "destination port ranges, TCP flags, stateful, ARP opcode, ICMP type, "
+        "DSCP match. Use this instead of create_contract when you need "
+        "anything beyond a single permit-all entry. Re-creating an existing "
+        "Filter name replaces its entry list."
+    ),
+    schema=CreateFilterRequest,
+)
+def create_filter(request: CreateFilterRequest, *, nautobot: NautobotClient) -> dict:
+    entries = [e.model_dump(exclude_none=True, exclude_defaults=False) for e in request.entries]
+    result = nautobot.create_filter(
+        tenant=request.tenant,
+        name=request.name,
+        entries=entries,
+        description=request.description,
+    )
+    return {
+        "filter": result,
+        "note": f"Filter '{request.name}' written to Nautobot under tenant '{request.tenant}'. Bind it to a contract subject with create_contract_subject.",
+    }
+
+
+@registry.register(
+    name="create_filter_entry",
+    domain="cisco_aci",
+    description=(
+        "Append a single entry (vzEntry) to a Filter that already exists in "
+        "the Tenant. Re-adding the same entry name replaces it in place."
+    ),
+    schema=CreateFilterEntryRequest,
+)
+def create_filter_entry(request: CreateFilterEntryRequest, *, nautobot: NautobotClient) -> dict:
+    result = nautobot.create_filter_entry(
+        tenant=request.tenant,
+        filter_name=request.filter_name,
+        entry=request.entry.model_dump(exclude_none=True, exclude_defaults=False),
+    )
+    return {
+        "filter": result,
+        "note": f"Entry '{request.entry.name}' added to filter '{request.filter_name}' in tenant '{request.tenant}'.",
+    }
+
+
+@registry.register(
+    name="create_contract_subject",
+    domain="cisco_aci",
+    description=(
+        "Append a Subject (vzSubj) to an existing Contract, binding one or "
+        "more existing Filters, with bidirectional/reverse-port/priority/DSCP "
+        "control. Use this when a contract needs more than the single "
+        "single-filter subject create_contract emits."
+    ),
+    schema=CreateContractSubjectRequest,
+)
+def create_contract_subject(request: CreateContractSubjectRequest, *, nautobot: NautobotClient) -> dict:
+    subject: dict = {
+        "name": request.name,
+        "filters": request.filters,
+        "apply_both_directions": request.apply_both_directions,
+        "reverse_filter_ports": request.reverse_filter_ports,
+    }
+    if request.priority:
+        subject["priority"] = request.priority
+    if request.target_dscp:
+        subject["target_dscp"] = request.target_dscp
+    if request.description:
+        subject["description"] = request.description
+
+    result = nautobot.create_contract_subject(
+        tenant=request.tenant, contract=request.contract, subject=subject
+    )
+    return {
+        "contract": result,
+        "note": f"Subject '{request.name}' added to contract '{request.contract}' in tenant '{request.tenant}'.",
+    }
+
+
+@registry.register(
+    name="bind_epg_contract",
+    domain="cisco_aci",
+    description=(
+        "Bind an existing Contract to an existing EPG as provider or "
+        "consumer. create_contract only creates the Contract/Filter objects; "
+        "this is the tool that actually puts the contract into the data path."
+    ),
+    schema=BindEpgContractRequest,
+)
+def bind_epg_contract(request: BindEpgContractRequest, *, nautobot: NautobotClient) -> dict:
+    result = nautobot.bind_epg_contract(
+        tenant=request.tenant,
+        application_profile=request.application_profile,
+        epg=request.epg,
+        contract=request.contract,
+        relation=request.relation,
+    )
+    return {
+        "epg_contracts": result,
+        "note": f"EPG '{request.epg}' now {request.relation} contract '{request.contract}'. Use show_status(name='{request.tenant}') to check the next pipeline run.",
     }
 
 

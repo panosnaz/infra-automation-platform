@@ -192,6 +192,108 @@ class CreateContractRequest(BaseModel):
         return _validate_aci_name(v)
 
 
+class FilterEntrySpec(BaseModel):
+    """One vzEntry inside a Filter."""
+
+    name: str = Field(description="Filter entry name.")
+    ether_type: str = Field(default="ip", description="Ether type, e.g. 'ip', 'arp', 'unspecified'.")
+    ip_protocol: str = Field(default="unspecified", description="IP protocol, e.g. 'tcp', 'udp', 'icmp', 'unspecified'.")
+    source_from_port: str | None = Field(default=None, description="Source port range start, e.g. '1024' or 'unspecified'.")
+    source_to_port: str | None = Field(default=None, description="Source port range end.")
+    dest_from_port: str | None = Field(default=None, description="Destination port range start, e.g. '443' or 'https'.")
+    dest_to_port: str | None = Field(default=None, description="Destination port range end.")
+    tcp_rules: list[str] | None = Field(default=None, description="TCP flags to match, e.g. ['est'], ['syn','ack'].")
+    stateful: bool = Field(default=False, description="Mark the entry stateful (APIC 'stateful=yes').")
+    apply_to_fragments: bool = Field(default=False, description="Match IP fragments only (APIC 'applyToFrag=yes').")
+    arp_opcode: str | None = Field(default=None, description="ARP opcode when ether_type is 'arp': 'req' or 'reply'.")
+    icmpv4_type: str | None = Field(default=None, description="ICMPv4 type, e.g. 'echo', 'echo-rep', 'unspecified'.")
+    icmpv6_type: str | None = Field(default=None, description="ICMPv6 type.")
+    match_dscp: str | None = Field(default=None, description="DSCP value to match.")
+    description: str = Field(default="", description="Optional free-text description")
+
+    @field_validator("name")
+    @classmethod
+    def _validate_name(cls, v: str) -> str:
+        return _validate_aci_name(v)
+
+
+class CreateFilterRequest(BaseModel):
+    """Standalone Filter creation with full vzEntry attribute depth --
+    `create_contract` only ever emits a single 'default' entry."""
+
+    tenant: str = Field(description="Name of the existing Tenant this Filter belongs to.")
+    name: str = Field(description="Filter name.")
+    entries: list[FilterEntrySpec] = Field(min_length=1, description="One or more filter entries (vzEntry).")
+    description: str = Field(default="", description="Optional free-text description")
+
+    @field_validator("name")
+    @classmethod
+    def _validate_name(cls, v: str) -> str:
+        return _validate_aci_name(v)
+
+
+class CreateFilterEntryRequest(BaseModel):
+    """Append one vzEntry to a Filter that already exists in the tenant."""
+
+    tenant: str = Field(description="Name of the existing Tenant.")
+    filter_name: str = Field(description="Name of the existing Filter to append the entry to.")
+    entry: FilterEntrySpec = Field(description="The filter entry to add.")
+
+    @field_validator("filter_name")
+    @classmethod
+    def _validate_name(cls, v: str) -> str:
+        return _validate_aci_name(v)
+
+
+class CreateContractSubjectRequest(BaseModel):
+    """Append a Subject to an existing Contract, binding one or more Filters
+    -- `create_contract` only ever creates a single single-filter subject."""
+
+    tenant: str = Field(description="Name of the existing Tenant.")
+    contract: str = Field(description="Name of the existing Contract to append the subject to.")
+    name: str = Field(description="Subject name.")
+    filters: list[str] = Field(min_length=1, description="Names of Filters (in the same tenant) this subject binds.")
+    apply_both_directions: bool = Field(default=True, description="Apply the filter chain in both directions.")
+    reverse_filter_ports: bool = Field(default=True, description="Reverse source/destination ports on the return direction. Only meaningful when apply_both_directions is true.")
+    priority: str | None = Field(default=None, description="QoS priority: 'unspecified', 'level1', 'level2', 'level3'.")
+    target_dscp: str | None = Field(default=None, description="Target DSCP marking.")
+    description: str = Field(default="", description="Optional free-text description")
+
+    @field_validator("name", "contract")
+    @classmethod
+    def _validate_name(cls, v: str) -> str:
+        return _validate_aci_name(v)
+
+    @field_validator("filters")
+    @classmethod
+    def _validate_filters(cls, v: list[str]) -> list[str]:
+        return [_validate_aci_name(f) for f in v]
+
+
+class BindEpgContractRequest(BaseModel):
+    """Bind an existing Contract to an existing EPG as provider or consumer.
+    `create_contract` deliberately does not do this -- the binding lives on
+    the EPG's own `aci_epg_contracts` Custom Field, not the Tenant's."""
+
+    tenant: str = Field(description="Name of the existing Tenant.")
+    application_profile: str = Field(description="Application Profile the EPG belongs to.")
+    epg: str = Field(description="EPG name.")
+    contract: str = Field(description="Name of the existing Contract to bind.")
+    relation: str = Field(description="Binding direction: 'provided' or 'consumed'.")
+
+    @field_validator("epg", "application_profile", "contract")
+    @classmethod
+    def _validate_name(cls, v: str) -> str:
+        return _validate_aci_name(v)
+
+    @field_validator("relation")
+    @classmethod
+    def _validate_relation(cls, v: str) -> str:
+        if v not in ("provided", "consumed"):
+            raise ValueError("relation must be 'provided' or 'consumed'")
+        return v
+
+
 class CreateL3OutRequest(BaseModel):
     """ADR-020 Phase A item 4 coverage, logical-only scope (no physical
     interface/OSPF/BGP attachment -- see ADR-020's Phase A item 4 writeup

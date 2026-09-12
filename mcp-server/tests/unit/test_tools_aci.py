@@ -15,9 +15,13 @@ free next time, not only by re-running live verification.
 from __future__ import annotations
 
 from mcp_server.schemas.aci import (
+    BindEpgContractRequest,
     BindEpgDomainRequest,
     CreateAepRequest,
     CreateBridgeDomainRequest,
+    CreateContractSubjectRequest,
+    CreateFilterRequest,
+    CreateFilterEntryRequest,
     CreateL4L7DeviceRequest,
     CreateLeafInterfacePolicyGroupRequest,
     CreateLocalUserRequest,
@@ -34,9 +38,13 @@ from mcp_server.schemas.aci import (
     CreateVrfRouteLeakRequest,
 )
 from mcp_server.tools.aci import (
+    bind_epg_contract,
     bind_epg_domain,
     create_aep,
     create_bridge_domain,
+    create_contract_subject,
+    create_filter,
+    create_filter_entry,
     create_l4l7_device,
     create_leaf_interface_policy_group,
     create_local_user,
@@ -63,6 +71,22 @@ class _FakeNautobotClient:
     def create_tenant(self, **kwargs):
         self.calls.append(("create_tenant", kwargs))
         return {"id": "tenant-id", **kwargs}
+
+    def create_filter(self, **kwargs):
+        self.calls.append(("create_filter", kwargs))
+        return {"tenant": kwargs["tenant"], "filter": kwargs["name"], "entries": kwargs["entries"]}
+
+    def create_filter_entry(self, **kwargs):
+        self.calls.append(("create_filter_entry", kwargs))
+        return {"tenant": kwargs["tenant"], "filter": kwargs["filter_name"], "entries": [kwargs["entry"]]}
+
+    def create_contract_subject(self, **kwargs):
+        self.calls.append(("create_contract_subject", kwargs))
+        return {"tenant": kwargs["tenant"], "contract": kwargs["contract"], "subjects": [kwargs["subject"]]}
+
+    def bind_epg_contract(self, **kwargs):
+        self.calls.append(("bind_epg_contract", kwargs))
+        return {"tenant": kwargs["tenant"], "epg": kwargs["epg"], "provided": [], "consumed": []}
 
     def create_vrf(self, **kwargs):
         self.calls.append(("create_vrf", kwargs))
@@ -464,3 +488,88 @@ def test_create_vrf_route_leak_passes_source_and_destination():
         )
     ]
     assert result["vrf_route_leak"]["source_vrf"] == "shared-vrf"
+
+
+def test_create_filter_passes_full_entry_attributes():
+    fake = _FakeNautobotClient()
+    request = CreateFilterRequest(
+        tenant="acme",
+        name="web-filter",
+        entries=[
+            {
+                "name": "https",
+                "ether_type": "ip",
+                "ip_protocol": "tcp",
+                "dest_from_port": "443",
+                "dest_to_port": "443",
+                "tcp_rules": ["est"],
+                "stateful": True,
+            }
+        ],
+    )
+
+    result = create_filter(request, nautobot=fake)
+
+    name, kwargs = fake.calls[0]
+    assert name == "create_filter"
+    entry = kwargs["entries"][0]
+    assert entry["dest_from_port"] == "443"
+    assert entry["tcp_rules"] == ["est"]
+    assert entry["stateful"] is True
+    # exclude_none must drop unset optionals rather than emitting nulls
+    assert "arp_opcode" not in entry
+    assert result["filter"]["filter"] == "web-filter"
+
+
+def test_create_filter_entry_targets_existing_filter():
+    fake = _FakeNautobotClient()
+    request = CreateFilterEntryRequest(
+        tenant="acme",
+        filter_name="web-filter",
+        entry={"name": "http", "ip_protocol": "tcp", "dest_from_port": "80", "dest_to_port": "80"},
+    )
+
+    create_filter_entry(request, nautobot=fake)
+
+    name, kwargs = fake.calls[0]
+    assert name == "create_filter_entry"
+    assert kwargs["filter_name"] == "web-filter"
+    assert kwargs["entry"]["name"] == "http"
+
+
+def test_create_contract_subject_defaults_are_bidirectional():
+    fake = _FakeNautobotClient()
+    request = CreateContractSubjectRequest(
+        tenant="acme",
+        contract="web-ct",
+        name="web-subj",
+        filters=["web-filter", "icmp-filter"],
+    )
+
+    create_contract_subject(request, nautobot=fake)
+
+    name, kwargs = fake.calls[0]
+    assert name == "create_contract_subject"
+    subject = kwargs["subject"]
+    assert subject["filters"] == ["web-filter", "icmp-filter"]
+    assert subject["apply_both_directions"] is True
+    assert subject["reverse_filter_ports"] is True
+    assert "priority" not in subject
+
+
+def test_bind_epg_contract_passes_relation():
+    fake = _FakeNautobotClient()
+    request = BindEpgContractRequest(
+        tenant="acme",
+        application_profile="web-ap",
+        epg="web-epg",
+        contract="web-ct",
+        relation="provided",
+    )
+
+    result = bind_epg_contract(request, nautobot=fake)
+
+    name, kwargs = fake.calls[0]
+    assert name == "bind_epg_contract"
+    assert kwargs["relation"] == "provided"
+    assert "provided contract 'web-ct'" in result["note"]

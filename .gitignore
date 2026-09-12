@@ -47,3 +47,4 @@ terraform.tfvars
 docker/certificates/**/*.crt
 docker/certificates/**/*.pem
 docker/certificates/**/*.key
+platform/terraform/aci/schema.json

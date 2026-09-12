@@ -67,6 +67,26 @@ apic:
       - name: default
         ether_type: ip
         ip_protocol: unspecified
+    - name: Web_Ports_Filter
+      entries:
+      - name: https
+        stateful: true
+        tcp_rules:
+        - est
+        ether_type: ip
+        description: ''
+        ip_protocol: tcp
+        dest_to_port: '443'
+        dest_from_port: '443'
+        apply_to_fragments: false
+      - name: icmp-echo
+        stateful: false
+        ether_type: ip
+        description: ''
+        icmpv4_type: echo
+        ip_protocol: icmp
+        apply_to_fragments: false
+      description: HTTPS + ICMP echo, created via MCP create_filter
     contracts:
     - name: WebServices_Ct
       scope: tenant
@@ -74,6 +94,12 @@ apic:
       - name: WebServices_Ct-subj
         filters:
         - WebServices_Filter
+      - name: Web_Ports_Subj
+        filters:
+        - Web_Ports_Filter
+        priority: level1
+        reverse_filter_ports: true
+        apply_both_directions: true
       description: Shared services route leaking contract
     l3outs:
     - vrf: Presales_VRF
