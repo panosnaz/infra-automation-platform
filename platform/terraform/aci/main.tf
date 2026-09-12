@@ -262,6 +262,11 @@ locals {
 
   l3out_bgp_policies  = { for k, l in local.l3outs : k => l if lookup(l, "protocol", "") == "bgp" }
   l3out_ospf_policies = { for k, l in local.l3outs : k => l if lookup(l, "protocol", "") == "ospf" }
+
+  # External Routed Domains referenced by L3Out `domain:`. Fabric-wide
+  # objects (uni/l3dom-*), so deduped across every tenant's L3Outs.
+  l3out_domains = toset(compact([for k, l in local.l3outs : lookup(l, "domain", null)]))
+
   ospf_interface_policies = merge([
     for tn, t in local.tenants : {
       for p in lookup(t, "ospf_interface_policies", []) :
@@ -902,6 +907,11 @@ resource "aci_epg_to_contract" "this" {
 # traffic classification, but NOT enough alone to pass real external traffic
 # without additional manual interface/routing configuration in the APIC.
 # ---------------------------------------------------------------------------
+resource "aci_l3_domain_profile" "this" {
+  for_each = local.l3out_domains
+  name     = each.value
+}
+
 resource "aci_l3_outside" "this" {
   for_each = local.l3outs
 
@@ -913,6 +923,12 @@ resource "aci_l3_outside" "this" {
   # (rather than the raw YAML string) creates the implicit dependency edge,
   # same pattern as relation_to_vrf/relation_to_bridge_domain above.
   relation_l3ext_rs_ectx = aci_vrf.this["${each.value.tenant_name}/${each.value.vrf}"].id
+
+  relation_l3ext_rs_l3_dom_att = (
+    lookup(each.value, "domain", null) != null
+    ? aci_l3_domain_profile.this[each.value.domain].id
+    : null
+  )
 }
 
 resource "aci_external_network_instance_profile" "this" {
@@ -987,6 +1003,14 @@ resource "aci_l3out_floating_svi" "this" {
   addr                         = lookup(each.value, "ip", null)
   mode                         = lookup(each.value, "mode", null)
   mtu                          = lookup(each.value, "mtu", null)
+}
+
+# bgpExtP -- enables the BGP address family on the L3Out itself. Without it
+# APIC ignores every bgpPeerP underneath, so peers stay administratively
+# present but never form a session.
+resource "aci_l3out_bgp_external_policy" "this" {
+  for_each      = local.l3out_bgp_policies
+  l3_outside_dn = aci_l3_outside.this[each.key].id
 }
 
 resource "aci_l3out_bgp_protocol_profile" "this" {

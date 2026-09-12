@@ -1,5 +1,18 @@
 apic:
   tenants:
+  - name: alpha-bank
+    description: Created via raw MCP protocol test
+    vrfs:
+    - name: ALPHA-BANK-VRF
+    bridge_domains:
+    - name: ALPHA_BANK-BD
+      unicast_routing: true
+      subnets:
+      - ip: 10.202.61.1/24
+        public: false
+        private: true
+        shared: false
+      vrf: ALPHA-BANK-VRF
   - name: sales
     description: Workbook PBR/L3Out inventory imported; ready for fresh Terraform
       plan
@@ -28,6 +41,18 @@ apic:
         description: Presales web consumer EPG
         consumed_contracts:
         - WebServices_Ct
+        domains:
+        - name: Sales_PhyDom
+          domain_type: physical
+          deployment_immediacy: immediate
+          resolution_immediacy: immediate
+        static_paths:
+        - mode: regular
+          port: 10
+          encap: vlan-11
+          module: 1
+          pod_id: 1
+          node_id: 101
       - name: SharedServices_EPG
         bridge_domain: SharedServices_BD
         description: Shared services provider EPG
@@ -42,6 +67,13 @@ apic:
         - ip: 10.0.4.254/24
           scope:
           - shared
+        static_paths:
+        - mode: regular
+          port: 10
+          encap: vlan-13
+          module: 1
+          pod_id: 1
+          node_id: 102
     filters:
     - name: WebServices_Filter
       entries:
@@ -169,3 +201,47 @@ apic:
     leaf_interface_policy_groups:
     - aep: HOST_AAEP
       name: Host_Access_IPG
+    access_port_profiles:
+    - name: Leaf101_IntProf
+      selectors:
+      - name: Host_Ports
+        blocks:
+        - name: blk1
+          to_card: 1
+          to_port: 10
+          from_card: 1
+          from_port: 10
+        policy_group: Host_Access_IPG
+        selector_type: range
+    - name: Leaf102_IntProf
+      selectors:
+      - name: Host_Ports
+        blocks:
+        - name: blk1
+          to_card: 1
+          to_port: 10
+          from_card: 1
+          from_port: 10
+        policy_group: Host_Access_IPG
+        selector_type: range
+    leaf_profiles:
+    - name: Leaf101_SwProf
+      selectors:
+      - name: Leaf101_Sel
+        node_blocks:
+        - name: blk1
+          to_node: 101
+          from_node: 101
+        selector_type: range
+      access_port_profiles:
+      - Leaf101_IntProf
+    - name: Leaf102_SwProf
+      selectors:
+      - name: Leaf102_Sel
+        node_blocks:
+        - name: blk1
+          to_node: 102
+          from_node: 102
+        selector_type: range
+      access_port_profiles:
+      - Leaf102_IntProf
