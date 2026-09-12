@@ -241,6 +241,13 @@ docker compose up -d --no-deps <service-name>
 | Email | `admin@example.com` | `NAUTOBOT_SUPERUSER_EMAIL` |
 | API Token | `0123456789abcdef0123456789abcdef01234567` | `NAUTOBOT_SUPERUSER_API_TOKEN` — a fixed 40-char lab dev token used throughout this platform's automation |
 
+> **The running lab uses the isolated stack, not the paths above.** Live credentials come from `docker/nautobot-isolated/.env` (gitignored), served on the same port `8080`. That file is the single source of truth for the `admin` password:
+>
+> - The base image entrypoint **resets the admin password to `NAUTOBOT_SUPERUSER_PASSWORD` on every container start**. Changing the password in the Nautobot UI therefore works until the next restart and then silently reverts — this is the usual cause of "I could log in yesterday". To change it for real, edit `.env` and restart.
+> - The entrypoint does *not* repair a deactivated account. `docker/nautobot-isolated/config/ensure_superuser_active.py` runs from `isolated-nautobot-init` on every `docker compose up` and restores `is_active`/`is_staff`/`is_superuser`, closing that gap.
+>
+> To recover access at any time: `cd docker/nautobot-isolated && docker compose up isolated-nautobot-init --force-recreate && docker compose restart isolated-nautobot`, then log in with the `.env` password.
+
 ### 2.6 Authentication Method
 Django session auth (web UI, username/password) and Token auth (API — `Authorization: Token <token>` header). No SSO/LDAP configured by default, though `docker/nautobot/environments/docker-compose.ldap.yml` exists as an optional overlay (`NAUTOBOT_AUTH_LDAP_*` variables in `local.env`, currently placeholder `"changeme"` values — **Requires Manual Configuration** if LDAP is desired).
 

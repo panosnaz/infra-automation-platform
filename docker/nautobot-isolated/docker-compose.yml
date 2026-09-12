@@ -11,6 +11,7 @@ x-nautobot-base: &nautobot-base
   volumes:
     - ./config/nautobot_config.py:/opt/nautobot/nautobot_config.py:ro
     - ./config/uwsgi.ini:/opt/nautobot/uwsgi.ini:ro
+    - ./config/ensure_superuser_active.py:/opt/nautobot/ensure_superuser_active.py:ro
     - isolated_nautobot_static:/opt/nautobot/static
     - isolated_nautobot_media:/opt/nautobot/media
   depends_on:
@@ -89,10 +90,16 @@ services:
         condition: service_healthy
       isolated-redis:
         condition: service_healthy
-    command: >
-      sh -c "nautobot-server migrate &&
-      nautobot-server post_upgrade &&
-      nautobot-server collectstatic --no-input"
+    # The base image entrypoint ends in `exec $@` (unquoted), which word-splits
+    # a `command:` string and silently runs only its first token -- migrate/
+    # post_upgrade/collectstatic never actually ran here. Bypassing the
+    # entrypoint keeps this one-shot honest; the app/worker/beat services below
+    # still use it, so its superuser reconcile still runs on every `up`.
+    entrypoint: ["/bin/sh", "-c"]
+    # Single-element list: a plain string would be shell-split by Compose into
+    # separate argv entries, which `sh -c` would then discard after the first.
+    command:
+      - "nautobot-server migrate && nautobot-server post_upgrade && python /opt/nautobot/ensure_superuser_active.py && nautobot-server collectstatic --no-input"
     restart: "no"
 
   isolated-nautobot:
