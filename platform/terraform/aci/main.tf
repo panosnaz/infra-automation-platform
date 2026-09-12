@@ -1518,6 +1518,20 @@ resource "aci_rest_managed" "pod_policy_group" {
   content = {
     name = each.value.name
   }
+
+  # fabricRsPodPGrpBGPRRP is what the GUI shows as "BGP Route Reflector
+  # Policy" on the Pod Policy Group. RN and property name confirmed against
+  # this APIC, not assumed (a wrong RN is rejected with "wrong rn prefix").
+  dynamic "child" {
+    for_each = lookup(each.value, "bgp_route_reflector_policy", null) != null ? [each.value.bgp_route_reflector_policy] : []
+    content {
+      rn         = "rspodPGrpBGPRRP"
+      class_name = "fabricRsPodPGrpBGPRRP"
+      content = {
+        tnBgpInstPolName = child.value
+      }
+    }
+  }
 }
 
 # ---------------------------------------------------------------------------

@@ -294,6 +294,24 @@ class BindEpgContractRequest(BaseModel):
         return v
 
 
+class CreatePodPolicyGroupRequest(BaseModel):
+    """ADR-020 Phase E coverage. Pod Policy Groups (fabricPodPGrp) are
+    fabric-wide, so they live in the Location's `aci_fabric_policies` JSON
+    Custom Field alongside VLAN Pools/AEPs, not on a Tenant."""
+
+    location: str = Field(description="Name of the existing Nautobot Location representing the ACI fabric.")
+    name: str = Field(description="Pod Policy Group name, e.g. 'Pod_PG'.")
+    bgp_route_reflector_policy: str | None = Field(
+        default="default",
+        description="Name of the BGP Route Reflector Policy (bgpInstPol) this group resolves. ACI ships exactly one, named 'default'. Pass null to leave it unresolved.",
+    )
+
+    @field_validator("name")
+    @classmethod
+    def _validate_name(cls, v: str) -> str:
+        return _validate_aci_name(v)
+
+
 class CreateL3OutRequest(BaseModel):
     """ADR-020 Phase A item 4 coverage, logical-only scope (no physical
     interface/OSPF/BGP attachment -- see ADR-020's Phase A item 4 writeup

@@ -46,6 +46,7 @@ from mcp_server.schemas.aci import (
     CreateL4L7DeviceRequest,
     CreateLeafInterfacePolicyGroupRequest,
     CreateLeafInterfaceProfileRequest,
+    CreatePodPolicyGroupRequest,
     CreateFabricDeviceRequest,
     CreateFabricInterfaceRequest,
     CreateLocalUserRequest,
@@ -227,6 +228,30 @@ def create_contract(request: CreateContractRequest, *, nautobot: NautobotClient)
     return {
         "contract": result,
         "note": f"Contract '{request.name}' written to Nautobot under tenant '{request.tenant}'. Use show_status(name='{request.tenant}') to check the next pipeline run.",
+    }
+
+
+@registry.register(
+    name="create_pod_policy_group",
+    domain="cisco_aci",
+    description=(
+        "Create a fabric Pod Policy Group (Fabric > Fabric Policies > Pods > "
+        "Policy Groups) and resolve its BGP Route Reflector Policy. ACI ships "
+        "exactly one BGP Route Reflector Policy, named 'default', which is "
+        "what this resolves to unless told otherwise. Re-running with the same "
+        "name updates the group in place."
+    ),
+    schema=CreatePodPolicyGroupRequest,
+)
+def create_pod_policy_group(request: CreatePodPolicyGroupRequest, *, nautobot: NautobotClient) -> dict:
+    result = nautobot.create_pod_policy_group(
+        location=request.location,
+        name=request.name,
+        bgp_route_reflector_policy=request.bgp_route_reflector_policy,
+    )
+    return {
+        "pod_policy_group": result,
+        "note": f"Pod Policy Group '{request.name}' written to Nautobot under location '{request.location}'.",
     }
 
 

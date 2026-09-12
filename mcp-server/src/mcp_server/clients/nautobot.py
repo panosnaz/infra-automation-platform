@@ -855,6 +855,35 @@ class NautobotClient:
             raise NautobotError(f"Nautobot unreachable or auth failed: {exc}") from exc
         return {"location": location, "aep": name, "aeps": aeps}
 
+    def create_pod_policy_group(
+        self, location: str, name: str, bgp_route_reflector_policy: str | None = None
+    ) -> dict:
+        """Create/update a Pod Policy Group (ADR-020 Phase E coverage) in the
+        Location's `aci_fabric_policies` Custom Field. Re-creating the same
+        name updates it in place rather than appending a duplicate."""
+        try:
+            location_obj = self._get_location_or_raise(location)
+            existing = dict(location_obj.custom_fields or {}).get("aci_fabric_policies") or {}
+            groups = list(existing.get("pod_policy_groups") or [])
+
+            entry: dict = {"name": name}
+            if bgp_route_reflector_policy:
+                entry["bgp_route_reflector_policy"] = bgp_route_reflector_policy
+
+            groups = [g for g in groups if g.get("name") != name]
+            groups.append(entry)
+
+            location_obj.update(
+                {"custom_fields": {"aci_fabric_policies": {**existing, "pod_policy_groups": groups}}}
+            )
+        except pynautobot.RequestError as exc:
+            raise NautobotError(f"Nautobot rejected Pod Policy Group '{name}': {exc}") from exc
+        except NautobotError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise NautobotError(f"Nautobot unreachable or auth failed: {exc}") from exc
+        return {"location": location, "pod_policy_group": name, "pod_policy_groups": groups}
+
     def create_leaf_interface_policy_group(self, location: str, name: str, aep: str | None = None) -> dict:
         """Create a Leaf Interface Policy Group (ADR-020 Phase B coverage),
         optionally bound to an existing AEP."""

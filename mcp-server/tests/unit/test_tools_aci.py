@@ -29,6 +29,7 @@ from mcp_server.schemas.aci import (
     CreatePbrContractRequest,
     CreatePbrPolicyRequest,
     CreatePhysicalDomainRequest,
+    CreatePodPolicyGroupRequest,
     CreateSecurityDomainRequest,
     CreateServiceGraphRequest,
     CreateTenantRequest,
@@ -52,6 +53,7 @@ from mcp_server.tools.aci import (
     create_pbr_contract,
     create_pbr_policy,
     create_physical_domain,
+    create_pod_policy_group,
     create_security_domain,
     create_service_graph,
     create_tenant,
@@ -111,6 +113,10 @@ class _FakeNautobotClient:
     def create_leaf_interface_policy_group(self, **kwargs):
         self.calls.append(("create_leaf_interface_policy_group", kwargs))
         return {"location": kwargs["location"], "leaf_interface_policy_group": kwargs["name"], "leaf_interface_policy_groups": []}
+
+    def create_pod_policy_group(self, **kwargs):
+        self.calls.append(("create_pod_policy_group", kwargs))
+        return {"location": kwargs["location"], "pod_policy_group": kwargs["name"], "pod_policy_groups": []}
 
     def create_security_domain(self, **kwargs):
         self.calls.append(("create_security_domain", kwargs))
@@ -573,3 +579,33 @@ def test_bind_epg_contract_passes_relation():
     assert name == "bind_epg_contract"
     assert kwargs["relation"] == "provided"
     assert "provided contract 'web-ct'" in result["note"]
+
+
+def test_create_pod_policy_group_defaults_to_default_rr_policy():
+    fake = _FakeNautobotClient()
+    request = CreatePodPolicyGroupRequest(location="Isolated Lab Site", name="Pod_PG")
+
+    result = create_pod_policy_group(request, nautobot=fake)
+
+    assert fake.calls == [
+        (
+            "create_pod_policy_group",
+            {
+                "location": "Isolated Lab Site",
+                "name": "Pod_PG",
+                "bgp_route_reflector_policy": "default",
+            },
+        )
+    ]
+    assert result["pod_policy_group"]["pod_policy_group"] == "Pod_PG"
+
+
+def test_create_pod_policy_group_can_leave_rr_policy_unresolved():
+    fake = _FakeNautobotClient()
+    request = CreatePodPolicyGroupRequest(
+        location="Isolated Lab Site", name="Pod_PG", bgp_route_reflector_policy=None
+    )
+
+    create_pod_policy_group(request, nautobot=fake)
+
+    assert fake.calls[0][1]["bgp_route_reflector_policy"] is None
