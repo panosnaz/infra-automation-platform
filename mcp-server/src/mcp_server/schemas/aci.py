@@ -429,13 +429,33 @@ class CreateLeafInterfaceProfileRequest(FabricPolicyRequest):
 
 
 class CreateFabricDeviceRequest(BaseModel):
+    """A leaf or spine switch in the ACI fabric, modeled as a Nautobot DCIM
+    Device. This is the authoritative inventory the generator resolves every
+    `topology/pod-<pod_id>/paths-<node_id>/...` DN against -- see
+    ADR-020's fabric-inventory section.
+
+    `pod_id` is a real part of every path DN, so it belongs here rather than
+    being assumed: the `aci_pod_id` Custom Field existed in Nautobot from the
+    start but no tool could write it until 2026-09-14, which meant a
+    multi-pod fabric could not be modeled at all. Defaulted to 1 because
+    this lab has a single pod and every existing device is in it.
+    """
+
     name: str
-    node_id: int = Field(ge=1)
-    serial: str = ""
-    role: str = "leaf"
+    node_id: int = Field(ge=1, le=4000, description="ACI fabric node ID. Leaves and spines share one 1-4000 range.")
+    serial: str = Field(default="", description="Switch serial number -- the key APIC fabric membership is registered against.")
+    role: str = Field(default="leaf", description="Fabric role: 'leaf' or 'spine'.")
+    pod_id: int = Field(default=1, ge=1, description="ACI pod ID; part of every topology/pod-N/... DN.")
     location: str = "Isolated Lab Site"
     model: str = "Nexus 9000v"
     description: str = ""
+
+    @field_validator("role")
+    @classmethod
+    def _validate_role(cls, v: str) -> str:
+        if v not in ("leaf", "spine"):
+            raise ValueError("role must be 'leaf' or 'spine'")
+        return v
 
 
 class CreateFabricInterfaceRequest(BaseModel):

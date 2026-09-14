@@ -74,8 +74,16 @@ class NautobotClient:
 
     def create_fabric_device(
         self, name: str, node_id: int, serial: str = "", role: str = "leaf",
-        location: str = "Isolated Lab Site", model: str = "Nexus 9000v", description: str = ""
+        pod_id: int = 1, location: str = "Isolated Lab Site",
+        model: str = "Nexus 9000v", description: str = ""
     ) -> dict:
+        """Create or update a leaf/spine switch in Nautobot DCIM.
+
+        Writes BOTH `aci_node_id` and `aci_pod_id`. The pod field existed in
+        Nautobot's schema from the start but was never written here, so
+        every device carried a node ID with no pod and the generator had to
+        assume pod 1 -- see the fabric-inventory note in ADR-020.
+        """
         try:
             device = self.api.dcim.devices.get(name=name)
             status = self._get_status("dcim.device")
@@ -84,7 +92,7 @@ class NautobotClient:
             location_obj = self.api.dcim.locations.get(name=location)
             if location_obj is None:
                 raise NautobotError(f"Location '{location}' not found")
-            fields = {"aci_node_id": node_id}
+            fields = {"aci_node_id": node_id, "aci_pod_id": pod_id}
             payload = {
                 "name": name, "device_type": device_type.id, "status": status.id,
                 "role": device_role.id, "location": location_obj.id,

@@ -42,7 +42,7 @@ _HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(_HERE))
 
 from generator.client import NautobotClient
-from generator.transformer import build_netascode_yaml
+from generator.transformer import FabricInventoryError, build_netascode_yaml
 
 _DEFAULT_URL = "http://localhost:8080"
 # Default output: platform/netascode/aci/ (sibling of platform/python/)
@@ -97,6 +97,7 @@ def main() -> None:
         prefixes = client.get_prefixes()
         vlans = client.get_vlans()
         locations = client.get_locations()
+        devices = client.get_devices()
     except requests.RequestException as exc:
         print(f"ERROR: Failed to query Nautobot at {nautobot_url}: {exc}", file=sys.stderr)
         sys.exit(1)
@@ -105,7 +106,7 @@ def main() -> None:
         # with an "errors" field in the response body).
         print(f"ERROR: Nautobot GraphQL query failed: {exc}", file=sys.stderr)
         sys.exit(1)
-    print(f"[generator]   tenants={len(tenants)}  prefixes={len(prefixes)}  vlans={len(vlans)}  locations={len(locations)}")
+    print(f"[generator]   tenants={len(tenants)}  prefixes={len(prefixes)}  vlans={len(vlans)}  locations={len(locations)}  devices={len(devices)}")
 
     tenant_scope = os.environ.get("ACI_TENANT_SCOPE", "").strip()
     if tenant_scope:
@@ -114,13 +115,32 @@ def main() -> None:
         vlans = [v for v in vlans if (v.get("tenant") or {}).get("name", "").removeprefix("ACI:") == tenant_scope]
         print(f"[generator]   tenant scope={tenant_scope}")
 
-    data = build_netascode_yaml(
-        tenants=tenants,
-        prefixes=prefixes,
-        vlans=vlans,
-        locations=locations,
-        include_system_tenants=args.include_system_tenants,
-    )
+    # Fabric inventory is NOT filtered by ACI_TENANT_SCOPE -- switches are
+    # fabric-wide, not tenant-scoped, and a scoped run must still validate
+    # its node references against the whole real roster.
+    try:
+        data = build_netascode_yaml(
+            tenants=tenants,
+            prefixes=prefixes,
+            vlans=vlans,
+            locations=locations,
+            devices=devices,
+            include_system_tenants=args.include_system_tenants,
+        )
+    except FabricInventoryError as exc:
+        print(f"ERROR: [generator] fabric inventory validation failed:\n{exc}", file=sys.stderr)
+        sys.exit(1)
+
+    if nodes := data.get("apic", {}).get("fabric_inventory", {}).get("nodes", []):
+        roster = ", ".join(f"{n['name']}#{n['node_id']}/{n['role']}" for n in nodes)
+        print(f"[generator]   fabric inventory: {len(nodes)} node(s) -- {roster}")
+    else:
+        print(
+            "WARNING: [generator] no fabric inventory found in Nautobot DCIM "
+            "(no Device with role leaf/spine and an aci_node_id Custom Field). "
+            "Node references in static paths and L3Outs will NOT be validated.",
+            file=sys.stderr,
+        )
 
     exported = len(data.get("apic", {}).get("tenants", []))
     skipped = len(tenants) - exported

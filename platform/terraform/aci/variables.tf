@@ -55,6 +55,27 @@ variable "local_user_passwords" {
   default     = {}
 }
 
+# Fabric membership registration (2026-09-14). OFF by default, deliberately.
+#
+# Setting this true makes Terraform register every Nautobot-modeled leaf/spine
+# with the APIC as a `fabricNodeIdentP`, so the roster in Nautobot and the
+# roster in the APIC agree. That works -- it was applied and verified live --
+# but on a fabric with no real switches it buys visibility and nothing else:
+# the nodes sit at `fabricSt: undiscovered` forever, and the APIC then starts
+# trying to deploy existing tenant policy to nodes that will never answer,
+# which raised 3 extra minor faults (13 -> 16) on this lab before it was
+# rolled back.
+#
+# Turn it on when the fabric has, or will soon have, real switches with these
+# serial numbers -- pre-registering a serial so a switch is commissioned as
+# the right node ID when it boots is the normal ACI workflow, and that is the
+# case this exists for.
+variable "register_fabric_membership" {
+  description = "Register Nautobot-modeled leaf/spine switches with the APIC (fabricNodeIdentP). Leave false on fabrics with no real switches -- see variables.tf comment."
+  type        = bool
+  default     = false
+}
+
 variable "netascode_yaml_file" {
   description = "Path to the NetAsCode tenants YAML file produced by the generator."
   type        = string

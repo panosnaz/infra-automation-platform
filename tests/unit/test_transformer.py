@@ -11,7 +11,55 @@ omitted entirely when unset/null, so Terraform's own ACI defaults apply
 """
 from __future__ import annotations
 
-from generator.transformer import build_netascode_yaml
+import pytest
+
+from generator.transformer import FabricInventoryError, build_netascode_yaml
+
+
+def _device(name: str, node_id: int | None, role: str = "leaf", pod_id: int | None = None,
+            serial: str = "", interfaces: list[str] | None = None) -> dict:
+    """Shape matching NautobotClient.get_devices() -- see client.py's
+    _QUERY_DEVICES."""
+    cf: dict = {}
+    if node_id is not None:
+        cf["aci_node_id"] = node_id
+    if pod_id is not None:
+        cf["aci_pod_id"] = pod_id
+    return {
+        "name": name,
+        "serial": serial,
+        "role": {"name": role},
+        "device_type": {"model": "Nexus 9000v"},
+        "location": {"name": "Isolated Lab Site"},
+        "interfaces": [{"name": i, "enabled": True, "description": ""} for i in (interfaces or [])],
+        "_custom_field_data": cf,
+    }
+
+
+def _tenant_with_static_path(node_id: int) -> list[dict]:
+    """A minimal tenant whose EPG binds a static path on `node_id`."""
+    return [{
+        "name": "ACI:sales",
+        "description": "",
+        "vrfs": [],
+        "_custom_field_data": {},
+    }]
+
+
+def _vlan_with_static_path(node_id: int) -> dict:
+    return {
+        "name": "Web_EPG",
+        "vid": 11,
+        "description": "",
+        "tenant": {"name": "ACI:sales"},
+        "_custom_field_data": {
+            "aci_application_profile": "eCommerce_AP",
+            "aci_epg_bridge_domain": "Presales_BD",
+            "aci_static_paths": [
+                {"node_id": node_id, "pod_id": 1, "module": 1, "port": 10, "encap": "vlan-11", "mode": "regular"}
+            ],
+        },
+    }
 
 
 def _tenant(name: str, vrfs: list[dict] | None = None) -> dict:
@@ -1023,3 +1071,195 @@ def test_xml_compatible_access_hierarchy_emitted_from_location_policy():
 
     assert access["access_port_profiles"][0]["selectors"][0]["blocks"][0]["from_port"] == 4
     assert access["leaf_profiles"][0]["selectors"][0]["node_blocks"][0]["from_node"] == 101
+
+
+# ---------------------------------------------------------------------------
+# Fabric inventory (2026-09-14) -- leaf/spine switches sourced from Nautobot
+# DCIM Devices, and validation of every node reference against them.
+#
+# This exists because the APIC accepts a `topology/pod-N/paths-M/...` DN
+# naming a switch that does not exist and silently leaves the relation at
+# `state: unformed` -- no Terraform error, no pipeline failure, no fault
+# naming the intent that caused it. Generation time is the only place the
+# mistake is still cheap to catch, so these tests guard a real silent-failure
+# mode rather than a formatting preference.
+# ---------------------------------------------------------------------------
+
+def test_fabric_inventory_emitted_from_leaf_and_spine_devices():
+    result = build_netascode_yaml(
+        tenants=[], prefixes=[],
+        devices=[
+            _device("leaf-a", 101, "leaf", pod_id=1, serial="FDO23100852", interfaces=["eth1/4"]),
+            _device("spine-1", 1001, "spine", pod_id=1, serial="FDO2306FG77"),
+        ],
+    )
+
+    nodes = result["apic"]["fabric_inventory"]["nodes"]
+    assert [n["node_id"] for n in nodes] == [101, 1001]
+    assert nodes[0]["role"] == "leaf"
+    assert nodes[0]["serial"] == "FDO23100852"
+    assert nodes[0]["interfaces"] == [{"name": "eth1/4", "enabled": True}]
+    assert nodes[1]["role"] == "spine"
+    # A spine with no modeled interfaces is normal, not an error.
+    assert "interfaces" not in nodes[1]
+
+
+def test_fabric_inventory_absent_when_no_devices_given():
+    """Callers predating this parameter must be unaffected -- no inventory
+    key at all, rather than an empty one."""
+    result = build_netascode_yaml(tenants=[], prefixes=[])
+    assert "fabric_inventory" not in result["apic"]
+
+
+def test_non_fabric_devices_are_ignored():
+    """The APIC controller and any unrelated Device in the same Nautobot
+    must not be mistaken for a switch. Opt-in by role, same rule as
+    EPG-from-VLAN."""
+    result = build_netascode_yaml(
+        tenants=[], prefixes=[],
+        devices=[
+            _device("apic1", 1, role="controller"),
+            _device("jump-host", 50, role="server"),
+            _device("leaf-a", 101, role="leaf"),
+        ],
+    )
+
+    nodes = result["apic"]["fabric_inventory"]["nodes"]
+    assert [n["name"] for n in nodes] == ["leaf-a"]
+
+
+def test_fabric_device_without_node_id_is_excluded_with_a_warning(capsys):
+    """A switch missing aci_node_id cannot be resolved to a DN, so it is
+    excluded -- but silently dropping it would make the later validation
+    error baffling, hence the warning."""
+    result = build_netascode_yaml(
+        tenants=[], prefixes=[],
+        devices=[_device("leaf-a", None, "leaf"), _device("leaf-b", 102, "leaf")],
+    )
+
+    nodes = result["apic"]["fabric_inventory"]["nodes"]
+    assert [n["name"] for n in nodes] == ["leaf-b"]
+    assert "leaf-a" in capsys.readouterr().err
+
+
+def test_fabric_inventory_pod_id_defaults_to_one_when_unset():
+    """Safe for a single-pod fabric and matches what the generator assumed
+    implicitly before inventory existed. A multi-pod fabric must set it."""
+    result = build_netascode_yaml(
+        tenants=[], prefixes=[], devices=[_device("leaf-a", 101, "leaf", pod_id=None)]
+    )
+    assert result["apic"]["fabric_inventory"]["nodes"][0]["pod_id"] == 1
+
+
+def test_fabric_inventory_pod_id_is_carried_through_when_set():
+    result = build_netascode_yaml(
+        tenants=[], prefixes=[], devices=[_device("leaf-a", 201, "leaf", pod_id=2)]
+    )
+    assert result["apic"]["fabric_inventory"]["nodes"][0]["pod_id"] == 2
+
+
+def test_fabric_inventory_is_sorted_by_node_id_for_determinism():
+    """The generate_nac CI job runs the generator twice and diffs the output.
+    Nautobot does not guarantee Device ordering, so unstable ordering here
+    would fail that determinism gate intermittently."""
+    result = build_netascode_yaml(
+        tenants=[], prefixes=[],
+        devices=[
+            _device("spine-1", 1001, "spine"),
+            _device("leaf-b", 102, "leaf"),
+            _device("leaf-a", 101, "leaf"),
+        ],
+    )
+    assert [n["node_id"] for n in result["apic"]["fabric_inventory"]["nodes"]] == [101, 102, 1001]
+
+
+def test_static_path_referencing_an_unknown_node_is_rejected():
+    with pytest.raises(FabricInventoryError) as exc:
+        build_netascode_yaml(
+            tenants=_tenant_with_static_path(999),
+            prefixes=[],
+            vlans=[_vlan_with_static_path(999)],
+            devices=[_device("leaf-a", 101, "leaf")],
+        )
+
+    message = str(exc.value)
+    assert "node 999" in message
+    assert "Web_EPG" in message          # names the offending intent
+    assert "101 (leaf-a, leaf)" in message  # names what inventory does contain
+
+
+def test_static_path_referencing_a_known_node_is_accepted():
+    result = build_netascode_yaml(
+        tenants=_tenant_with_static_path(101),
+        prefixes=[],
+        vlans=[_vlan_with_static_path(101)],
+        devices=[_device("leaf-a", 101, "leaf")],
+    )
+    epg = result["apic"]["tenants"][0]["application_profiles"][0]["endpoint_groups"][0]
+    assert epg["static_paths"][0]["node_id"] == 101
+
+
+def test_l3out_interface_referencing_an_unknown_node_is_rejected():
+    tenants = [{
+        "name": "ACI:sales", "description": "", "vrfs": [],
+        "_custom_field_data": {"aci_l3outs": {"l3outs": [{
+            "name": "BGP_L3Out", "vrf": "Presales_VRF",
+            "node_profiles": [{
+                "name": "L101",
+                "nodes": [{"node_id": 101, "pod_id": 1}],
+                "interface_profiles": [{
+                    "name": "IP1",
+                    "interfaces": [{"node_id": 777, "pod_id": 1, "module": 1, "port": 4}],
+                }],
+            }],
+        }]}},
+    }]
+
+    with pytest.raises(FabricInventoryError) as exc:
+        build_netascode_yaml(tenants=tenants, prefixes=[], devices=[_device("leaf-a", 101, "leaf")])
+
+    assert "node 777" in str(exc.value)
+    assert "interface profile 'IP1'" in str(exc.value)
+
+
+def test_validation_is_skipped_when_no_inventory_exists():
+    """Without inventory there is nothing to validate against. Failing here
+    would break every deployment that has not yet modeled its switches."""
+    result = build_netascode_yaml(
+        tenants=_tenant_with_static_path(999), prefixes=[], vlans=[_vlan_with_static_path(999)], devices=[]
+    )
+    assert "fabric_inventory" not in result["apic"]
+
+
+def test_validation_can_be_disabled_explicitly():
+    """Escape hatch for inspecting known-broken intent -- must not be the
+    default, or the silent-failure mode returns."""
+    result = build_netascode_yaml(
+        tenants=_tenant_with_static_path(999),
+        prefixes=[],
+        vlans=[_vlan_with_static_path(999)],
+        devices=[_device("leaf-a", 101, "leaf")],
+        validate_node_references=False,
+    )
+    assert result["apic"]["fabric_inventory"]["nodes"][0]["node_id"] == 101
+
+
+def test_fabric_inventory_omits_serial_when_the_device_has_none():
+    """Terraform registers APIC fabric membership with
+    `for_each = { ... if lookup(n, "serial", "") != "" }`, keyed by serial --
+    ACI matches a booting switch to its intended node ID by serial number.
+    A device with no serial must therefore be present in inventory (so node
+    references still validate) but carry no `serial` key, so Terraform
+    skips registering it rather than creating a membership entry keyed by
+    an empty string."""
+    result = build_netascode_yaml(
+        tenants=[], prefixes=[],
+        devices=[_device("leaf-a", 101, "leaf", serial=""), _device("leaf-b", 102, "leaf", serial="FDO23041G37")],
+    )
+
+    nodes = {n["name"]: n for n in result["apic"]["fabric_inventory"]["nodes"]}
+    assert "serial" not in nodes["leaf-a"]
+    assert nodes["leaf-b"]["serial"] == "FDO23041G37"
+    # Both still validate node references -- registration and validation are
+    # independent concerns.
+    assert {n["node_id"] for n in nodes.values()} == {101, 102}

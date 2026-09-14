@@ -53,6 +53,40 @@ _QUERY_LOCATIONS = """
 }
 """
 
+# Fabric inventory (2026-09-14). Leaf/spine switches are real Nautobot DCIM
+# Device objects carrying `aci_node_id`/`aci_pod_id` Custom Fields and their
+# physical Interfaces. Until this query existed, Nautobot's DCIM inventory was
+# invisible to the generator: every `topology/pod-N/paths-M/pathep-[ethX/Y]`
+# DN was hand-typed as free-form integers into JSON Custom Fields
+# (`aci_static_paths`, `aci_l3outs`) with nothing validating them against real
+# inventory -- a typo produced a silently `unformed` relation on the APIC
+# rather than an error anywhere. transformer.py now resolves and validates
+# every node reference against this.
+_QUERY_DEVICES = """
+{
+  devices {
+    id
+    name
+    serial
+    role {
+      name
+    }
+    device_type {
+      model
+    }
+    location {
+      name
+    }
+    interfaces {
+      name
+      enabled
+      description
+    }
+    _custom_field_data
+  }
+}
+"""
+
 _QUERY_PREFIXES = """
 {
   prefixes {
@@ -126,6 +160,12 @@ class NautobotClient:
         """Return all Locations with their Custom Field data -- used to
         source fabric-wide Access/Fabric Policies (ADR-020 Phase B)."""
         return self._query(_QUERY_LOCATIONS)["locations"]
+
+    def get_devices(self) -> list[dict[str, Any]]:
+        """Return all DCIM Devices with role, serial, interfaces and Custom
+        Field data -- the authoritative leaf/spine fabric inventory every
+        node/path DN is resolved and validated against."""
+        return self._query(_QUERY_DEVICES)["devices"]
 
     # ------------------------------------------------------------------
     # Internal helpers

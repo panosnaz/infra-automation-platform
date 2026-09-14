@@ -5,19 +5,32 @@ import pytest
 from pydantic import ValidationError
 
 from mcp_server.schemas.aci import (
+    BindEpgContractRequest,
     BindEpgDomainRequest,
+    CreateAccessPortBlockRequest,
+    CreateAccessPortProfileRequest,
+    CreateAccessPortSelectorRequest,
     CreateAepRequest,
     CreateBridgeDomainRequest,
     CreateContractRequest,
+    CreateContractSubjectRequest,
     CreateEpgRequest,
+    CreateFabricDeviceRequest,
+    CreateFabricInterfaceRequest,
+    CreateFilterEntryRequest,
+    CreateFilterRequest,
     CreateL3OutRequest,
     CreateL4L7DeviceRequest,
     CreateLeafInterfacePolicyGroupRequest,
+    CreateLeafNodeBlockRequest,
+    CreateLeafProfileRequest,
+    CreateLeafSelectorRequest,
     CreateLocalUserRequest,
     CreateOneArmServiceGraphRequest,
     CreatePbrContractRequest,
     CreatePbrPolicyRequest,
     CreatePhysicalDomainRequest,
+    CreatePodPolicyGroupRequest,
     CreateSecurityDomainRequest,
     CreateServiceGraphRequest,
     CreateTenantRequest,
@@ -25,6 +38,19 @@ from mcp_server.schemas.aci import (
     CreateVmmDomainRequest,
     CreateVrfRequest,
     CreateVrfRouteLeakRequest,
+    FilterEntrySpec,
+)
+from mcp_server.schemas.aci import (
+    CreateBgpPeerRequest,
+    CreateInterfaceSelectorRequest,
+    CreateL3OutInterfaceProfileRequest,
+    CreateL3OutInterfaceRequest,
+    CreateL3OutNodeProfileRequest,
+    CreateLeafInterfaceProfileRequest,
+    CreateOspfInterfacePolicyRequest,
+    CreateOspfInterfaceRequest,
+    CreateProtocolL3OutRequest,
+    CreateStaticPathBindingRequest,
 )
 
 
@@ -323,3 +349,615 @@ def test_vrf_route_leak_rejects_same_source_and_destination():
             destination_vrf="app-vrf",
             subnet="10.10.10.0/24",
         )
+
+
+# ---------------------------------------------------------------------------
+# Contract/Filter decomposition tools (create_filter, create_filter_entry,
+# create_contract_subject, bind_epg_contract) and Phase E's
+# create_pod_policy_group.
+#
+# These five tools shipped with dispatch tests but no schema tests -- this
+# section closes that gap. Every assertion below was checked against the
+# real schema definitions in schemas/aci.py, not assumed: the shared name
+# validator here is _ACI_NAME_RE = ^[a-zA-Z0-9_.:-]+$, which is
+# deliberately WIDER than CreateTenantRequest's ^[a-z0-9-]+$ (ACI object
+# names other than tenants legitimately carry uppercase, '_', '.' and ':').
+# ---------------------------------------------------------------------------
+
+def test_valid_filter_request_entry_defaults():
+    """FilterEntrySpec's defaults are what `create_filter` emits when the
+    caller supplies only an entry name -- ether_type 'ip', protocol
+    'unspecified', and both boolean flags off."""
+    req = CreateFilterRequest(tenant="finance", name="web-filter", entries=[FilterEntrySpec(name="https")])
+
+    entry = req.entries[0]
+    assert entry.ether_type == "ip"
+    assert entry.ip_protocol == "unspecified"
+    assert entry.stateful is False
+    assert entry.apply_to_fragments is False
+    assert req.description == ""
+
+
+def test_filter_request_carries_full_entry_attribute_depth():
+    """The whole point of create_filter over create_contract: create_contract
+    only ever emits a single 'default' entry, so the deep vzEntry attributes
+    must survive this schema intact."""
+    req = CreateFilterRequest(
+        tenant="finance",
+        name="web-filter",
+        entries=[
+            FilterEntrySpec(
+                name="https",
+                ether_type="ip",
+                ip_protocol="tcp",
+                dest_from_port="443",
+                dest_to_port="443",
+                tcp_rules=["syn", "ack"],
+                stateful=True,
+            )
+        ],
+    )
+
+    entry = req.entries[0]
+    assert entry.ip_protocol == "tcp"
+    assert entry.dest_from_port == "443"
+    assert entry.tcp_rules == ["syn", "ack"]
+    assert entry.stateful is True
+
+
+def test_filter_request_rejects_empty_entry_list():
+    """entries has min_length=1 -- a Filter with no vzEntry is meaningless
+    in ACI and would produce an empty object."""
+    with pytest.raises(ValidationError):
+        CreateFilterRequest(tenant="finance", name="web-filter", entries=[])
+
+
+@pytest.mark.parametrize("bad_name", ["web filter", "web/filter", "web,filter", ""])
+def test_invalid_filter_name_rejected(bad_name):
+    with pytest.raises(ValidationError):
+        CreateFilterRequest(tenant="finance", name=bad_name, entries=[FilterEntrySpec(name="e1")])
+
+
+def test_filter_name_allows_uppercase_underscore_and_colon():
+    """Unlike tenant names, general ACI object names may carry uppercase,
+    '_', '.' and ':' -- pinning the real, wider rule so a future tightening
+    of _ACI_NAME_RE cannot silently break existing fabric object names."""
+    CreateFilterRequest(tenant="finance", name="Web_Filter.v2:1", entries=[FilterEntrySpec(name="e1")])
+
+
+def test_valid_filter_entry_request():
+    req = CreateFilterEntryRequest(
+        tenant="finance", filter_name="web-filter", entry=FilterEntrySpec(name="http", ip_protocol="tcp", dest_from_port="80")
+    )
+    assert req.filter_name == "web-filter"
+    assert req.entry.dest_from_port == "80"
+
+
+@pytest.mark.parametrize("bad_name", ["web filter", "web|filter", ""])
+def test_invalid_filter_entry_target_filter_name_rejected(bad_name):
+    with pytest.raises(ValidationError):
+        CreateFilterEntryRequest(tenant="finance", filter_name=bad_name, entry=FilterEntrySpec(name="http"))
+
+
+def test_contract_subject_defaults_are_bidirectional():
+    """ACI's own default for a Subject is bidirectional with reversed return
+    ports; these defaults mirror that so an unqualified call behaves the way
+    an engineer expects from the APIC GUI."""
+    req = CreateContractSubjectRequest(tenant="finance", contract="web-to-db", name="subj1", filters=["tcp-filter"])
+
+    assert req.apply_both_directions is True
+    assert req.reverse_filter_ports is True
+    assert req.priority is None
+    assert req.target_dscp is None
+
+
+def test_contract_subject_rejects_empty_filter_chain():
+    """filters has min_length=1 -- a Subject with no filter chain permits
+    nothing and is a configuration error, not a valid default."""
+    with pytest.raises(ValidationError):
+        CreateContractSubjectRequest(tenant="finance", contract="web-to-db", name="subj1", filters=[])
+
+
+@pytest.mark.parametrize("bad_filter", ["tcp filter", "tcp/filter", ""])
+def test_contract_subject_validates_every_filter_name(bad_filter):
+    """Each entry in the filter chain is validated individually -- a single
+    bad name in an otherwise-valid list must still be rejected."""
+    with pytest.raises(ValidationError):
+        CreateContractSubjectRequest(
+            tenant="finance", contract="web-to-db", name="subj1", filters=["good-filter", bad_filter]
+        )
+
+
+@pytest.mark.parametrize("relation", ["provided", "consumed"])
+def test_bind_epg_contract_accepts_both_relations(relation):
+    req = BindEpgContractRequest(
+        tenant="finance", application_profile="finance-ap", epg="web-epg", contract="web-to-db", relation=relation
+    )
+    assert req.relation == relation
+
+
+@pytest.mark.parametrize("bad_relation", ["provider", "consumer", "Provided", "both", ""])
+def test_invalid_bind_epg_contract_relation_rejected(bad_relation):
+    """'provider'/'consumer' are the APIC-side words and are a very easy
+    mistake for an AI agent to make -- rejecting them here turns a
+    guaranteed later failure into an immediate, explainable one."""
+    with pytest.raises(ValidationError):
+        BindEpgContractRequest(
+            tenant="finance",
+            application_profile="finance-ap",
+            epg="web-epg",
+            contract="web-to-db",
+            relation=bad_relation,
+        )
+
+
+def test_pod_policy_group_defaults_to_the_shipped_route_reflector_policy():
+    """ACI ships exactly one BGP Route Reflector Policy, named 'default'.
+    Defaulting to it is what makes a bare create_pod_policy_group call
+    produce a usable group rather than one with an unresolved relation."""
+    req = CreatePodPolicyGroupRequest(location="Isolated Lab Site", name="Pod_PG")
+    assert req.bgp_route_reflector_policy == "default"
+
+
+def test_pod_policy_group_route_reflector_policy_can_be_left_unresolved():
+    req = CreatePodPolicyGroupRequest(location="Isolated Lab Site", name="Pod_PG", bgp_route_reflector_policy=None)
+    assert req.bgp_route_reflector_policy is None
+
+
+@pytest.mark.parametrize("bad_name", ["Pod PG", "Pod/PG", ""])
+def test_invalid_pod_policy_group_name_rejected(bad_name):
+    with pytest.raises(ValidationError):
+        CreatePodPolicyGroupRequest(location="Isolated Lab Site", name=bad_name)
+
+
+# ---------------------------------------------------------------------------
+# XML-compatible access hierarchy (infraAccPortP / infraHPortS / infraPortBlk
+# / infraNodeP / infraLeafS / infraNodeBlk) and the DCIM fabric-inventory
+# tools. These eight shipped with no tests at all.
+#
+# IMPORTANT -- these schemas are deliberately documented here as they really
+# are, not as they arguably should be: only the two that inherit
+# FabricPolicyRequest (access-port profile, leaf profile) and the
+# access-port SELECTOR validate their `name`. The block/selector/node-block
+# and DCIM schemas use a bare `str`, so a name with a space is ACCEPTED
+# today. That inconsistency is real and is recorded in the audit rather
+# than silently asserted as correct -- see the tightening note below.
+# ---------------------------------------------------------------------------
+
+def test_access_port_profile_request_defaults():
+    req = CreateAccessPortProfileRequest(location="Isolated Lab Site", name="LEAF101_IFP")
+    assert req.name == "LEAF101_IFP"
+    assert req.description == ""
+
+
+@pytest.mark.parametrize("bad_name", ["LEAF101 IFP", "LEAF101/IFP", ""])
+def test_invalid_access_port_profile_name_rejected(bad_name):
+    with pytest.raises(ValidationError):
+        CreateAccessPortProfileRequest(location="Isolated Lab Site", name=bad_name)
+
+
+def test_access_port_selector_request_defaults_to_range_type():
+    """'range' is APIC's own default selector type (infraHPortS.type)."""
+    req = CreateAccessPortSelectorRequest(
+        location="Isolated Lab Site", name="Ext_Nexus", access_port_profile="LEAF101_IFP", policy_group="ExtL3_IPG"
+    )
+    assert req.selector_type == "range"
+
+
+@pytest.mark.parametrize("bad_name", ["Ext Nexus", "Ext/Nexus", ""])
+def test_invalid_access_port_selector_name_rejected(bad_name):
+    with pytest.raises(ValidationError):
+        CreateAccessPortSelectorRequest(
+            location="Isolated Lab Site", name=bad_name, access_port_profile="LEAF101_IFP", policy_group="ExtL3_IPG"
+        )
+
+
+def test_access_port_block_to_fields_default_to_none_not_the_from_value():
+    """to_card/to_port default to None here; main.tf is what falls back to
+    the from_* value (`lookup(each.value, "to_port", each.value.from_port)`).
+    Pinning None means a future change that starts defaulting them in the
+    schema instead would surface as a failing test, rather than silently
+    producing two sources of the same default."""
+    req = CreateAccessPortBlockRequest(
+        location="Isolated Lab Site",
+        access_port_profile="LEAF101_IFP",
+        selector="Ext_Nexus",
+        name="portblk_ext_nexus",
+        from_card=1,
+        from_port=4,
+    )
+    assert req.to_card is None
+    assert req.to_port is None
+
+
+@pytest.mark.parametrize("field,bad_value", [("from_card", 0), ("from_port", 0), ("to_card", 0), ("to_port", 0)])
+def test_access_port_block_rejects_zero_card_or_port(field, bad_value):
+    """Card and port numbers are 1-indexed on every Nexus platform; ge=1
+    stops a 0 that would otherwise render an invalid pathep-[eth0/0] DN."""
+    kwargs = dict(
+        location="Isolated Lab Site",
+        access_port_profile="LEAF101_IFP",
+        selector="Ext_Nexus",
+        name="portblk",
+        from_card=1,
+        from_port=4,
+    )
+    kwargs[field] = bad_value
+    with pytest.raises(ValidationError):
+        CreateAccessPortBlockRequest(**kwargs)
+
+
+def test_access_port_block_accepts_an_explicit_port_range():
+    req = CreateAccessPortBlockRequest(
+        location="Isolated Lab Site",
+        access_port_profile="LEAF101_IFP",
+        selector="Ext_Nexus",
+        name="portblk",
+        from_card=1,
+        to_card=1,
+        from_port=4,
+        to_port=8,
+    )
+    assert (req.from_port, req.to_port) == (4, 8)
+
+
+def test_leaf_profile_request_defaults_to_no_attached_port_profiles():
+    req = CreateLeafProfileRequest(location="Isolated Lab Site", name="LEAF101_SWP")
+    assert req.access_port_profiles == []
+    assert req.description == ""
+
+
+def test_leaf_profile_carries_attached_access_port_profiles():
+    req = CreateLeafProfileRequest(
+        location="Isolated Lab Site", name="LEAF101_SWP", access_port_profiles=["LEAF101_IFP", "LEAF102_IFP"]
+    )
+    assert req.access_port_profiles == ["LEAF101_IFP", "LEAF102_IFP"]
+
+
+@pytest.mark.parametrize("bad_name", ["LEAF101 SWP", "LEAF101/SWP", ""])
+def test_invalid_leaf_profile_name_rejected(bad_name):
+    with pytest.raises(ValidationError):
+        CreateLeafProfileRequest(location="Isolated Lab Site", name=bad_name)
+
+
+def test_leaf_selector_request_defaults_to_range_type():
+    req = CreateLeafSelectorRequest(location="Isolated Lab Site", leaf_profile="LEAF101_SWP", name="LEAF101_Sel")
+    assert req.selector_type == "range"
+
+
+def test_leaf_node_block_to_node_defaults_to_none():
+    req = CreateLeafNodeBlockRequest(
+        location="Isolated Lab Site", leaf_profile="LEAF101_SWP", selector="LEAF101_Sel", name="nodeblk_101_101", from_node=101
+    )
+    assert req.to_node is None
+
+
+@pytest.mark.parametrize("field,bad_value", [("from_node", 0), ("to_node", 0)])
+def test_leaf_node_block_rejects_zero_node_id(field, bad_value):
+    """ACI fabric node IDs start at 101 for leaves; 0 is never valid and
+    would render topology/pod-1/node-0."""
+    kwargs = dict(
+        location="Isolated Lab Site",
+        leaf_profile="LEAF101_SWP",
+        selector="LEAF101_Sel",
+        name="nodeblk",
+        from_node=101,
+    )
+    kwargs[field] = bad_value
+    with pytest.raises(ValidationError):
+        CreateLeafNodeBlockRequest(**kwargs)
+
+
+def test_fabric_device_request_defaults():
+    """These defaults encode this lab's own conventions -- role 'leaf',
+    the Nexus 9000v model, the single Location the fabric policies hang
+    off, and pod 1."""
+    req = CreateFabricDeviceRequest(name="Leaf101", node_id=101)
+
+    assert req.role == "leaf"
+    assert req.pod_id == 1
+    assert req.model == "Nexus 9000v"
+    assert req.location == "Isolated Lab Site"
+    assert req.serial == ""
+
+
+def test_fabric_device_accepts_a_spine():
+    req = CreateFabricDeviceRequest(name="spine-1", node_id=1001, role="spine", serial="FDO2306FG77")
+    assert req.role == "spine"
+    assert req.node_id == 1001
+
+
+@pytest.mark.parametrize("bad_role", ["Leaf", "SPINE", "border-leaf", "controller", "server", ""])
+def test_fabric_device_rejects_a_non_fabric_role(bad_role):
+    """Only leaf and spine are fabric switches. The generator filters
+    inventory on exactly these two strings (transformer._build_fabric_
+    inventory), so an unconstrained role here would produce a Device that
+    is silently absent from inventory and then fails node validation with
+    a confusing message."""
+    with pytest.raises(ValidationError):
+        CreateFabricDeviceRequest(name="dev", node_id=101, role=bad_role)
+
+
+@pytest.mark.parametrize("bad_node_id", [0, -1, 4001])
+def test_fabric_device_rejects_out_of_range_node_id(bad_node_id):
+    """ACI fabric node IDs run 1-4000; leaves and spines share that range."""
+    with pytest.raises(ValidationError):
+        CreateFabricDeviceRequest(name="Leaf101", node_id=bad_node_id)
+
+
+@pytest.mark.parametrize("bad_pod_id", [0, -1])
+def test_fabric_device_rejects_non_positive_pod_id(bad_pod_id):
+    """pod_id renders into every topology/pod-N/... DN, so 0 would produce
+    topology/pod-0."""
+    with pytest.raises(ValidationError):
+        CreateFabricDeviceRequest(name="Leaf101", node_id=101, pod_id=bad_pod_id)
+
+
+def test_fabric_device_requires_a_node_id():
+    """node_id has no default -- a fabric device without one cannot be
+    resolved to a topology/pod-N/node-M DN by the generator."""
+    with pytest.raises(ValidationError):
+        CreateFabricDeviceRequest(name="Leaf101")
+
+
+def test_fabric_interface_request_defaults_to_enabled():
+    req = CreateFabricInterfaceRequest(device="Leaf101", name="eth1/4")
+    assert req.enabled is True
+    assert req.description == ""
+
+
+def test_fabric_interface_name_permits_the_slash_in_a_real_interface_name():
+    """Documents why CreateFabricInterfaceRequest.name is deliberately NOT
+    run through _validate_aci_name: real interface names contain '/', which
+    that validator rejects. This is the one place the looser typing is
+    correct rather than an oversight."""
+    req = CreateFabricInterfaceRequest(device="Leaf101", name="Ethernet1/4")
+    assert req.name == "Ethernet1/4"
+
+
+# ---------------------------------------------------------------------------
+# Physical/protocol L3Out cluster: leaf interface profile, interface selector,
+# EPG static path, BGP/OSPF L3Out hierarchy, routed/SVI interfaces, BGP peers
+# and OSPF interface policy.
+#
+# These eleven tools shipped with no tests of any kind. They are also the
+# tools the roadmap's "complete L3Out services" goal depends on most
+# directly, so the numeric bounds below matter for real reasons rather than
+# as generic hygiene: every one of them feeds a
+# topology/pod-N/paths-M/pathep-[ethX/Y] DN or a protocol timer, where an
+# out-of-range value produces a malformed DN or an unformed relation rather
+# than a clean error.
+# ---------------------------------------------------------------------------
+
+def test_leaf_interface_profile_defaults_to_pod_one():
+    """Single-pod is this fabric's reality and ACI's own default; pod_id
+    still has to be explicit in the emitted DN, so it is defaulted rather
+    than omitted."""
+    req = CreateLeafInterfaceProfileRequest(location="Isolated Lab Site", name="Leaf101_Profile", node_id=101)
+    assert req.pod_id == 1
+
+
+@pytest.mark.parametrize("field", ["node_id", "pod_id"])
+def test_leaf_interface_profile_rejects_zero_ids(field):
+    kwargs = dict(location="Isolated Lab Site", name="Leaf101_Profile", node_id=101)
+    kwargs[field] = 0
+    with pytest.raises(ValidationError):
+        CreateLeafInterfaceProfileRequest(**kwargs)
+
+
+def test_interface_selector_requires_module_and_port():
+    req = CreateInterfaceSelectorRequest(
+        location="Isolated Lab Site",
+        name="eth1-5",
+        leaf_interface_profile="Leaf101_Profile",
+        policy_group="ExtL3_IPG",
+        module=1,
+        port=5,
+    )
+    assert (req.module, req.port) == (1, 5)
+
+
+@pytest.mark.parametrize("field", ["module", "port"])
+def test_interface_selector_rejects_zero_module_or_port(field):
+    kwargs = dict(
+        location="Isolated Lab Site",
+        name="eth1-5",
+        leaf_interface_profile="Leaf101_Profile",
+        policy_group="ExtL3_IPG",
+        module=1,
+        port=5,
+    )
+    kwargs[field] = 0
+    with pytest.raises(ValidationError):
+        CreateInterfaceSelectorRequest(**kwargs)
+
+
+def test_static_path_binding_defaults():
+    req = CreateStaticPathBindingRequest(
+        tenant="sales",
+        application_profile="eCommerce_AP",
+        epg="Web_EPG",
+        node_id=101,
+        module=1,
+        port=10,
+        encap="vlan-11",
+    )
+    assert req.pod_id == 1
+    assert req.mode == "regular"
+
+
+@pytest.mark.parametrize("field", ["node_id", "module", "port", "pod_id"])
+def test_static_path_binding_rejects_zero_path_components(field):
+    kwargs = dict(
+        tenant="sales",
+        application_profile="eCommerce_AP",
+        epg="Web_EPG",
+        node_id=101,
+        module=1,
+        port=10,
+        encap="vlan-11",
+    )
+    kwargs[field] = 0
+    with pytest.raises(ValidationError):
+        CreateStaticPathBindingRequest(**kwargs)
+
+
+def test_protocol_l3out_request_defaults_to_no_external_epgs():
+    req = CreateProtocolL3OutRequest(tenant="sales", name="BGP_L3Out", vrf="Presales_VRF", domain="ExtL3Dom")
+    assert req.external_epgs == []
+    assert req.description == ""
+
+
+@pytest.mark.parametrize("bad_name", ["BGP L3Out", "BGP/L3Out", ""])
+def test_invalid_protocol_l3out_name_rejected(bad_name):
+    with pytest.raises(ValidationError):
+        CreateProtocolL3OutRequest(tenant="sales", name=bad_name, vrf="Presales_VRF", domain="ExtL3Dom")
+
+
+def test_l3out_node_and_interface_profile_requests_default_to_empty_children():
+    """Both are containers -- children are added by the dedicated
+    create_l3out_interface / create_bgp_peer tools rather than inline, so an
+    empty default is the correct shape, not a missing one."""
+    node_profile = CreateL3OutNodeProfileRequest(tenant="sales", l3out="BGP_L3Out", name="L101")
+    interface_profile = CreateL3OutInterfaceProfileRequest(
+        tenant="sales", l3out="BGP_L3Out", node_profile="L101", name="BGP_L3Out_interfaceProfile"
+    )
+
+    assert node_profile.nodes == []
+    assert interface_profile.interfaces == []
+
+
+def test_l3out_interface_defaults_to_routed_not_svi():
+    """svi=False means main.tf emits if_inst_t 'l3-port' (or 'sub-interface'
+    when a vlan is set), not 'ext-svi'. Defaulting to the routed case keeps
+    an unqualified call producing the simpler, more common interface type."""
+    req = CreateL3OutInterfaceRequest(
+        tenant="sales",
+        l3out="BGP_L3Out",
+        node_profile="L101",
+        interface_profile="BGP_L3Out_interfaceProfile",
+        node_id=101,
+        module=1,
+        port=4,
+    )
+    assert req.svi is False
+    assert req.vlan is None
+    assert req.pod_id == 1
+    assert req.mode == "regular"
+    assert req.mtu == "inherit"
+
+
+@pytest.mark.parametrize("bad_vlan", [0, 4095, 5000])
+def test_l3out_interface_rejects_out_of_range_vlan(bad_vlan):
+    """1-4094 is the real 802.1Q usable range; 4095 is reserved."""
+    with pytest.raises(ValidationError):
+        CreateL3OutInterfaceRequest(
+            tenant="sales",
+            l3out="BGP_L3Out",
+            node_profile="L101",
+            interface_profile="BGP_L3Out_interfaceProfile",
+            node_id=101,
+            module=1,
+            port=4,
+            svi=True,
+            vlan=bad_vlan,
+        )
+
+
+def test_l3out_interface_accepts_an_svi_with_a_valid_vlan():
+    req = CreateL3OutInterfaceRequest(
+        tenant="sales",
+        l3out="BGP_L3Out",
+        node_profile="L101",
+        interface_profile="BGP_L3Out_interfaceProfile",
+        node_id=101,
+        module=1,
+        port=4,
+        svi=True,
+        vlan=51,
+        ip="172.16.1.5/30",
+    )
+    assert (req.svi, req.vlan, req.ip) == (True, 51, "172.16.1.5/30")
+
+
+def test_bgp_peer_request_defaults():
+    """ttl=1 is correct for a directly-connected eBGP peer -- the common
+    case for an ACI border-leaf L3Out. A multihop peer must raise it
+    explicitly rather than inherit a permissive default."""
+    req = CreateBgpPeerRequest(
+        tenant="sales",
+        l3out="BGP_L3Out",
+        node_profile="L101",
+        interface_profile="BGP_L3Out_interfaceProfile",
+        interface_key="L101/BGP_L3Out_interfaceProfile",
+        ip="172.16.1.6",
+        remote_as=65002,
+        local_as=65003,
+    )
+    assert req.ttl == 1
+    assert req.admin_state is True
+    assert req.weight == 0
+    assert req.allowed_self_as_count == 0
+
+
+@pytest.mark.parametrize("field,bad_value", [("remote_as", 0), ("local_as", 0), ("ttl", 0), ("weight", -1), ("allowed_self_as_count", -1)])
+def test_bgp_peer_rejects_out_of_range_numeric_fields(field, bad_value):
+    kwargs = dict(
+        tenant="sales",
+        l3out="BGP_L3Out",
+        node_profile="L101",
+        interface_profile="BGP_L3Out_interfaceProfile",
+        interface_key="L101/BGP_L3Out_interfaceProfile",
+        ip="172.16.1.6",
+        remote_as=65002,
+        local_as=65003,
+    )
+    kwargs[field] = bad_value
+    with pytest.raises(ValidationError):
+        CreateBgpPeerRequest(**kwargs)
+
+
+def test_ospf_interface_request_defaults_to_backbone_area():
+    req = CreateOspfInterfaceRequest(tenant="sales", l3out="OSPF_L3Out", interface_key="OSPF_NP/OSPF_IP")
+    assert req.area == "0.0.0.0"
+    assert req.area_type == "regular"
+    assert req.name == "ospf"
+    assert req.policy is None
+
+
+def test_ospf_interface_policy_defaults_match_aci_broadcast_timers():
+    """10s hello / 40s dead is ACI's own default for a broadcast network
+    type; changing either without changing the other is a classic
+    adjacency-breaking mistake, so both are pinned together."""
+    req = CreateOspfInterfacePolicyRequest(tenant="sales", name="OSPF_bcast")
+    assert req.network_type == "broadcast"
+    assert req.hello_interval == 10
+    assert req.dead_interval == 40
+    assert req.passive is False
+
+
+def test_ospf_interface_policy_carries_auth_by_reference_only():
+    """SECURITY BOUNDARY -- this schema has no field capable of holding a
+    raw authentication key. Only a non-secret reference (resolved from
+    Vault at apply time) plus the key id can be supplied, so an OSPF MD5
+    key can never reach Nautobot or the committed NetAsCode YAML. A future
+    field named e.g. authentication_key would break this test, which is the
+    point of asserting it."""
+    req = CreateOspfInterfacePolicyRequest(
+        tenant="sales",
+        name="OSPF_p2p",
+        network_type="point-to-point",
+        authentication_type="md5",
+        authentication_secret_ref="vault/aci/ospf/p2p",
+        authentication_key_id=1,
+    )
+
+    assert req.authentication_secret_ref == "vault/aci/ospf/p2p"
+    assert not any("key" == f or f.endswith("_key") for f in type(req).model_fields)
+
+
+@pytest.mark.parametrize("field,bad_value", [("hello_interval", 0), ("dead_interval", 0), ("cost", 0), ("priority", -1), ("authentication_key_id", -1)])
+def test_ospf_interface_policy_rejects_out_of_range_numeric_fields(field, bad_value):
+    kwargs = {"tenant": "sales", "name": "OSPF_bcast", field: bad_value}
+    with pytest.raises(ValidationError):
+        CreateOspfInterfacePolicyRequest(**kwargs)

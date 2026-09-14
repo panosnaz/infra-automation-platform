@@ -38,12 +38,27 @@ _SYSTEM_TENANTS: frozenset[str] = frozenset({"common", "infra", "mgmt"})
 _BD_DESCRIPTION_RE = re.compile(r"^ACI Bridge Domain:\s*(?P<bd>[^:]+):(?P<tenant>.+)$")
 
 
+class FabricInventoryError(ValueError):
+    """Raised when generated intent references a fabric node that does not
+    exist in Nautobot's DCIM inventory.
+
+    This is deliberately fatal rather than a warning. An unknown node ID
+    produces a `topology/pod-N/paths-M/...` DN that the APIC accepts and
+    then silently leaves at `state: unformed` -- no Terraform error, no
+    pipeline failure, no fault that names the intent that caused it. Failing
+    at generation time is the only point in the whole chain where the
+    mistake is still cheap to diagnose.
+    """
+
+
 def build_netascode_yaml(
     tenants: list[dict[str, Any]],
     prefixes: list[dict[str, Any]],
     vlans: list[dict[str, Any]] | None = None,
     locations: list[dict[str, Any]] | None = None,
+    devices: list[dict[str, Any]] | None = None,
     include_system_tenants: bool = False,
+    validate_node_references: bool = True,
 ) -> dict[str, Any]:
     """Convert Nautobot ACI data to a NetAsCode-compatible YAML structure.
 
@@ -57,10 +72,22 @@ def build_netascode_yaml(
                    fabric-wide Access/Fabric Policies (ADR-020 Phase B).
                    Optional/defaults to none for callers that predate this
                    parameter.
+        devices:   List returned by NautobotClient.get_devices() -- the
+                   leaf/spine fabric inventory. Optional/defaults to none
+                   for callers that predate this parameter, in which case
+                   no inventory is emitted and node validation is skipped
+                   (there is nothing to validate against).
         include_system_tenants: When True, include common/infra/mgmt tenants.
+        validate_node_references: When True (default) and inventory is
+                   supplied, raise FabricInventoryError if any static path
+                   or L3Out interface references a node ID that is not in
+                   inventory. Set False only to inspect broken intent.
 
     Returns:
         Dict that can be serialised directly to the NetAsCode YAML schema.
+
+    Raises:
+        FabricInventoryError: an intent object references an unknown node.
     """
     # Index prefixes by the *stripped* ACI tenant name
     prefixes_by_tenant: dict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -137,6 +164,14 @@ def build_netascode_yaml(
     aaa_policies = _build_aaa_policies(locations or [])
     if aaa_policies:
         result["apic"]["aaa_policies"] = aaa_policies
+
+    # Fabric inventory (2026-09-14). Emitted before validation so a failure
+    # message can name what inventory actually exists.
+    inventory = _build_fabric_inventory(devices or [])
+    if inventory:
+        result["apic"]["fabric_inventory"] = inventory
+        if validate_node_references:
+            _validate_node_references(result, inventory)
 
     return result
 
@@ -417,11 +452,22 @@ def _build_fabric_and_access_policies(
     so -- same Custom-Field-JSON approach as Phase A items 3-4 -- they live
     on the Location representing the ACI fabric/site rather than a new
     Nautobot model. Aggregated across all Locations that have the field set
-    (multi-site safe, though this lab only has one). Logical-only: no
-    physical port/interface binding is modeled -- this simulator has zero
-    real leaf/spine interface data available (confirmed via direct APIC API
-    query: no l1PhysIf objects exist anywhere, and node-scoped queries fail
-    with "node marked unavailable"). Same pass-through convention as
+    (multi-site safe, though this lab only has one). This function's own
+    scope is logical-only: it does not model physical port/interface
+    binding. That was an MVP scope choice -- the physical hierarchy
+    (access-port profiles/selectors/blocks, leaf profiles/selectors/node
+    blocks) is emitted further down via the `leaf_interface_profiles`/
+    `interface_selectors`/`access_port_profiles`/`leaf_profiles` keys.
+
+    CORRECTED 2026-09-14: this docstring previously justified the exclusion
+    by stating physical binding is impossible because "this simulator has
+    zero real leaf/spine interface data available". The premise is true but
+    the conclusion is not -- ACI relations are late-binding, and the APIC
+    accepts a port hierarchy naming a leaf that does not exist, storing it
+    with the relation unresolved. Configuration works; deployment and
+    operational verification do not. See ADR-020's 2026-09-14 correction.
+
+    Same pass-through convention as
     `_build_contracts_and_filters()`/`_build_l3outs()`: no local validation
     of value strings.
 
@@ -585,6 +631,140 @@ def _build_aaa_policies(locations: list[dict[str, Any]]) -> dict[str, Any]:
         aaa_policies["local_users"] = local_users
 
     return aaa_policies
+
+
+def _build_fabric_inventory(devices: list[dict[str, Any]]) -> dict[str, Any]:
+    """Build apic.fabric_inventory from Nautobot DCIM Devices.
+
+    A Device is only treated as a fabric switch when its role is `leaf` or
+    `spine` AND it carries an `aci_node_id` -- strictly opt-in, same rule
+    as EPG-from-VLAN. An APIC controller, a jump host, or any other Device
+    in the same Nautobot instance is therefore ignored rather than
+    misinterpreted as a switch.
+
+    `pod_id` defaults to 1 when unset. That default is safe for a
+    single-pod fabric and is exactly what the generator assumed implicitly
+    before inventory existed; a multi-pod fabric must set it explicitly,
+    which `create_fabric_device` can now do.
+
+    Interfaces are carried through so a future increment can validate
+    port references (`eth1/4`) as well as node references. Nothing
+    validates ports yet -- a Device with no modeled Interfaces is normal
+    and is not an error.
+    """
+    nodes: list[dict[str, Any]] = []
+
+    for device in devices:
+        role = ((device.get("role") or {}).get("name") or "").lower()
+        if role not in ("leaf", "spine"):
+            continue
+
+        cf = device.get("_custom_field_data") or {}
+        node_id = cf.get("aci_node_id")
+        if node_id is None:
+            print(
+                f"WARNING: [generator] device '{device.get('name')}' has role "
+                f"'{role}' but no aci_node_id Custom Field set -- excluded from "
+                "fabric inventory. Any path DN referencing it will fail validation.",
+                file=sys.stderr,
+            )
+            continue
+
+        entry: dict[str, Any] = {
+            "name": device.get("name"),
+            "node_id": int(node_id),
+            "pod_id": int(cf.get("aci_pod_id") or 1),
+            "role": role,
+        }
+        if device.get("serial"):
+            entry["serial"] = device["serial"]
+        if model := (device.get("device_type") or {}).get("model"):
+            entry["model"] = model
+
+        interfaces = [
+            {"name": i["name"], "enabled": i.get("enabled", True)}
+            for i in (device.get("interfaces") or [])
+            if i.get("name")
+        ]
+        if interfaces:
+            entry["interfaces"] = interfaces
+
+        nodes.append(entry)
+
+    if not nodes:
+        return {}
+
+    # Sorted by node_id so output is deterministic regardless of the order
+    # Nautobot returns Devices in -- the pipeline's generate_nac job runs the
+    # generator twice and diffs the results, so any unstable ordering here
+    # would fail that gate.
+    nodes.sort(key=lambda n: n["node_id"])
+    return {"nodes": nodes}
+
+
+def _collect_node_references(data: dict[str, Any]) -> list[tuple[int, str]]:
+    """Walk generated intent and return every (node_id, where) reference.
+
+    Covers the three places a node ID can legitimately appear: EPG static
+    path bindings, L3Out logical nodes, and L3Out interfaces.
+    """
+    references: list[tuple[int, str]] = []
+
+    for tenant in data.get("apic", {}).get("tenants", []):
+        tenant_name = tenant.get("name", "?")
+
+        for ap in tenant.get("application_profiles", []):
+            for epg in ap.get("endpoint_groups", []):
+                for path in epg.get("static_paths", []):
+                    if (node_id := path.get("node_id")) is not None:
+                        references.append(
+                            (int(node_id), f"tenant '{tenant_name}' EPG '{epg.get('name')}' static path")
+                        )
+
+        for l3out in tenant.get("l3outs", []):
+            l3out_name = l3out.get("name", "?")
+            for node_profile in l3out.get("node_profiles", []):
+                for node in node_profile.get("nodes", []):
+                    if (node_id := node.get("node_id")) is not None:
+                        references.append(
+                            (int(node_id), f"tenant '{tenant_name}' L3Out '{l3out_name}' node profile '{node_profile.get('name')}'")
+                        )
+                for interface_profile in node_profile.get("interface_profiles", []):
+                    for interface in interface_profile.get("interfaces", []):
+                        if (node_id := interface.get("node_id")) is not None:
+                            references.append(
+                                (int(node_id), f"tenant '{tenant_name}' L3Out '{l3out_name}' interface profile '{interface_profile.get('name')}'")
+                            )
+
+    return references
+
+
+def _validate_node_references(data: dict[str, Any], inventory: dict[str, Any]) -> None:
+    """Fail generation if intent references a node absent from inventory.
+
+    This is the whole point of modeling fabric inventory in Nautobot. The
+    APIC accepts a path DN naming a switch that does not exist and leaves
+    the relation `unformed` -- no error is raised anywhere downstream, so
+    without this check a typo'd node ID is invisible until someone
+    manually inspects relation state on the APIC.
+    """
+    known = {node["node_id"]: node for node in inventory.get("nodes", [])}
+    unknown = [(node_id, where) for node_id, where in _collect_node_references(data) if node_id not in known]
+    if not unknown:
+        return
+
+    roster = ", ".join(
+        f"{n['node_id']} ({n['name']}, {n['role']})" for n in inventory.get("nodes", [])
+    ) or "(inventory is empty)"
+    details = "\n".join(f"  - node {node_id} referenced by {where}" for node_id, where in sorted(set(unknown)))
+    raise FabricInventoryError(
+        f"Intent references {len(set(unknown))} fabric node(s) not present in Nautobot DCIM inventory:\n"
+        f"{details}\n"
+        f"Known fabric nodes: {roster}.\n"
+        "Add the missing switch to Nautobot (MCP tool `create_fabric_device`, or Nautobot DCIM directly, "
+        "setting the aci_node_id/aci_pod_id Custom Fields) or correct the node ID in the referencing intent. "
+        "The APIC would accept this DN and silently leave the relation unformed, so this is caught here on purpose."
+    )
 
 
 def _parse_bd_name(description: str) -> str | None:

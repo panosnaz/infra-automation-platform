@@ -301,6 +301,19 @@ locals {
     }
   ]...)
 
+  # Fabric inventory (2026-09-14) -- the leaf/spine roster sourced from
+  # Nautobot DCIM Devices by the generator. Only nodes carrying a serial can
+  # be registered: APIC fabric membership is keyed by serial number, which is
+  # how a switch that later boots is matched to its intended node ID.
+  # Gated on var.register_fabric_membership (default false) -- see that
+  # variable's comment for why registering nodes on a switch-less fabric is
+  # visibility without value, and costs 3 extra minor faults.
+  fabric_inventory_nodes = {
+    for n in lookup(lookup(local.nac.apic, "fabric_inventory", {}), "nodes", []) :
+    n.serial => n
+    if var.register_fabric_membership && lookup(n, "serial", "") != ""
+  }
+
   # ADR-020 Phase B -- Fabric/Access Policies (logical-only MVP: no physical
   # interface binding -- see the aci_leaf_access_port_policy_group resource's
   # comment for why). Fabric-wide, not per-tenant, so read directly off
@@ -339,13 +352,25 @@ locals {
   # Ported from copilot/aci-platform-comparison (2026-09-08) -- IPG-level
   # CDP/LLDP/link-level/spanning-tree/port-security policies, leaf interface
   # profiles/selectors, EPG-to-domain/static-path bindings, and physical/
-  # protocol L3Out node/interface/BGP/OSPF intent. See Platform-Status-and-
-  # Pending-Items.md: plan-validated only on this simulator -- the L3Out/
-  # BGP/OSPF portion depends on real `pathep-[...]` physical-interface data
-  # this simulator does not have (same confirmed root cause as the existing
-  # "permanently blocked by simulator" items above); expect `apply` to fail
-  # for that portion until tested against real hardware or an environment
-  # with genuine leaf/spine interface data.
+  # protocol L3Out node/interface/BGP/OSPF intent.
+  #
+  # CORRECTED 2026-09-14: this comment used to say "expect `apply` to fail"
+  # for the L3Out/BGP/OSPF portion because this simulator has no real
+  # `pathep-[...]` interface data. That was an assumption, never tested, and
+  # it is wrong. ACI relations are late-binding: the APIC accepts a path
+  # attachment naming a switch/port that does not exist, stores it, and
+  # leaves it at `state: unformed` / `stateQual: none`. A direct-API probe
+  # confirmed this for routed interfaces, sub-interfaces, SVIs, static
+  # routes, BGP peers, OSPF, EIGRP and access-port blocks alike; two such
+  # path attachments already exist in the live `sales` tenant.
+  #
+  # So `apply` is expected to SUCCEED here. What never happens is
+  # deployment: nothing reaches a switch, so relations stay unformed and no
+  # adjacency/route/endpoint is ever observable. Treat a successful apply as
+  # "the APIC stored it", never as "the fabric is running it". This scope is
+  # still plan-validated only because no apply has been ATTEMPTED -- see
+  # Platform-Status-and-Pending-Items.md and ADR-020's 2026-09-14
+  # correction.
   ipg_cdp_policies = {
     for g in lookup(lookup(local.nac.apic, "access_policies", {}), "leaf_interface_policy_groups", []) :
     g.name => merge(lookup(g, "policies", {}).cdp, { ipg_name = g.name })
@@ -1101,6 +1126,46 @@ resource "aci_vrf_leak_epg_bd_subnet" "this" {
 }
 
 # ---------------------------------------------------------------------------
+# Fabric Membership -- register each Nautobot-modeled leaf/spine with the APIC
+#
+# This is what makes the switches visible in the APIC GUI under
+# Fabric > Inventory > Fabric Membership, and what populates `fabricNode`.
+# Without it, Nautobot's roster and the APIC's roster are simply two
+# unrelated lists.
+#
+# Keyed by SERIAL, not node ID, because that is how ACI itself works: you
+# pre-register a serial with its intended node ID/name/role, and when a
+# switch with that serial boots and is discovered, the APIC matches it to
+# this entry and commissions it as that node. Pre-registering before the
+# hardware exists is the normal ACI workflow, not a workaround.
+#
+# Confirmed live (2026-09-14): posting a fabricNodeIdentP with only a serial
+# creates a real `fabricNode` row with no hardware present. What it does NOT
+# do is make the node functional -- `l1PhysIf`/`fabricPathEp` stay empty and
+# the node sits at `fabricSt: unknown` until a real switch with that serial
+# actually checks in. So this delivers an accurate, declarative node roster
+# in the APIC; it does not conjure a working fabric.
+#
+# No `content_on_destroy`: unlike Phase C/G's mandatory system singletons,
+# these are purely additive named objects with no default instance, so
+# aci_rest_managed's ordinary "delete the DN" destroy behaviour is correct.
+# Removing a switch from Nautobot should de-register it from the APIC.
+# ---------------------------------------------------------------------------
+resource "aci_rest_managed" "fabric_node_identity" {
+  for_each = local.fabric_inventory_nodes
+
+  dn         = "uni/controller/nodeidentpol/nodep-${each.value.serial}"
+  class_name = "fabricNodeIdentP"
+  content = {
+    serial = each.value.serial
+    nodeId = tostring(each.value.node_id)
+    name   = each.value.name
+    role   = each.value.role
+    podId  = tostring(lookup(each.value, "pod_id", 1))
+  }
+}
+
+# ---------------------------------------------------------------------------
 # Fabric Policies: VLAN Pools (ADR-020 Phase B, logical-only MVP)
 # ---------------------------------------------------------------------------
 resource "aci_vlan_pool" "this" {
@@ -1126,16 +1191,22 @@ resource "aci_ranges" "this" {
 # Access Policies: Physical Domains, AEPs, Leaf Interface Policy Groups
 # (ADR-020 Phase B, logical-only MVP)
 #
-# Deliberately excludes physical port/interface binding (Leaf/Interface
-# Profiles + Access Port Selectors, which require real leaf node/port
-# names): this ACI simulator has zero real interface data available at all
-# -- confirmed via direct APIC API query (no l1PhysIf objects exist
-# anywhere, and node-scoped queries fail with "node marked unavailable",
-# meaning this simulator does not proxy queries down to individual switch
-# MITs). This models the fabric-wide policy OBJECTS themselves (VLAN Pool,
-# Physical Domain, AEP, Leaf Interface Policy Group + their relations to
-# each other), which require no physical port data to create, but stops
-# short of binding any of them to a real leaf/port.
+# These three resources model the fabric-wide policy OBJECTS themselves
+# (VLAN Pool, Physical Domain, AEP, Leaf Interface Policy Group + their
+# relations to each other) and stop short of binding any of them to a leaf
+# port. That was an MVP scope choice for Phase B; the physical hierarchy is
+# implemented further down this file by Phase J's `xml_compatible` resources.
+#
+# CORRECTED 2026-09-14: the original comment here justified the exclusion by
+# saying physical port binding is impossible because "this ACI simulator has
+# zero real interface data available at all". The premise is true (`l1PhysIf`
+# totalCount 0, `fabricNode` totalCount 1 -- the controller alone) but the
+# conclusion is not. ACI relations are late-binding: a probe created a full
+# infraAccPortP/infraHPortS/infraPortBlk hierarchy naming ports on a
+# non-existent leaf and the APIC accepted it. The live fabric already carries
+# two such profiles raising fault F1299 "Node Not Leaf For Infra Policies" --
+# stored, never deployed. Configuration works; deployment and operational
+# verification do not. See ADR-020's 2026-09-14 correction.
 # ---------------------------------------------------------------------------
 resource "aci_physical_domain" "this" {
   for_each = local.physical_domains
