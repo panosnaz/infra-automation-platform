@@ -1,0 +1,1005 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Network Platform Engineering Platform — Audit &amp; Reference</title>
+<style>
+  @page { size: A4; margin: 18mm 16mm 20mm 16mm; }
+  :root{
+    --ink:#15181d; --muted:#5b6472; --line:#d8dde5; --soft:#f4f6f9;
+    --accent:#1f5fa9; --accent-soft:#e8f0fa;
+    --ok:#1c7a4a; --ok-bg:#e8f6ee;
+    --warn:#9a6508; --warn-bg:#fdf3e0;
+    --bad:#a32c2c; --bad-bg:#fbecec;
+    --mono: "Cascadia Mono","Consolas","SF Mono",Menlo,monospace;
+  }
+  *{box-sizing:border-box}
+  body{
+    font-family:"Segoe UI",-apple-system,Roboto,Helvetica,Arial,sans-serif;
+    color:var(--ink); font-size:10.2pt; line-height:1.5; margin:0;
+    -webkit-print-color-adjust:exact; print-color-adjust:exact;
+  }
+  h1,h2,h3,h4{line-height:1.25; margin:0 0 .4em}
+  h1{font-size:23pt; letter-spacing:-.4px}
+  h2{font-size:15pt; margin-top:0; padding:6pt 0 5pt; border-bottom:2.5px solid var(--accent); color:var(--accent)}
+  h3{font-size:11.6pt; margin-top:1.5em; color:#1a2330}
+  h4{font-size:10.4pt; margin-top:1.1em; color:var(--muted); text-transform:uppercase; letter-spacing:.5px; font-weight:700}
+  p{margin:0 0 .7em}
+  ul,ol{margin:0 0 .8em; padding-left:1.3em}
+  li{margin-bottom:.32em}
+  code{font-family:var(--mono); font-size:8.9pt; background:var(--soft); padding:.5pt 3pt; border-radius:3px; border:1px solid var(--line)}
+  pre{font-family:var(--mono); font-size:8.2pt; background:#1e2430; color:#e6ebf2; padding:9pt 11pt;
+      border-radius:5px; overflow-x:auto; line-height:1.45; margin:.6em 0}
+  pre code{background:none; border:none; color:inherit; padding:0; font-size:inherit}
+  table{width:100%; border-collapse:collapse; margin:.6em 0 1em; font-size:8.9pt}
+  th,td{border:1px solid var(--line); padding:4.5pt 6pt; text-align:left; vertical-align:top}
+  th{background:var(--soft); font-weight:700; font-size:8.5pt; text-transform:uppercase; letter-spacing:.3px; color:var(--muted)}
+  tbody tr:nth-child(even){background:#fbfcfd}
+  .page{page-break-after:always}
+  .nobreak{page-break-inside:avoid}
+  h2,h3{page-break-after:avoid}
+  table,pre,.box{page-break-inside:avoid}
+
+  .cover{height:250mm; display:flex; flex-direction:column; justify-content:center; text-align:left}
+  .cover .kicker{color:var(--accent); font-weight:700; letter-spacing:2px; font-size:9pt; text-transform:uppercase; margin-bottom:14pt}
+  .cover h1{font-size:30pt; margin-bottom:10pt}
+  .cover .sub{font-size:13pt; color:var(--muted); margin-bottom:26pt; max-width:135mm}
+  .cover .meta{border-top:2px solid var(--line); padding-top:12pt; font-size:9.4pt; color:var(--muted)}
+  .cover .meta b{color:var(--ink); display:inline-block; min-width:34mm}
+
+  .box{border:1px solid var(--line); border-left:4px solid var(--accent); background:var(--accent-soft);
+       padding:8pt 11pt; margin:.8em 0; border-radius:0 4px 4px 0}
+  .box.ok{border-left-color:var(--ok); background:var(--ok-bg)}
+  .box.warn{border-left-color:var(--warn); background:var(--warn-bg)}
+  .box.bad{border-left-color:var(--bad); background:var(--bad-bg)}
+  .box p:last-child{margin-bottom:0}
+  .box .t{font-weight:700; display:block; margin-bottom:3pt; font-size:9.6pt}
+
+  .pill{display:inline-block; padding:1pt 6pt; border-radius:9px; font-size:7.6pt; font-weight:700;
+        text-transform:uppercase; letter-spacing:.4px; white-space:nowrap}
+  .p-ok{background:var(--ok-bg); color:var(--ok); border:1px solid #b9e0ca}
+  .p-warn{background:var(--warn-bg); color:var(--warn); border:1px solid #edd6a4}
+  .p-bad{background:var(--bad-bg); color:var(--bad); border:1px solid #edbcbc}
+  .p-info{background:var(--accent-soft); color:var(--accent); border:1px solid #bcd4ee}
+  .p-grey{background:var(--soft); color:var(--muted); border:1px solid var(--line)}
+
+  .toc{column-count:1}
+  .toc ol{list-style:none; padding-left:0; counter-reset:part}
+  .toc > ol > li{counter-increment:part; margin-bottom:.45em; font-weight:600}
+  .toc > ol > li:before{content:"Part " counter(part,upper-roman) " — "; color:var(--accent)}
+  .toc ul{list-style:none; padding-left:1.2em; font-weight:400; color:var(--muted); margin-top:.2em}
+  .toc ul li{margin-bottom:.12em; font-size:9.4pt}
+
+  .flow{font-family:var(--mono); font-size:8pt; line-height:1.5; background:var(--soft);
+        border:1px solid var(--line); border-radius:5px; padding:10pt; white-space:pre; overflow-x:auto}
+  .kv{font-size:9pt}
+  .kv td:first-child{width:38%; font-weight:600}
+  .small{font-size:8.6pt; color:var(--muted)}
+  .fid{font-family:var(--mono); font-size:8pt; color:var(--accent); font-weight:700}
+  .num{font-variant-numeric:tabular-nums}
+  hr{border:none; border-top:1px solid var(--line); margin:1.4em 0}
+  .legend span{margin-right:10pt}
+</style>
+</head>
+<body>
+
+<!-- ================= COVER ================= -->
+<section class="cover page">
+  <div class="kicker">Technical Audit · Health Check · Reference Documentation</div>
+  <h1>Network Platform<br>Engineering Platform</h1>
+  <div class="sub">Cisco ACI &amp; Nexus VXLAN EVPN automation through Nautobot, Terraform, GitLab CI, Ansible, pyATS and MCP — how it works, what state it is in, and how to get it to a complete Day‑1 / Day‑2 ACI service platform.</div>
+  <div class="meta">
+    <div><b>Repository</b> C:\MCP\INFRA-AUTOMATION-PLATFORM</div>
+    <div><b>Branch audited</b> copilot/aci-platform-comparison (HEAD 69b727e)</div>
+    <div><b>Audit date</b> 14 September 2026</div>
+    <div><b>Lab APIC</b> 172.30.46.103 — APIC 6.2(1g), single controller, no fabric switches</div>
+    <div><b>Method</b> Static code review + live queries against the running lab (Nautobot, GitLab, OPA, Vault, MinIO, APIC), executed test suites, executed <code>terraform plan</code>, and a create/verify/delete probe against the real APIC</div>
+  </div>
+</section>
+
+<!-- ================= TOC ================= -->
+<section class="page">
+<h2>Contents</h2>
+<div class="toc">
+<ol>
+  <li>Orientation — what this platform is and why it is built this way
+    <ul><li>1.1 The problem being solved</li><li>1.2 The Three Truths model</li><li>1.3 The ten-thousand-foot picture</li></ul></li>
+  <li>The components and exactly what each one does
+    <ul><li>2.1 Nautobot · 2.2 The Generator · 2.3 NetAsCode YAML · 2.4 OPA · 2.5 Terraform</li>
+        <li>2.6 Ansible · 2.7 pyATS · 2.8 GitLab CI · 2.9 Vault · 2.10 MinIO · 2.11 MCP Server · 2.12 AI agents</li></ul></li>
+  <li>The workflow, stage by stage
+    <ul><li>3.1 The eight pipeline stages in detail</li><li>3.2 How an ACI object is represented in Nautobot</li><li>3.3 Worked example: one request end to end</li></ul></li>
+  <li>Testing — what is tested, how it runs, how to extend it
+    <ul><li>4.1 The four independent test layers</li><li>4.2 Unit tests in depth</li><li>4.3 How to add a unit test</li><li>4.4 Are tests auto-generated?</li><li>4.5 Documentation: which documents, and how reliably</li></ul></li>
+  <li>Health check — measured state of the running lab</li>
+  <li>Audit findings and recommended fixes</li>
+  <li>The Cisco Demo APIC — measured limits and how to overcome them</li>
+  <li>Roadmap to the complete ACI service platform</li>
+</ol>
+<p class="small" style="margin-top:1.5em">Appendix A — Command reference &nbsp;·&nbsp; Appendix B — Repository map &nbsp;·&nbsp; Appendix C — Evidence log</p>
+</div>
+
+<div class="box" style="margin-top:2em">
+<span class="t">How to read this document</span>
+<p><b>Parts I–IV are explanatory.</b> They assume no prior knowledge of the project and describe how the platform works and why. If you are coming to this codebase fresh, read those in order.</p>
+<p><b>Parts V–VIII are the audit.</b> Part V is the measured state of the lab today. Part VI lists defects and improvements in priority order. Part VII answers the question "what is the simulator actually stopping us from doing?" with evidence. Part VIII is the plan to reach your stated goal.</p>
+<p>Every claim about the running lab in Parts V–VII was measured on 14 September 2026, not inferred from the project's own documentation. Where the project's documentation and the measured reality disagree, that is called out explicitly — there are several such cases, and they matter.</p>
+</div>
+</section>
+
+<!-- ================= PART I ================= -->
+<section class="page">
+<h2>Part I — Orientation</h2>
+
+<h3>1.1 The problem being solved</h3>
+<p>Configuring a Cisco ACI fabric by hand through the APIC GUI has three durable problems. Nobody can say later <i>why</i> an object exists. Nobody can reproduce the fabric from scratch. And nobody can prove the fabric still matches what was intended, six months and forty changes later.</p>
+<p>This platform replaces GUI-driven configuration with a pipeline in which every change starts life as a structured record in a database, is transformed mechanically into configuration, is checked against policy, is approved by a human, is applied by a tool that understands state, and is then independently verified and recorded. No step is done by hand, and every step leaves an artefact.</p>
+<p>The important design claim is that this machinery is <b>not ACI-specific</b>. The same pipeline already drives a second, completely different domain — Cisco Nexus VXLAN EVPN on real Nexus 9000v hardware — with no changes to any shared pipeline logic. Only domain-specific files were added. That is the platform's central proof point.</p>
+
+<h3>1.2 The Three Truths model</h3>
+<p>The single most useful idea in this codebase is that there are three distinct kinds of truth, and conflating them is what makes network automation projects fail. Each has a different owner, a different lifetime, and a different storage system.</p>
+
+<table class="nobreak">
+<thead><tr><th style="width:18%">Truth</th><th style="width:26%">What it is</th><th style="width:20%">Where it lives</th><th>Why it must stay separate</th></tr></thead>
+<tbody>
+<tr><td><b>1. Business Intent</b></td><td>"The finance department needs an isolated network segment." Human-meaningful, stable, vendor-neutral.</td><td><b>Nautobot</b> (Tenants, VRFs, Prefixes, VLANs, plus JSON Custom Fields)</td><td>Intent outlives any particular fabric. If you rebuild the fabric, intent is what you rebuild <i>from</i>.</td></tr>
+<tr><td><b>2. Desired State</b></td><td>The exact ACI objects that intent implies — Tenant, VRF, Bridge Domain, EPG, Contract, L3Out — expressed as data.</td><td><b>NetAsCode YAML</b> in Git, generated, never hand-edited</td><td>It is derived, reproducible, and diffable. A human editing it would break the chain back to intent.</td></tr>
+<tr><td><b>3. Observed State</b></td><td>What the APIC actually reports right now, and the history of what was deployed and whether it passed verification.</td><td><b>APIC MIT</b>, plus Nautobot write-back fields and the MinIO knowledge log</td><td>Reality drifts. Only by keeping it separate can you detect the gap between intended and actual.</td></tr>
+</tbody>
+</table>
+
+<div class="box">
+<span class="t">Why this matters when you extend the platform</span>
+<p>Every time you add a new ACI capability, the same question decides the design: <i>which truth does this belong to?</i> A BGP peer's IP address is intent (truth 1). The <code>bgpPeerP</code> object under a specific path DN is desired state (truth 2). Whether the BGP session is actually Established is observed state (truth 3). Put a fact in the wrong truth and you will either lose it on rebuild or fight drift forever.</p>
+</div>
+
+<h3>1.3 The ten-thousand-foot picture</h3>
+<p>A person — or an AI agent acting for them — expresses a want. That want becomes a record in Nautobot. Nautobot's change fires a webhook that starts a GitLab pipeline. The pipeline regenerates the desired state from <i>all</i> of Nautobot, checks it, plans it, waits for a human, applies it, configures day‑2 details, verifies it independently, writes the result back, and archives the record. Nobody touches the APIC directly at any point.</p>
+
+<div class="flow">  HUMAN or AI AGENT
+        │  "create a VRF for the finance tenant"
+        ▼
+  ┌───────────────┐   MCP tool call (create_vrf, create_l3out, …)
+  │  MCP SERVER   │   validates the request, writes structured objects
+  └───────┬───────┘
+          ▼  REST write
+  ┌───────────────┐   TRUTH 1 — BUSINESS INTENT
+  │   NAUTOBOT    │   Tenants · VRFs · Prefixes · VLANs · Locations
+  │  (Source of   │   + JSON Custom Fields for everything ACI-specific
+  │    Truth)     │     that Nautobot has no native object for
+  └───────┬───────┘
+          │  webhook fires automatically  ── the MCP Server is now out of the loop
+          ▼
+  ┌──────────────────────────────────────────────────────────────────┐
+  │                       GITLAB CI PIPELINE                         │
+  │                                                                  │
+  │  1 generate   Nautobot GraphQL ──▶ NetAsCode YAML  (run twice,   │
+  │                                    diffed, to prove determinism) │
+  │  2 validate   YAML is well-formed                                │
+  │  3 policy     OPA evaluates the YAML — fail-closed               │
+  │  4 plan       terraform plan  ──▶ saved plan artefact            │
+  │  5 apply      ⏸ MANUAL GATE, then terraform apply of that plan   │
+  │  6 configure  ansible-playbook — day-2 operations                │
+  │  7 verify     pyATS queries the APIC independently               │
+  │  8 capture    write results to Nautobot + append to MinIO log    │
+  └───────────────────────────┬──────────────────────────────────────┘
+                              ▼
+                    ┌──────────────────┐   TRUTH 3 — OBSERVED STATE
+                    │   CISCO APIC     │
+                    └──────────────────┘
+</div>
+
+<p>Two properties of this picture are deliberate and worth internalising:</p>
+<ul>
+<li><b>The MCP Server never orchestrates.</b> It writes to Nautobot and, separately, can read status back. It does not sequence the pipeline, does not call Terraform, and does not talk to the APIC. If the MCP Server is switched off, an engineer editing Nautobot directly gets exactly the same pipeline.</li>
+<li><b>The generator reads everything, every time.</b> It does not generate "just the changed object". It rebuilds the complete desired state for the domain from Nautobot on every run. This is what makes the output reproducible — and it is also the source of the platform's biggest operational hazard, covered in Part VI.</li>
+</ul>
+</section>
+
+<!-- ================= PART II ================= -->
+<section class="page">
+<h2>Part II — The components, and exactly what each one does</h2>
+<p>This part answers "what is each tool actually <i>for</i>", including the boundaries that must not be crossed. Those boundaries are the difference between a pipeline and a pile of scripts.</p>
+
+<h3>2.1 Nautobot — the Source of Truth</h3>
+<p>Nautobot is an open-source network source-of-truth application: a database with a web UI, a REST API and a GraphQL API, modelling tenants, VRFs, prefixes, VLANs, devices, interfaces and sites.</p>
+<p><b>Its role here:</b> it owns Truth 1. Every piece of network intent lives in Nautobot and nowhere else. Terraform variables must not contain intent. Ansible vars must not contain intent. If a fact about what the network should look like is not in Nautobot, it is not intent — it is an accident.</p>
+<p><b>The interesting part</b> is that ACI has many concepts Nautobot has no native object for: Contracts, Filters, L3Outs, Service Graphs, VLAN Pools, AAEPs. Rather than writing a Nautobot plugin with new models, this platform stores those as <b>JSON Custom Fields</b> attached to the nearest sensible native object. A Tenant carries <code>aci_contracts</code>, <code>aci_l3outs</code>, <code>aci_l4l7_services</code>; a Location carries <code>aci_fabric_policies</code>; a VLAN (which represents an EPG) carries <code>aci_epg_contracts</code>, <code>aci_epg_domains</code>, <code>aci_static_paths</code>.</p>
+<div class="box warn">
+<span class="t">This decision is both the platform's cleverest and its most fragile</span>
+<p>It avoids a plugin and keeps everything in stock Nautobot. But a JSON Custom Field only works if the field has been <i>declared</i> in Nautobot's schema first. Writing to an undeclared field through the REST API does not raise an error — the value is silently discarded. That failure mode has already bitten this project once, and Part V shows it is biting again right now, at scale. See finding <span class="fid">F‑01</span>.</p>
+</div>
+
+<h3>2.2 The Generator — <code>platform/python/generate_aci.py</code></h3>
+<p>A ~200-line Python program plus a ~620-line transformer. It queries Nautobot over GraphQL for all tenants, prefixes, VLANs and locations, then converts that into the NetAsCode YAML structure.</p>
+<p>Everything it does is mechanical and testable, which is why the transformer has 44 unit tests. Key conversions it performs:</p>
+<ul>
+<li>Strips the <code>ACI:</code> namespace prefix that the Nautobot SSoT app adds to tenant names.</li>
+<li>Derives a Bridge Domain's name from the owning Prefix's description (format <code>ACI Bridge Domain: &lt;bd&gt;:&lt;tenant&gt;</code>), falling back to a sanitised form of the network address.</li>
+<li>Converts a Prefix's network address into a usable BD gateway host address (<code>10.10.10.0/24</code> → <code>10.10.10.1/24</code>), warning on stderr because this is a convention, not a fact Nautobot stores.</li>
+<li>Only emits an attribute if the corresponding Custom Field was explicitly set. An unset field means "leave it at ACI's own default", which keeps generated YAML small and avoids Terraform fighting the APIC over defaults.</li>
+<li>Expands the JSON Custom Fields into the nested YAML structures for contracts, L3Outs, services, fabric policies and AAA.</li>
+</ul>
+<p>The pipeline runs the generator <b>twice</b> and diffs the two outputs. This is a real determinism gate: the generator writes YAML with <code>sort_keys=False</code>, so stable output depends on Nautobot returning objects in a stable order. Proving it empirically each run is cheaper than assuming it.</p>
+
+<h3>2.3 NetAsCode YAML — the desired-state artefact</h3>
+<p>A single file, <code>platform/netascode/aci/tenants.yaml</code>, holding the whole domain's desired state. It follows Cisco's Network-as-Code schema shape (<code>apic.tenants[]</code>, <code>apic.fabric_policies</code>, <code>apic.access_policies</code>).</p>
+<p>It is committed back to Git by the pipeline, which makes every deployment's exact input permanently auditable — you can always answer "what did we deploy on the 3rd of March" by reading a commit.</p>
+<div class="box">
+<span class="t">Why YAML and not a custom schema</span>
+<p>An earlier design had the MCP Server own a "canonical intent" envelope that everything else consumed. That was deliberately abandoned. A shared intent schema becomes a second source of truth that must be kept in sync with both Nautobot and the vendor's real model — it is a permanent tax. Using the vendor-aligned NetAsCode shape means the only mapping that exists is the one the generator performs, in one place, with tests on it.</p>
+</div>
+
+<h3>2.4 OPA — policy enforcement</h3>
+<p>Open Policy Agent runs as a container holding Rego policy files. The <code>policy_check</code> pipeline job posts the generated YAML to OPA and expects a <code>{"allow": bool, "reasons": [...]}</code> decision back.</p>
+<p>It is <b>fail-closed</b>: if OPA cannot be reached, the job fails. An unreachable policy engine is treated as a denial, never as a silent pass — which is the only safe default for a guardrail.</p>
+<p>Current ACI policy content is thin (see finding <span class="fid">F‑08</span>): it checks that tenant names match <code>^[a-z0-9-]+$</code> and nothing else. The EVPN policy is considerably richer, validating VNI ranges and global VNI uniqueness.</p>
+
+<h3>2.5 Terraform — desired-state provisioning</h3>
+<p>The module at <code>platform/terraform/aci/</code> is a single 1,650-line <code>main.tf</code>. Its first ~570 lines are <code>locals</code> blocks that <code>yamldecode</code> the NetAsCode file and flatten its nested structure into flat maps keyed by path — <code>"tenant/vrf"</code>, <code>"tenant/ap/epg"</code>, <code>"tenant/l3out/nodeprofile/ifprofile/node/module/port"</code>. The remaining ~1,080 lines are 71 <code>resource</code> blocks that <code>for_each</code> over those maps.</p>
+<p>It consumes the YAML and nothing else. It never queries Nautobot. That separation is what lets the same Terraform run reproducibly from a committed artefact.</p>
+<p>Two idioms recur throughout and are worth recognising:</p>
+<ul>
+<li><code>lookup(each.value, "x", null)</code> — pass <code>null</code> when the generator omitted a key, which leaves the attribute unmanaged at ACI's own default rather than forcing a value.</li>
+<li>Relations reference another resource's <code>.id</code> or <code>.name</code> rather than the raw YAML string. This is not cosmetic: it creates Terraform's implicit dependency edge so the VRF is always created before the Bridge Domain that references it.</li>
+</ul>
+<div class="box bad">
+<span class="t">A hard-won safety rule encoded in this module</span>
+<p>Several ACI objects are mandatory system singletons — the default NTP, DNS and SNMP policies at <code>uni/fabric/time-default</code>, <code>dnsp-default</code>, <code>snmppol-default</code>, and the fault/syslog policies under <code>uni/fabric/moncommon</code>. They are managed with the generic <code>aci_rest_managed</code> resource, whose default destroy behaviour is to <b>delete the entire target DN</b>. A <code>terraform destroy</code> once really did delete those singletons from this simulator, requiring manual recreation. Every such resource now carries an explicit <code>content_on_destroy</code> block resetting it to the known-good baseline. Never remove those blocks.</p>
+</div>
+
+<h3>2.6 Ansible — Day-2 operations only</h3>
+<p>Ansible's charter here is narrow and deliberate: it performs operational tasks against already-provisioned infrastructure. It does not provision. If a playbook is creating new infrastructure, the design has been violated — that work belongs in Terraform, driven by Nautobot.</p>
+<p>Today the ACI side runs one playbook, <code>verify-tenants.yml</code>, in the <code>configure</code> stage. The Day-2 catalogue is effectively empty (finding <span class="fid">F‑10</span>).</p>
+
+<h3>2.7 pyATS — independent verification</h3>
+<p>pyATS is Cisco's test framework. Here it connects to the APIC over REST using the <code>rest.connector</code> library and asserts that what the YAML said should exist actually does exist in the fabric.</p>
+<p>The critical word is <b>independent</b>. pyATS does not read Terraform state and does not trust Terraform's "apply complete". It asks the APIC directly. A Terraform apply that reports success while the APIC silently rejected something is exactly the class of failure this stage exists to catch.</p>
+<p>Current depth is shallow — it verifies that tenant names and VRF names exist, and nothing more (finding <span class="fid">F‑09</span>).</p>
+
+<h3>2.8 GitLab CI — the execution engine</h3>
+<p>GitLab CE runs locally with a registered runner. The pipeline is assembled from three files:</p>
+<table class="kv nobreak">
+<tbody>
+<tr><td><code>.gitlab-ci.yml</code></td><td>Root entry point. Does nothing but <code>include</code> each active domain's pipeline file.</td></tr>
+<tr><td><code>pipelines/includes/common.gitlab-ci.yml</code></td><td>The shared stage templates — hidden jobs named <code>.generate_nac</code>, <code>.terraform_plan</code>, etc. All stage <i>logic</i> lives here and is domain-agnostic.</td></tr>
+<tr><td><code>pipelines/aci.gitlab-ci.yml</code><br><code>pipelines/evpn.gitlab-ci.yml</code></td><td>One file per domain. Each <code>extends</code> the shared templates and supplies only variables: which YAML file, which Terraform directory, which policy package.</td></tr>
+</tbody>
+</table>
+<p>This is the structural reason a new domain is cheap. Adding Fortinet or Azure means writing a new generator, a new Terraform module and a new <code>pipelines/&lt;domain&gt;.gitlab-ci.yml</code> — and changing zero lines of shared pipeline logic.</p>
+<div class="box warn">
+<span class="t">Two GitLab CI behaviours this project learned the hard way</span>
+<p><b>Included files share one flat namespace.</b> ACI and EVPN once defined nine identically-named jobs each. GitLab does not error on this — the last included file silently overrides the first. EVPN's jobs are now all <code>evpn_</code>-prefixed. Likewise, top-level <code>variables:</code> blocks merge into one flat map, so every ACI job restates its own values via a YAML anchor to be immune to include order.</p>
+<p><b><code>needs:</code> is not transitive.</b> A job only auto-downloads artefacts from jobs named explicitly in its own <code>needs:</code> array. <code>write_results</code> lists <code>generate_nac</code> directly for exactly this reason — without it, GitLab falls back to a plain git checkout, which can be stale relative to the artefact generated in the same run.</p>
+</div>
+
+<h3>2.9 Vault — secrets</h3>
+<p>HashiCorp Vault holds the APIC credentials, the Nautobot API token and the vCenter credentials at <code>secret/lab/platform</code>. Scripts such as <code>platform/terraform/aci/scripts/load-vault-creds.sh</code> are sourced at job start and export <code>TF_VAR_*</code> environment variables, so Terraform receives credentials at runtime and never owns a static copy. The principle is that no platform component permanently stores a credential.</p>
+
+<h3>2.10 MinIO — the knowledge log</h3>
+<p>An S3-compatible object store. The final pipeline stage appends one JSON line per deployment to <code>knowledge-capture/aci/deployments.jsonl</code>. This is the durable execution history — pipeline ID, timestamp, outcome — and it is deliberately append-only and outside GitLab, so it survives pipeline retention limits.</p>
+
+<h3>2.11 The MCP Server</h3>
+<p>MCP (Model Context Protocol) is the standard by which an AI assistant is given callable tools. This server, at <code>mcp-server/</code>, exposes the platform's operations as tools an AI can invoke.</p>
+<p>Its architecture is small and disciplined:</p>
+<ul>
+<li><code>tools/registry.py</code> — a domain-agnostic registry. It dispatches by name and knows nothing about ACI or EVPN. It must never import a domain module.</li>
+<li><code>tools/aci.py</code>, <code>tools/evpn.py</code>, <code>tools/generic.py</code> — domain modules that register tools via a decorator. They must never import each other.</li>
+<li><code>schemas/aci.py</code> — one Pydantic model per tool, defining and validating that tool's inputs. There is no shared "intent envelope"; each tool has a thin schema of exactly its own fields.</li>
+<li><code>main.py</code> — wires the registry into the MCP SDK, injecting the Nautobot and GitLab clients each handler declares, and building each tool's advertised input schema from its Pydantic model's fields.</li>
+</ul>
+<p><b>Measured tool count: 46</b> — 42 ACI, 3 EVPN, 1 generic (<code>show_status</code>). Note this contradicts the project's own status document, which still says 18 (finding <span class="fid">F‑11</span>).</p>
+
+<h3>2.12 AI agents — the MCP clients</h3>
+<p>VS Code's Copilot Agent is wired as a real MCP client via <code>.vscode/mcp.json</code> over <code>streamable-http</code>. The proven milestone was a single natural-language request driving <code>create_tenant</code> → <code>create_vrf</code> → <code>create_bridge_domain</code> purely through tool-call reasoning, with the pipeline triggered by webhook rather than by hand.</p>
+<p>There is also a tool-restricted persona at <code>.github/agents/network-platform-operator.agent.md</code>. It has MCP tools and read/search access but <b>no terminal access</b> — removed after an agent ran <code>docker compose down</code> during a live session and caused a full-stack outage. A <code>PreToolUse</code> hook intended to block this passed in isolated testing but did not fire during the real agent run, and the root cause was never conclusively found. Removing the capability structurally was chosen over trusting the hook. That lesson generalises: never trust an enforcement mechanism that has only been tested in isolation.</p>
+</section>
+
+<!-- ================= PART III ================= -->
+<section class="page">
+<h2>Part III — The workflow, stage by stage</h2>
+
+<h3>3.1 The eight pipeline stages in detail</h3>
+<p>Stages are declared once in <code>pipelines/includes/common.gitlab-ci.yml</code>. Each runs in a fresh <code>python:3.12-slim</code> container.</p>
+
+<table>
+<thead><tr><th style="width:13%">Stage</th><th style="width:20%">Job / script</th><th style="width:34%">What it actually does</th><th>Why it exists</th></tr></thead>
+<tbody>
+<tr><td><b>1 generate</b></td><td><code>generate_nac</code><br><code>generate_aci.py</code></td><td>Queries Nautobot GraphQL for tenants, prefixes, VLANs, locations. Transforms to NetAsCode YAML. Runs <b>twice</b> and diffs. Commits the result to Git with <code>[skip ci]</code>.</td><td>Turns Truth 1 into Truth 2, mechanically and reproducibly. The double-run is the determinism proof.</td></tr>
+<tr><td><b>2 validate</b></td><td><code>validate_nac</code><br><code>validate_nac.py</code></td><td>Loads the YAML; asserts a top-level <code>apic</code> key exists, that <code>apic.tenants</code> is non-empty, and that each tenant has a <code>name</code>.</td><td>Catch a malformed artefact before it reaches policy or Terraform. <span class="pill p-warn">currently very shallow — F‑07</span></td></tr>
+<tr><td><b>3 policy</b></td><td><code>policy_check</code><br><code>policy_check.py</code></td><td>POSTs the whole YAML to OPA at <code>/v1/data/platform/&lt;domain&gt;/decision</code>. Non-<code>allow</code> or unreachable ⇒ exit 1.</td><td>Automated guardrails — naming standards, forbidden configurations — evaluated before a human is ever asked to approve.</td></tr>
+<tr><td><b>4 plan</b></td><td><code>terraform_plan</code></td><td>Installs Terraform, sources credentials from Vault, runs <code>terraform init</code> then <code>plan -out=tfplan</code>. Saves <code>tfplan</code> as an artefact. Holds a <code>resource_group</code> lock.</td><td>Produces the exact, reviewable change set. The saved plan is what gets applied — not a re-plan.</td></tr>
+<tr><td><b>5 apply</b></td><td><code>terraform_apply</code></td><td><code>when: manual</code>, <code>allow_failure: false</code>. A human clicks Run, then <code>terraform apply tfplan</code>.</td><td>This is the Approval gate. Because <code>allow_failure</code> is false, every later stage genuinely blocks on the human.</td></tr>
+<tr><td><b>6 configure</b></td><td><code>ansible_configure</code></td><td>Installs <code>ansible-core</code> and the <code>cisco.aci</code> collection, runs <code>playbooks/verify-tenants.yml</code>.</td><td>Day-2 operations. <span class="pill p-warn">catalogue is near-empty — F‑10</span></td></tr>
+<tr><td><b>7 verify</b></td><td><code>pyats_verify</code><br><code>write_results</code></td><td>pyATS connects to the APIC and asserts expected objects exist. Then <code>write_results.py</code> queries the GitLab API for <code>pyats_verify</code>'s real status and PATCHes each tenant in Nautobot with <code>validation_status</code>, <code>last_pipeline_id</code>, <code>last_pipeline_url</code>, <code>last_validated_at</code>.</td><td>Closes the loop back to the Source of Truth. GitLab exposes no variable for a sibling job's status, so it is queried over the API rather than guessed.</td></tr>
+<tr><td><b>8 capture</b></td><td><code>knowledge_capture</code></td><td>Appends one JSON record to the MinIO JSONL log and keeps a GitLab artefact copy. <code>when: always</code>.</td><td>Durable, append-only execution history that outlives GitLab's artefact retention.</td></tr>
+</tbody>
+</table>
+
+<h3>3.2 How an ACI object is represented in Nautobot</h3>
+<p>This table is the Rosetta Stone for the whole platform. When you want to add a capability, this is where you decide where the intent will live.</p>
+
+<table>
+<thead><tr><th style="width:24%">ACI concept</th><th style="width:24%">Nautobot representation</th><th>Notes</th></tr></thead>
+<tbody>
+<tr><td>Tenant</td><td>Tenant object</td><td>Name may carry an <code>ACI:</code> prefix from the SSoT app; the generator strips it.</td></tr>
+<tr><td>VRF</td><td>VRF object under the Tenant</td><td>Depth attributes via Custom Fields <code>aci_ip_data_plane_learning</code>, <code>aci_policy_control_enforcement_direction</code>/<code>_mode</code>.</td></tr>
+<tr><td>Bridge Domain + subnet</td><td><b>Prefix</b> object</td><td>BD name parsed from the Prefix description. Gateway from <code>aci_gateway_ip</code>, else first host. Eight <code>aci_bd_*</code> fields for depth.</td></tr>
+<tr><td>Application Profile + EPG</td><td><b>VLAN</b> object</td><td>A VLAN is only treated as an EPG if <b>both</b> <code>aci_application_profile</code> and <code>aci_epg_bridge_domain</code> are set. Strictly opt-in.</td></tr>
+<tr><td>EPG↔Contract bindings</td><td><code>aci_epg_contracts</code> JSON on the VLAN</td><td><code>{"provided": [...], "consumed": [...]}</code></td></tr>
+<tr><td>EPG↔Domain bindings</td><td><code>aci_epg_domains</code> JSON on the VLAN</td><td>Each entry carries an explicit <code>domain_type</code> — a physical and a VMM domain may share a name.</td></tr>
+<tr><td>EPG static paths</td><td><code>aci_static_paths</code> JSON on the VLAN</td><td>node/module/port/encap. Depends on real fabric paths — see Part VII.</td></tr>
+<tr><td>Contracts, Filters, Subjects</td><td><code>aci_contracts</code> JSON on the Tenant</td><td>No natural Nautobot object exists.</td></tr>
+<tr><td>L3Outs (incl. node/interface profiles, BGP peers, OSPF)</td><td><code>aci_l3outs</code> JSON on the Tenant</td><td>The full nested hierarchy lives in one field.</td></tr>
+<tr><td>VRF route leaking</td><td><code>aci_vrf_route_leaks</code> JSON on the Tenant</td><td>Source VRF retained as audit metadata; the provider resource only takes destination + subnet.</td></tr>
+<tr><td>L4-L7 devices, Service Graphs, PBR</td><td><code>aci_l4l7_services</code> JSON on the Tenant</td><td>Sub-keys <code>devices</code>, <code>service_graphs</code>, <code>redirect_policies</code>.</td></tr>
+<tr><td>OSPF interface policies</td><td><code>aci_ospf_interface_policies</code> JSON on the Tenant</td><td>Authentication stored as a non-secret Vault <i>reference</i>; raw keys never enter Nautobot.</td></tr>
+<tr><td>VLAN Pools, Physical/VMM Domains, AAEPs, IPGs, leaf profiles, NTP/DNS/SNMP/COOP/ISIS, syslog, fault</td><td><code>aci_fabric_policies</code> JSON on the <b>Location</b></td><td>Fabric-wide, not tenant-scoped. Aggregated across all Locations for list-shaped keys; singleton keys take last-Location-wins.</td></tr>
+<tr><td>Security Domains, Local Users</td><td><code>aci_aaa_policies</code> JSON on the Location</td><td>Deliberately separate from <code>aci_fabric_policies</code>: these live under the APIC's <code>uni/userext</code> subtree, a different concern. Passwords never stored — supplied at apply time via a sensitive Terraform map variable.</td></tr>
+<tr><td>Pipeline outcome</td><td><code>validation_status</code>, <code>last_pipeline_id</code>, <code>last_pipeline_url</code>, <code>last_validated_at</code> on the Tenant</td><td>This is Truth 3 written back — the only place observed state touches the Nautobot record.</td></tr>
+</tbody>
+</table>
+
+<div class="box">
+<span class="t">The rule for where new intent goes</span>
+<p>If Nautobot has a native object that genuinely <i>is</i> the thing — use it. If ACI has a concept with no Nautobot equivalent, attach a JSON Custom Field to the nearest owning object: <b>tenant-scoped → Tenant; fabric-wide → Location; EPG-scoped → the EPG's VLAN.</b> Then — and this is the step that keeps being missed — <b>declare the Custom Field in Nautobot's schema before writing to it.</b></p>
+</div>
+
+<h3>3.3 Worked example: one request from end to end</h3>
+<p>Following a single change all the way through makes the machinery concrete.</p>
+<table class="nobreak">
+<tbody>
+<tr><td style="width:17%"><b>1. Request</b></td><td>An engineer tells the AI agent: <i>"create a bridge domain called App_BD in the sales tenant, VRF Presales_VRF, gateway 10.0.9.254/24"</i>.</td></tr>
+<tr><td><b>2. Tool call</b></td><td>The agent selects <code>create_bridge_domain</code> and supplies the arguments. The MCP Server validates them against <code>CreateBridgeDomainRequest</code> — a bad tenant name or malformed CIDR is rejected here, before anything is written.</td></tr>
+<tr><td><b>3. Nautobot write</b></td><td>The handler creates a <b>Prefix</b> <code>10.0.9.0/24</code> under tenant <code>sales</code>, assigned to VRF <code>Presales_VRF</code>, with description <code>ACI Bridge Domain: App_BD:sales</code> and Custom Field <code>aci_gateway_ip = 10.0.9.254/24</code>.</td></tr>
+<tr><td><b>4. Trigger</b></td><td>Nautobot's webhook fires and POSTs to GitLab's pipeline trigger URL. The MCP Server's involvement ends here. <span class="pill p-bad">today this only fires for Tenant changes — F‑04</span></td></tr>
+<tr><td><b>5. Generate</b></td><td>The generator re-reads <i>all</i> of Nautobot and rewrites <code>tenants.yaml</code>, which now contains the new <code>bridge_domains</code> entry with <code>vrf: Presales_VRF</code> and <code>subnets: [{ip: 10.0.9.254/24, private: true}]</code>.</td></tr>
+<tr><td><b>6. Validate + policy</b></td><td>Structure checked; OPA evaluates the document and returns <code>allow</code>.</td></tr>
+<tr><td><b>7. Plan</b></td><td>Terraform decodes the YAML, builds <code>local.bridge_domains["sales/App_BD"]</code> and <code>local.subnets["sales/App_BD/10.0.9.254/24"]</code>, and plans <code>aci_bridge_domain.this</code> + <code>aci_subnet.this</code>.</td></tr>
+<tr><td><b>8. Approve + apply</b></td><td>A human reviews the plan and clicks Run. Terraform POSTs to the APIC, creating <code>uni/tn-sales/BD-App_BD</code> and its subnet.</td></tr>
+<tr><td><b>9. Verify</b></td><td>pyATS queries <code>api/class/fvTenant.json</code> and friends and asserts presence.</td></tr>
+<tr><td><b>10. Record</b></td><td><code>write_results.py</code> stamps the tenant in Nautobot with the outcome; <code>capture_knowledge.py</code> appends a record to MinIO.</td></tr>
+</tbody>
+</table>
+</section>
+
+<!-- ================= PART IV ================= -->
+<section class="page">
+<h2>Part IV — Testing: what is tested, how it runs, how to extend it</h2>
+<p>You asked specifically about unit tests. This part covers them thoroughly, and places them in the context of the other three verification layers, because in this platform "testing" means four quite different things.</p>
+
+<h3>4.1 The four independent test layers</h3>
+<table>
+<thead><tr><th style="width:15%">Layer</th><th style="width:16%">Location</th><th style="width:22%">What it proves</th><th style="width:13%">Needs live infra?</th><th>Runs in CI?</th></tr></thead>
+<tbody>
+<tr><td><b>Unit tests</b></td><td><code>tests/unit/</code><br><code>mcp-server/tests/unit/</code></td><td>Pure logic: given this Nautobot data, the generator emits exactly this YAML; given this tool input, the schema accepts or rejects it.</td><td>No — fully offline</td><td><span class="pill p-bad">No</span> <span class="fid">F‑05</span></td></tr>
+<tr><td><b>Schema validation</b></td><td><code>validate_nac.py</code></td><td>The generated artefact is structurally usable.</td><td>No</td><td><span class="pill p-ok">Yes</span></td></tr>
+<tr><td><b>Policy tests</b></td><td>OPA Rego</td><td>The desired state obeys organisational rules.</td><td>OPA container</td><td><span class="pill p-ok">Yes</span></td></tr>
+<tr><td><b>pyATS verification</b></td><td><code>tests/pyats/</code></td><td>The <i>fabric</i> matches the artefact — measured against the real APIC.</td><td>Yes — APIC</td><td><span class="pill p-ok">Yes</span></td></tr>
+</tbody>
+</table>
+<p>The distinction that matters: unit tests verify <b>the code that produces configuration</b>. pyATS verifies <b>the configuration that reached the device</b>. Neither substitutes for the other, and a unit test can never tell you the APIC rejected something.</p>
+
+<h3>4.2 Unit tests in depth</h3>
+<p>There are <b>154 executable test cases</b> across two suites. Both pass today. Measured on 14 September 2026:</p>
+<table class="nobreak">
+<thead><tr><th style="width:38%">File</th><th style="width:14%">Functions</th><th>What it covers</th></tr></thead>
+<tbody>
+<tr><td colspan="3" style="background:var(--soft)"><b>Generator suite — <code>tests/unit/</code> → 52 cases pass in 0.12 s</b></td></tr>
+<tr><td><code>test_transformer.py</code></td><td class="num">44</td><td>Every transformation rule in the ACI generator.</td></tr>
+<tr><td><code>test_evpn_transformer.py</code></td><td class="num">8</td><td>The same for the EVPN generator.</td></tr>
+<tr><td><code>conftest.py</code></td><td class="num">—</td><td>Puts <code>platform/python/</code> on <code>sys.path</code> so <code>import generator</code> works without installing a package.</td></tr>
+<tr><td colspan="3" style="background:var(--soft)"><b>MCP suite — <code>mcp-server/tests/unit/</code> → 102 cases pass in 0.48 s</b></td></tr>
+<tr><td><code>test_schemas_aci.py</code></td><td class="num">34</td><td>Input validation for every ACI tool — valid inputs accepted, invalid rejected.</td></tr>
+<tr><td><code>test_tools_aci.py</code></td><td class="num">22</td><td>Tool dispatch: the named tool exists, calls the right client method with the right arguments (client is a fake).</td></tr>
+<tr><td><code>test_schemas_evpn.py</code></td><td class="num">10</td><td>EVPN schema validation.</td></tr>
+<tr><td><code>test_registry.py</code></td><td class="num">4</td><td>Architectural invariants — duplicate registration raises; <b>domain modules do not import each other</b>; every tool's signature is derivable from its schema.</td></tr>
+<tr><td><code>test_tools_evpn.py</code></td><td class="num">3</td><td>EVPN tool dispatch.</td></tr>
+</tbody>
+</table>
+
+<h4>What a generator test looks like</h4>
+<p>Every generator test follows the same shape: build a fake Nautobot response as a plain Python dict, call <code>build_netascode_yaml()</code>, assert on the output structure. No network, no database, no mocking framework.</p>
+<pre><code>def test_bridge_domain_boolean_false_is_still_emitted_not_treated_as_unset():
+    prefixes = [{
+        "prefix": "10.0.0.0/24",
+        "description": "ACI Bridge Domain: BD1:web-tenant",
+        "tenant": {"name": "ACI:web-tenant"},
+        "vrfs": [{"name": "vrf1"}],
+        "_custom_field_data": {"aci_bd_arp_flooding": False},
+    }]
+    result = build_netascode_yaml(tenants=[...], prefixes=prefixes)
+    bd = result["apic"]["tenants"][0]["bridge_domains"][0]
+    assert bd["arp_flooding"] is False      # not absent — False is a real intent</code></pre>
+<p>That test guards a genuinely subtle bug: <code>if cf.get("x")</code> treats <code>False</code> the same as "unset", which would silently drop a deliberate "ARP flooding off". The transformer therefore uses <code>if (v := cf.get("x")) is not None</code> for booleans and plain truthiness for strings, and the tests pin that distinction.</p>
+
+<h4>What an MCP schema test looks like</h4>
+<pre><code>@pytest.mark.parametrize("bad_name",
+    ["Finance", "finance_dept", "finance dept", "Finance_2", "UPPER"])
+def test_invalid_tenant_name_rejected(bad_name):
+    """Mirrors the live OPA policy_check rule — catching it at the MCP
+    layer avoids a guaranteed pipeline denial twenty minutes later."""
+    with pytest.raises(ValidationError):
+        CreateTenantRequest(name=bad_name)</code></pre>
+<p>Note the intent: the Pydantic schema deliberately duplicates the OPA naming rule so an AI agent is told "no" immediately rather than after a full pipeline run. <code>@pytest.mark.parametrize</code> is why 73 test <i>functions</i> produce 102 test <i>cases</i>.</p>
+
+<h4>How to run them</h4>
+<pre><code># Generator suite — from the repository root
+python -m pytest tests/unit -q
+
+# MCP suite — must set PYTHONPATH, the package is not installed
+cd mcp-server
+PYTHONPATH=src python -m pytest tests -q        # bash
+$env:PYTHONPATH="src"; python -m pytest tests -q   # PowerShell
+
+# Useful variants
+python -m pytest tests/unit -v                       # one line per test
+python -m pytest tests/unit -k "bridge_domain"       # only matching tests
+python -m pytest tests/unit --tb=short -x            # stop at first failure</code></pre>
+<div class="box bad">
+<span class="t">Two problems with the above, both fixable in minutes</span>
+<p><b>1.</b> <code>cd mcp-server &amp;&amp; pytest</code> fails with <code>ModuleNotFoundError: No module named 'mcp_server'</code> unless you remember <code>PYTHONPATH=src</code>. Adding four lines to <code>mcp-server/pyproject.toml</code> fixes it permanently — see finding <span class="fid">F‑06</span>.</p>
+<p><b>2.</b> Neither suite runs in CI. All 154 tests are manual-only. A change that breaks the generator reaches <code>terraform plan</code> before anyone finds out. See finding <span class="fid">F‑05</span>.</p>
+</div>
+
+<h3>4.3 How to add a unit test</h3>
+<p>Adding coverage for a new capability is a four-step, mechanical process. Suppose you are adding EIGRP support to the generator.</p>
+
+<h4>Step 1 — Write the test first, and watch it fail</h4>
+<p>Open <code>tests/unit/test_transformer.py</code>. Copy the nearest existing test — for a tenant-level JSON Custom Field, <code>test_l4l7_services_emitted_from_tenant_custom_field</code> is the right model. Adapt it:</p>
+<pre><code>def test_eigrp_l3out_emitted_from_tenant_custom_field():
+    tenants = [{
+        "name": "ACI:sales",
+        "vrfs": [{"name": "Presales_VRF"}],
+        "_custom_field_data": {
+            "aci_l3outs": {"l3outs": [{
+                "name": "EIGRP_L3Out",
+                "vrf": "Presales_VRF",
+                "protocol": "eigrp",
+                "eigrp_as": 100,
+            }]},
+        },
+    }]
+    result = build_netascode_yaml(tenants=tenants, prefixes=[])
+    l3out = result["apic"]["tenants"][0]["l3outs"][0]
+    assert l3out["protocol"] == "eigrp"
+    assert l3out["eigrp_as"] == 100</code></pre>
+<pre><code>python -m pytest tests/unit -k eigrp -v        # must FAIL first</code></pre>
+<p>A test that has never failed has proved nothing. If it passes before you write the code, it is testing the wrong thing.</p>
+
+<h4>Step 2 — Add the negative case</h4>
+<p>Roughly half the tests in this suite assert <i>absence</i>. This convention exists because "only emit when explicitly set" is a core generator rule, and it is easy to break.</p>
+<pre><code>def test_eigrp_attributes_absent_when_not_configured():
+    result = build_netascode_yaml(
+        tenants=[{"name": "ACI:sales", "_custom_field_data": {}}],
+        prefixes=[])
+    assert "l3outs" not in result["apic"]["tenants"][0]</code></pre>
+
+<h4>Step 3 — Implement until green</h4>
+<p>Edit <code>platform/python/generator/transformer.py</code>, re-run, iterate. Then run the <i>whole</i> suite — the most common real failure is that a new key changes the baseline output and breaks <code>test_baseline_output_unchanged_when_no_custom_fields_set</code>, which is precisely that test's job.</p>
+
+<h4>Step 4 — Mirror it on the MCP side</h4>
+<p>If the capability is exposed as a tool, add two more tests:</p>
+<ul>
+<li><code>mcp-server/tests/unit/test_schemas_aci.py</code> — one positive case with defaults, one <code>parametrize</code>d negative case for invalid values.</li>
+<li><code>mcp-server/tests/unit/test_tools_aci.py</code> — assert the tool is registered under its exact name and calls the right Nautobot client method. The client is a hand-written fake object recording calls; no live Nautobot is involved.</li>
+</ul>
+
+<div class="box ok">
+<span class="t">The full checklist for adding any ACI capability</span>
+<ol style="margin-bottom:0">
+<li><b>Declare the Nautobot Custom Field</b> — in the schema, not just in code. Skip this and writes are silently discarded.</li>
+<li>Generator test (positive) → generator test (negative) → implement in <code>transformer.py</code>.</li>
+<li>Add the <code>locals</code> flat map and <code>resource</code> block in <code>platform/terraform/aci/main.tf</code>.</li>
+<li>Add a YAML fixture under <code>platform/terraform/aci/tests/fixtures/</code> and run a real <code>terraform plan</code> against it.</li>
+<li>MCP Pydantic schema + handler + registry entry, with schema and dispatch tests.</li>
+<li><b>Verify the plan actually contains the resource you expect.</b> A clean plan is not evidence — see finding <span class="fid">F‑09</span>, where an OSPF fixture planned cleanly while producing zero OSPF interface profiles.</li>
+<li>Extend the OPA policy if the capability has safety implications.</li>
+<li>Extend the pyATS check so the object is actually verified after apply.</li>
+</ol>
+</div>
+
+<h3>4.4 Are the tests auto-generated?</h3>
+<p>The distinction that matters is between <b>authored</b> and <b>mechanically generated</b>, not between human and AI.</p>
+<p><b>There is no mechanical test generation in this repository</b> — no snapshot/approval testing, no property-based fuzzing, no scaffolding codegen. You cannot regenerate the suite by running a command, and no test updates itself when the code under it changes. Every one of the 154 cases is an authored assertion about intended behaviour, and many were clearly written in response to a specific bug, judging by their names and docstrings (<code>test_bridge_domain_boolean_false_is_still_emitted_not_treated_as_unset</code>, <code>test_l3out_trunk_mode_maps_to_provider_regular_mode</code>).</p>
+<p><b>Authorship is largely by AI agent, and that is working.</b> The established workflow in this project — matching the parallel implementation it was developed alongside — is that the agent adding a Terraform module or an MCP tool also writes the corresponding tests in the same commit. The git history confirms the discipline holds, including in the most recent feature work:</p>
+<table class="nobreak">
+<thead><tr><th style="width:12%">Commit</th><th style="width:48%">Change</th><th style="width:14%">Tests</th><th>Docs</th></tr></thead>
+<tbody>
+<tr><td><code>990ffcf</code></td><td>Adds 4 MCP tools (<code>create_filter</code>, <code>create_filter_entry</code>, <code>create_contract_subject</code>, <code>bind_epg_contract</code>)</td><td><span class="pill p-ok">Yes</span></td><td><span class="pill p-bad">None</span></td></tr>
+<tr><td><code>834ad45</code></td><td>Adds <code>create_pod_policy_group</code></td><td><span class="pill p-ok">Yes</span></td><td><span class="pill p-bad">None</span></td></tr>
+<tr><td><code>d8712b4</code></td><td>RBAC / Security Domains (ADR-020 Phase F)</td><td><span class="pill p-ok">Yes</span></td><td><span class="pill p-ok">Yes</span></td></tr>
+<tr><td><code>5a68053</code></td><td>Fabric Policies beyond NTP/DNS/SNMP (Phase E)</td><td><span class="pill p-ok">Yes</span></td><td><span class="pill p-ok">Yes</span></td></tr>
+</tbody>
+</table>
+<p>Mechanical generation would be the wrong goal anyway: a generated test asserts that the code does what it currently does, which catches nothing. These tests encode <i>decisions</i>. What an AI-authored test still needs is a human confirming it encodes the <b>intended</b> behaviour — and it must be watched failing once before it is trusted.</p>
+<p>Two forms of automation would nonetheless pay for themselves:</p>
+<ul>
+<li><b>Fixture-driven parametrisation.</b> Rather than one authored test per fabric-policy key, a single parametrised test over a table of <code>(custom_field_key, yaml_path)</code> pairs would cover all of them, and cover new keys automatically as they are added.</li>
+<li><b>Coverage measurement.</b> <code>pytest --cov=generator --cov=mcp_server</code> in CI with a floor turns "we have tests" into "we know what is untested" — a two-line pipeline change, and the highest value-per-effort testing improvement available.</li>
+</ul>
+
+<h3>4.5 Documentation: which documents, and how reliably</h3>
+<p>The same agent workflow is meant to update documentation alongside code. Unlike the test discipline, <b>this one has broken down</b>, and the break is precisely datable.</p>
+<h4>Which documents are the living ones</h4>
+<table class="nobreak">
+<thead><tr><th style="width:46%">Document</th><th style="width:12%">Updates<br><span class="small">(last 60 commits)</span></th><th>Role</th></tr></thead>
+<tbody>
+<tr><td><code>knowledge/architecture/Platform-Status-and-Pending-Items.md</code></td><td class="num">31</td><td>The living status tracker — done / pending / blocked</td></tr>
+<tr><td><code>knowledge/adr/ADR-021-VXLAN-EVPN-Domain-Expansion.md</code></td><td class="num">19</td><td>EVPN domain; an append-only log of numbered sections §14–§23</td></tr>
+<tr><td><code>knowledge/adr/ADR-020-ACI-Domain-Coverage-Expansion.md</code></td><td class="num">18</td><td>ACI coverage, organised as Phases A–J</td></tr>
+<tr><td><code>CLAUDE.md</code></td><td class="num">9</td><td>The build-status table the agent reads first</td></tr>
+<tr><td><code>knowledge/architecture/Platform-v2-Reference-Architecture.md</code></td><td class="num">8</td><td>Target design</td></tr>
+<tr><td><code>knowledge/architecture/Execution-Framework.md</code></td><td class="num">6</td><td>§6 milestone gates, §7 domain coverage</td></tr>
+<tr><td><code>README.md</code> · <code>Platform-Administration-Guide.md</code></td><td class="num">5 each</td><td>Entry point · operational handbook</td></tr>
+</tbody>
+</table>
+<p>When the workflow works, the pattern is <b>the relevant ADR plus the status tracker</b>, and for milestone-level work also CLAUDE.md, README and Execution-Framework.</p>
+
+<h4>Is documentation updated for every change? No.</h4>
+<p>Of the last 28 commits, <b>22 touched no documentation at all.</b> The transition is sharp and dates to <b>8 September 2026</b>:</p>
+<ul>
+<li><b>Before:</b> every <code>feat(aci): … (ADR-020 Phase X)</code> commit updated ADR-020 and the status tracker. Phases E, F and G each followed it exactly.</li>
+<li><b>After:</b> <code>bd4492b</code> (BGP on L3Out, L3 external domain binding, leaf access policies, EPG static paths), <code>c66483e</code>, <code>990ffcf</code> (four new MCP tools) and <code>834ad45</code> (another tool) each shipped with <b>zero</b> documentation.</li>
+</ul>
+<p>The last deliberate synchronisation was <code>79655dc docs(aci): … sync tool-catalogue</code> on 8 September. That single fact explains most of finding <span class="fid">F‑11</span>: it is why the status document still says 18 MCP tools when there are 46, and why it still asserts that <code>terraform apply</code> fails on <code>pathep-</code> DNs when Part VII demonstrates it does not.</p>
+
+<div class="box bad">
+<span class="t">Root cause: the agent is told what to read, never what to update</span>
+<p><code>CLAUDE.md</code> lists ten documents to read before making changes. It contains <b>no instruction to update anything</b> — I searched for one; there is none. The only "keep this current" rule lives in §4 of <code>Platform-Status-and-Pending-Items.md</code>, <i>inside the very file it asks to be updated</i>, which an agent obeys only if it happens to open that file and read to the bottom.</p>
+<p>Documentation updating here is therefore <b>emergent, not enforced</b>. It held while work was framed as "ADR-020 Phase X" — the phase framing made the destination self-evident. It collapsed the moment work became loose fixes and one-off tool additions after the 8 September merge.</p>
+</div>
+
+<h4>Recommended fix — a Definition of Done in CLAUDE.md</h4>
+<p>Add this at the same prominence as the reading list:</p>
+<pre><code>## Definition of Done
+
+When you add or change a capability you must ALSO:
+  1. Add or extend unit tests (generator and/or MCP schema + dispatch).
+  2. Record it in the relevant ADR — ADR-020 for ACI, ADR-021 for EVPN.
+  3. Update knowledge/architecture/Platform-Status-and-Pending-Items.md.
+  4. Update the tool catalogue in CLAUDE.md if you added an MCP tool.
+  5. State the evidence level explicitly and never imply more than was
+     proven:  unit-tested  |  plan-verified  |  live-verified (apply+destroy)</code></pre>
+<p>Point 5 is the most important. The plan-verified/live-verified distinction is the one this project's documentation keeps losing, and losing it is what caused an applicable, working feature set to be written off as permanently blocked.</p>
+<p>This can be enforced rather than trusted: a CI job that fails when <code>mcp-server/src/mcp_server/tools/*.py</code> or <code>platform/terraform/*/main.tf</code> changes with no corresponding change under <code>knowledge/</code>.</p>
+</section>
+
+
+<!-- ================= PART V ================= -->
+<section class="page">
+<h2>Part V — Health check: measured state of the lab</h2>
+<p class="small">All figures below were measured on 14 September 2026 against the running environment, not read from project documentation.</p>
+
+<h3>5.1 Service status</h3>
+<table>
+<thead><tr><th style="width:22%">Service</th><th style="width:13%">Status</th><th>Evidence and consequence</th></tr></thead>
+<tbody>
+<tr><td>Nautobot 3.2.4 (web)</td><td><span class="pill p-ok">Healthy</span></td><td><code>/health/</code> returns HTTP 200. UI and API serving.</td></tr>
+<tr><td><b>Nautobot Celery worker</b></td><td><span class="pill p-bad">DOWN</span></td><td>Exited 137 on 2026‑09‑10. <code>nautobot-server celery inspect ping</code> → <i>"No nodes replied within time constraint"</i>. Container log shows <code>nautobot-server post_upgrade</code> repeatedly <code>Killed</code> — a memory limit, then the DB-wait timeout aborted startup. <b>Nautobot delivers webhooks via Celery, so the entire MCP → Nautobot → webhook → GitLab trigger chain is inert right now.</b></td></tr>
+<tr><td>Nautobot Celery beat</td><td><span class="pill p-bad">DOWN</span></td><td>Same cause, same time. No scheduled jobs run.</td></tr>
+<tr><td>GitLab CE + runner</td><td><span class="pill p-ok">Healthy</span></td><td>Runner <code>isolated-lab-runner</code> registered; job #988 completed successfully 2 hours before the audit.</td></tr>
+<tr><td>OPA</td><td><span class="pill p-ok">Healthy</span></td><td>Two policies loaded: <code>policy/cisco_aci/tenant_naming.rego</code>, <code>policy/vxlan_evpn/tenant_naming.rego</code>.</td></tr>
+<tr><td>Vault</td><td><span class="pill p-ok">Healthy</span></td><td>v1.17.6, initialised, unsealed. <code>secret/lab/platform</code> readable.</td></tr>
+<tr><td>MinIO</td><td><span class="pill p-ok">Healthy</span></td><td><code>/minio/health/live</code> returns 200.</td></tr>
+<tr><td><b>MCP Server</b></td><td><span class="pill p-bad">DOWN</span></td><td>Container <code>infra-automation-lab-mcp-server</code> exited 255 two days ago. No AI agent can call any tool.</td></tr>
+<tr><td>ACI APIC 172.30.46.103</td><td><span class="pill p-ok">Reachable</span></td><td>Login succeeds. APIC 6.2(1g), single controller <code>apic1</code>, uptime 2 days.</td></tr>
+<tr><td>Prometheus / Grafana / Loki / Traefik</td><td><span class="pill p-grey">Not running</span></td><td>Documented as deployed; no containers present. Observability is currently absent.</td></tr>
+</tbody>
+</table>
+
+<h3>5.2 Data-plane of the platform itself</h3>
+<table>
+<thead><tr><th style="width:30%">Check</th><th style="width:14%">Result</th><th>Detail</th></tr></thead>
+<tbody>
+<tr><td>Documented Nautobot API token</td><td><span class="pill p-bad">Invalid</span></td><td>The token published in <code>README.md</code>, <code>CLAUDE.md</code> and the Administration Guide returns <code>{"detail":"Invalid token"}</code>. Two tokens exist in the database; neither is the documented one. Anyone following the docs is blocked at step one.</td></tr>
+<tr><td>Nautobot webhooks</td><td><span class="pill p-bad">1 of many</span></td><td>Exactly one webhook, <code>gitlab-pipeline-trigger</code>, enabled, create+update — bound to <b><code>Tenancy | tenant</code> only</b>. VRF, Prefix, VLAN and Location changes trigger nothing.</td></tr>
+<tr><td>Nautobot Custom Fields</td><td><span class="pill p-bad">19 defined / 36 used</span></td><td>Roughly 20 of the field keys the generator and MCP tools depend on have no schema definition. Details in <span class="fid">F‑01</span>.</td></tr>
+<tr><td>Nautobot content</td><td><span class="pill p-info">Minimal</span></td><td>1 tenant (<code>sales</code>), 2 VRFs, 2 VLANs/EPGs, 1 Location, a handful of prefixes. The APIC holds more configuration than Nautobot describes.</td></tr>
+<tr><td>Generator unit tests</td><td><span class="pill p-ok">52 pass</span></td><td>0.12 s, zero failures.</td></tr>
+<tr><td>MCP unit tests</td><td><span class="pill p-ok">102 pass</span></td><td>0.48 s, zero failures — but only with <code>PYTHONPATH=src</code> set manually.</td></tr>
+<tr><td>Unit tests in CI</td><td><span class="pill p-bad">None</span></td><td>No <code>pytest</code> invocation exists anywhere in <code>.gitlab-ci.yml</code> or <code>pipelines/</code>.</td></tr>
+<tr><td><code>terraform validate</code></td><td><span class="pill p-ok">Valid</span></td><td>Provider <code>CiscoDevNet/aci</code> v2.20.0, Terraform 1.15.8.</td></tr>
+<tr><td><code>terraform plan</code> — L4‑L7/PBR fixture</td><td><span class="pill p-ok">27 to add</span></td><td>Plans cleanly against the live APIC.</td></tr>
+<tr><td><code>terraform plan</code> — access/L3Out fixture</td><td><span class="pill p-warn">37 to add</span></td><td>Plans cleanly — but produces <b>zero</b> <code>aci_l3out_ospf_interface_profile</code> resources. See <span class="fid">F‑09</span>.</td></tr>
+<tr><td>Terraform remote state</td><td><span class="pill p-bad">None</span></td><td>No <code>backend</code> block exists. State is local and ephemeral in CI. See <span class="fid">F‑02</span>.</td></tr>
+<tr><td>Provider lock file</td><td><span class="pill p-warn">Gitignored</span></td><td><code>.terraform.lock.hcl</code> is excluded from Git, so CI resolves <code>~&gt; 2.0</code> fresh on every run.</td></tr>
+</tbody>
+</table>
+
+<div class="box bad">
+<span class="t">Bottom line on health</span>
+<p>The platform's <b>build</b> is in good shape: the code is well structured, well commented, the tests pass, Terraform validates, and plans run cleanly against the real APIC. The platform's <b>runtime</b> is currently broken in three independent places — the Celery worker, the MCP Server container, and the Nautobot API token in the documentation. Any one of those alone stops an end-to-end demonstration. All three are recoverable in well under an hour.</p>
+</div>
+</section>
+
+<!-- ================= PART VI ================= -->
+<section class="page">
+<h2>Part VI — Audit findings</h2>
+<p>Ordered by the cost of leaving them alone. <b>P1</b> means the platform cannot be trusted to do what it claims until this is fixed. <b>P2</b> means a real defect or a material weakness. <b>P3</b> means hygiene.</p>
+
+<h3>P1 — Must fix</h3>
+
+<table class="nobreak">
+<tbody>
+<tr><td style="width:8%"><span class="fid">F‑01</span></td><td><b>The Nautobot Custom Field schema is not managed as code, and has drifted badly</b></td></tr>
+<tr><td></td><td>
+<p>The code reads or writes <b>36</b> custom-field keys. Nautobot defines <b>19</b>, four of which (<code>gbic_*</code>) are unrelated to this platform. Missing definitions include <code>aci_application_profile</code>, <code>aci_epg_preferred_group_member</code>, the three <code>aci_ip_data_plane_learning</code>/<code>aci_policy_control_enforcement_*</code> VRF fields, all eight <code>aci_bd_*</code> fields, <code>aci_vrf_route_leaks</code>, <code>aci_l4l7_services</code>, <code>aci_ospf_interface_policies</code>, <code>aci_aaa_policies</code>, <code>last_validated_at</code>, and every <code>evpn_*</code> field.</p>
+<p>I confirmed the failure mode directly: assigning an undeclared key and calling <code>full_clean()</code> logs <i>"Unknown field key 'aci_l4l7_services' in custom field data"</i> and then <b>accepts the object</b>. Through the ORM the value persists but is invisible to the UI and REST serializer; through the REST API — which is how every MCP tool writes — the key is dropped before it reaches the model. Either way the caller sees success.</p>
+<p>The evidence that this has already happened: VLAN <code>Web_EPG</code> currently holds data under <code>aci_application_profile</code>, a key with <b>no</b> Custom Field definition. That is orphaned data from a definition that was later removed. The project's own status document records the identical bug being found and fixed once before for <code>aci_epg_domains</code> — which tells you it is systemic, not incidental.</p>
+<p><b>Fix.</b> Create <code>scripts/bootstrap_nautobot_schema.py</code> that declares every required Custom Field idempotently (key, type, content-types, description), plus the webhook. Run it in CI as a pre-flight job that fails if a required field is missing. This makes the Nautobot schema a version-controlled artefact like everything else, and converts the silent failure into a loud one.</p>
+</td></tr>
+</tbody>
+</table>
+
+<table class="nobreak">
+<tbody>
+<tr><td style="width:8%"><span class="fid">F‑02</span></td><td><b>Terraform has no remote state backend — every pipeline run starts from empty state</b></td></tr>
+<tr><td></td><td>
+<p>There is no <code>backend</code> block anywhere, and CI jobs run in fresh containers. <code>terraform_plan</code> and <code>terraform_apply</code> each run their own <code>terraform init</code> in separate containers with no shared state.</p>
+<p>Consequences, all of which are currently masked rather than absent:</p>
+<ul>
+<li>Every plan reports "N to add" regardless of what exists. The recurring "Plan: 27 to add, 0 to change, 0 to destroy" in the project's records is this, not a genuinely empty fabric.</li>
+<li><b>There is no drift detection</b>, because there is no baseline to compare against.</li>
+<li><b>Removing intent from Nautobot never removes it from the APIC</b>, because Terraform does not know it ever created the object.</li>
+<li>The <code>resource_group</code> lock protects a state file that does not persist.</li>
+</ul>
+<p><b>Fix — and the order matters.</b> MinIO is already running and is S3-compatible, so an S3 backend is a few lines. <b>But do not add the backend first.</b> The pipeline currently sets <code>ACI_TENANT_SCOPE: "sales"</code>, so the generated YAML describes one tenant. The moment Terraform has persistent state and later runs a full-scope generation — or vice versa — it will correctly propose destroying everything not in the YAML. Sequence it: (1) decide and fix the scope, (2) <code>terraform import</code> the existing objects into a fresh state, (3) confirm a plan reports zero changes, (4) only then wire the backend into CI.</p>
+</td></tr>
+</tbody>
+</table>
+
+<table class="nobreak">
+<tbody>
+<tr><td style="width:8%"><span class="fid">F‑03</span></td><td><b>The Nautobot Celery worker is down, so no webhook can fire</b></td></tr>
+<tr><td></td><td><p>Killed by the OOM path on 10 September and never restarted. Nautobot enqueues webhook delivery as a Celery task; with no worker, nothing is delivered and nothing errors visibly. <b>Fix:</b> raise the container memory limit (the log shows <code>post_upgrade</code> being <code>Killed</code>), restart the worker and beat services, then confirm with <code>nautobot-server celery inspect ping</code>. Add a container healthcheck so this is loud next time.</p></td></tr>
+</tbody>
+</table>
+
+<table class="nobreak">
+<tbody>
+<tr><td style="width:8%"><span class="fid">F‑04</span></td><td><b>The webhook covers Tenants only — 45 of 46 MCP tools trigger nothing</b></td></tr>
+<tr><td></td><td>
+<p>The single webhook is bound to <code>Tenancy | tenant</code>. Creating a VRF, Bridge Domain, EPG, Contract, L3Out, VLAN Pool or Service Graph writes to Nautobot successfully and then <b>silently does not start a pipeline</b>. The tools' own descriptions quietly admit this — <i>"the next scheduled/triggered pipeline run will pick it up"</i> — but no scheduled run exists either.</p>
+<p>The Milestone 6 demonstration worked because it happened to begin with <code>create_tenant</code>. Any workflow that adds to an existing tenant does not.</p>
+<p><b>Fix.</b> Add the webhook content types the platform actually uses: <code>ipam.vrf</code>, <code>ipam.prefix</code>, <code>ipam.vlan</code>, <code>dcim.location</code>, and enable delete as well as create/update. Because a single business operation writes several objects, add debounce — either a short GitLab pipeline <code>interruptible</code> plus <code>resource_group</code>, or a small collector that coalesces webhooks within a few seconds — otherwise one AI request fires five pipelines.</p>
+</td></tr>
+</tbody>
+</table>
+
+<table class="nobreak">
+<tbody>
+<tr><td style="width:8%"><span class="fid">F‑05</span></td><td><b>154 unit tests exist and none of them run in CI</b></td></tr>
+<tr><td></td><td><p>No <code>pytest</code> invocation appears in any pipeline file. The tests are excellent and cost under a second to run. <b>Fix:</b> add a <code>test</code> stage ahead of <code>generate</code> running both suites, and add <code>--cov</code> with a coverage floor. This is roughly fifteen lines of YAML and is the highest value-per-effort change available.</p></td></tr>
+</tbody>
+</table>
+
+<h3>P2 — Real defects and material weaknesses</h3>
+
+<table>
+<thead><tr><th style="width:7%">ID</th><th style="width:30%">Finding</th><th>Detail and fix</th></tr></thead>
+<tbody>
+<tr><td><span class="fid">F‑06</span></td><td>MCP tests need a manual <code>PYTHONPATH</code></td><td>Add <code>[tool.pytest.ini_options] pythonpath = ["src"]</code> to <code>mcp-server/pyproject.toml</code>. One-time, permanent.</td></tr>
+
+<tr><td><span class="fid">F‑07</span></td><td><code>validate_nac.py</code> validates almost nothing</td><td>Three checks: an <code>apic</code> key, a non-empty tenant list, and a <code>name</code> per tenant. A Bridge Domain referencing a non-existent VRF, an EPG pointing at a missing BD, a Contract referencing an undefined Filter — all pass validation and fail later at <code>terraform plan</code>, with a far worse error message. <b>Fix:</b> publish a JSON Schema for the NetAsCode document and validate against it, then add referential checks (every <code>bd.vrf</code> resolves, every <code>epg.bridge_domain</code> resolves, every contract name referenced exists, no duplicate object keys). The duplicate-key case is not hypothetical — a duplicate <code>DB_BD</code> once blocked every plan in the pipeline.</td></tr>
+
+<tr><td><span class="fid">F‑08</span></td><td>ACI policy enforces one rule</td><td>The Rego checks tenant names match <code>^[a-z0-9-]+$</code>. Nothing else — no subnet overlap detection, no "contract must not be permit-any", no scope restrictions, no required-description rule. The <b>EVPN</b> policy is materially richer (VNI range plus global uniqueness), which is backwards given ACI is the primary domain. <b>Fix:</b> port the same rigour — overlapping BD subnets across VRFs, unscoped contracts, L3Out external EPG <code>0.0.0.0/0</code> with <code>shared-security</code>, and naming rules for VRF/BD/EPG rather than tenants alone.</td></tr>
+
+<tr><td><span class="fid">F‑09</span></td><td><b>OSPF on an L3Out is silently half-configured</b></td><td>Terraform builds <code>local.ospf_interfaces</code> from <code>l3out.ospf_interfaces</code> (L3Out level), but the test fixture <code>access-l3out-tools.yaml</code> nests OSPF under the <i>interface</i> as <code>ospf:</code>. I ran the plan: it reports 37 resources to add and <b>zero</b> <code>aci_l3out_ospf_interface_profile</code>. The <code>aci_l3out_ospf_external_policy</code> is still created, but its <code>area_id</code> falls through <code>try()</code> to the default <code>0.0.0.0</code>, and the <code>aci_ospf_interface_policy</code> that <i>is</i> created is referenced by nothing. The net result is an L3Out with an OSPF area and no interface enabled for OSPF — and a completely clean plan. Separately, deriving an L3Out-level property (<code>area_id</code>) from <code>ospf_interfaces[0]</code> is a design smell that will misbehave with multiple interface profiles. <b>Fix:</b> make the fixture match the real contract, add an assertion test on the expected resource count per fixture, and lift <code>area_id</code>/<code>area_type</code> to the L3Out object.</td></tr>
+
+<tr><td><span class="fid">F‑10</span></td><td>Verification and Day‑2 are both nearly empty</td><td>pyATS asserts that tenant names and VRF names exist. It does not check Bridge Domains, subnets, EPGs, contracts, L3Outs, or any operational state. Ansible runs one playbook, <code>verify-tenants.yml</code> — the Day‑2 catalogue is effectively empty despite Day‑2 being a stated goal. <b>Fix:</b> see Part VIII, phases 4 and 5; note that a far stronger verification is available <i>today</i> on this simulator via fault-delta checking.</td></tr>
+
+<tr><td><span class="fid">F‑11</span></td><td>Documentation has drifted from reality in several places</td><td>The published Nautobot API token does not work. The status document says 18 MCP tools; there are 46. It states that <code>terraform apply</code> will fail with a DN-resolution error for anything under a <code>pathep-[...]</code> DN — <b>Part VII shows this is false</b>, which matters because it has been treated as a blocker. A code comment claims the provider has no concrete-device resources; <code>aci_concrete_device</code> and <code>aci_concrete_interface</code> both exist in v2.20.0. <b>Root cause and fix in §4.5</b> — <code>CLAUDE.md</code> tells the agent what to read but never what to update, and the doc-update discipline stopped on 8 September 2026.</td></tr>
+
+<tr><td><span class="fid">F‑12</span></td><td>Provider version is unpinned in CI</td><td><code>.terraform.lock.hcl</code> is gitignored, so CI resolves <code>~&gt; 2.0</code> afresh each run and a provider release can change behaviour with no commit. <b>Fix:</b> commit the lock file and run <code>terraform init -lockfile=readonly</code> in CI. A lock file is meant to be committed.</td></tr>
+
+<tr><td><span class="fid">F‑13</span></td><td>Secrets exposure</td><td>The GitLab pipeline trigger token is embedded in plaintext in the Nautobot webhook's <code>payload_url</code>, readable by any Nautobot user with API access. The uncommitted change to <code>docker/nautobot-isolated/.env.example</code> replaces the placeholder with a real password value (<code>admin</code>) — an example file should never carry a working credential. Vault's <code>nautobot_url</code> is stale (<code>:8081</code> vs the live <code>:8080</code>). <b>Fix:</b> move the trigger token to a Nautobot secret or a header, revert the example file, refresh the Vault entry.</td></tr>
+
+<tr><td><span class="fid">F‑14</span></td><td>Pipeline is hard-scoped to one tenant</td><td><code>ACI_TENANT_SCOPE: "sales"</code> in <code>pipelines/aci.gitlab-ci.yml</code> means the pipeline only ever generates and manages the <code>sales</code> tenant; every other tenant is invisible to automation. This is a reasonable blast-radius limiter for a lab but it is not recorded in the status document, and it interacts dangerously with <span class="fid">F‑02</span>. <b>Fix:</b> make the decision explicit and documented; prefer per-tenant state files over a global scope filter if isolation is the goal.</td></tr>
+</tbody>
+</table>
+
+<h3>P3 — Hygiene</h3>
+<table>
+<tbody>
+<tr><td style="width:7%"><span class="fid">F‑15</span></td><td><code>local.epg_domain_bindings</code> in <code>main.tf</code> is computed and never referenced — dead code, safe to delete.</td></tr>
+<tr><td><span class="fid">F‑16</span></td><td><code>aci_l3out_bgp_protocol_profile</code> uses <code>one([...])</code> over node profiles. This errors if an L3Out has zero or more than one node profile — a normal configuration for a redundant L3Out. Use <code>for_each</code> over node profiles instead.</td></tr>
+<tr><td><span class="fid">F‑17</span></td><td><code>aci_port_security_interface_policy.violation_action</code> is <code>each.value.port_security ? "protect" : "shutdown"</code>, but the <code>for_each</code> filter already guarantees the value is <code>true</code>. The false branch is unreachable, and "port security enabled" is conflated with "violation action = protect". Model the action explicitly.</td></tr>
+<tr><td><span class="fid">F‑18</span></td><td><code>platform/netascode/aci/tenants.yaml</code> is listed in <code>.gitignore</code> yet is tracked, requiring <code>git add -f</code> in <code>commit_generated_yaml.sh</code>. <code>CLAUDE.md</code> states it is "not gitignored". Remove the ignore rule and the <code>-f</code>.</td></tr>
+<tr><td><span class="fid">F‑19</span></td><td>OPA policies live under <code>docker/platform-api/policy/</code> — the Platform v1 directory that ADR‑016 declares superseded and instructs not to extend. Move to <code>policy/&lt;domain&gt;/</code> at the repository root.</td></tr>
+<tr><td><span class="fid">F‑20</span></td><td>62 distinct provider resource types are used out of 348 available. Not a defect, but see Part VIII — several unused ones are exactly what the target architecture needs.</td></tr>
+</tbody>
+</table>
+</section>
+
+<!-- ================= PART VII ================= -->
+<section class="page">
+<h2>Part VII — The Cisco Demo APIC: measured limits, and how to overcome them</h2>
+<p>This is the part of the audit where the project's own documentation turns out to be materially wrong, in a way that has been holding the roadmap back. The evidence below comes from direct API queries and from a create/verify/delete probe executed against the live APIC.</p>
+
+<h3>7.1 What this APIC actually is</h3>
+<table class="kv nobreak">
+<tbody>
+<tr><td>Software version</td><td>APIC 6.2(1g) — a current release, not an old one</td></tr>
+<tr><td>Fabric nodes</td><td><b>1</b> — <code>apic1</code>, role <code>controller</code>, serial <code>TEP-1-1</code>. <b>Zero leaf switches. Zero spine switches.</b></td></tr>
+<tr><td>Physical interfaces (<code>l1PhysIf</code>)</td><td><b>0</b></td></tr>
+<tr><td>Fabric path endpoints (<code>fabricPathEp</code>)</td><td><b>0</b></td></tr>
+<tr><td>Nodes reporting (<code>topSystem</code>)</td><td><b>1</b> — the controller itself</td></tr>
+<tr><td>Registered node identities</td><td><b>0</b> (<code>fabricNodeIdentP</code>)</td></tr>
+<tr><td>TEP pool / pod</td><td><code>10.0.0.0/16</code>, pod 1, <code>podType: physical</code></td></tr>
+<tr><td><b>Discovered but unregistered</b></td><td><b>1 leaf</b> — <code>N9K-C9396PX</code>, <code>nodeRole: leaf</code>, <code>supported: yes</code>, serial <code>TEP-1-101</code>, <code>nodeId: 0</code>, <code>ip: 0.0.0.0</code>. Fault <b>F3944</b>: <i>"Switch with serial number (TEP-1-101) has been discovered, but not registered yet."</i></td></tr>
+</tbody>
+</table>
+<p>So this is a single-controller APIC appliance running the real APIC software and the complete Management Information Tree, with no switch nodes attached. Configuration is stored faithfully; nothing is ever pushed to hardware because there is no hardware.</p>
+
+<h3>7.2 The critical correction: APIC <i>accepts</i> configuration for switches that do not exist</h3>
+<p>The project documentation states that any resource under a <code>pathep-[...]</code> DN will fail to apply until real hardware exists, and treats physical/protocol L3Out, BGP peering and static paths as permanently blocked. <b>That is not what the APIC does.</b></p>
+<p>Two of the existing L3Out path attachments in the <code>sales</code> tenant right now target ports on node 101 and node 102, neither of which exists:</p>
+<pre><code>dn:   uni/tn-sales/out-BGP_L3Out/lnodep-L101/lifp-BGP_L3Out_interfaceProfile/
+        rspathL3OutAtt-[topology/pod-1/paths-101/pathep-[eth1/4]]
+tDn:  topology/pod-1/paths-101/pathep-[eth1/4]
+state: unformed      stateQual: none      ifInstT: ext-svi      addr: 172.16.1.5/30</code></pre>
+<p>The object exists and holds its full configuration. Its relation state is <code>unformed</code> — ACI's term for "the target DN has not resolved yet". ACI relations are deliberately late-binding: you may configure a port before the switch is racked, and the relation forms when the target appears. The APIC does not reject the POST.</p>
+
+<h3>7.3 Probe results — what the simulator accepts</h3>
+<p>I created a throwaway tenant <code>zz-audit-probe</code>, exercised every construct on your target list, then deleted the tenant and verified the four pre-existing tenants were untouched.</p>
+<table>
+<thead><tr><th style="width:44%">Construct tested</th><th style="width:12%">Result</th><th>Note</th></tr></thead>
+<tbody>
+<tr><td>L3Out + VRF relation</td><td><span class="pill p-ok">Accepted</span></td><td></td></tr>
+<tr><td>Logical node profile + node 101 attachment (node does not exist)</td><td><span class="pill p-ok">Accepted</span></td><td>Router ID set</td></tr>
+<tr><td><b>Routed interface</b> on non-existent <code>eth1/10</code></td><td><span class="pill p-ok">Accepted</span></td><td>The construct the docs said would fail</td></tr>
+<tr><td><b>Sub-interface</b> with <code>vlan-300</code> encapsulation</td><td><span class="pill p-ok">Accepted</span></td><td></td></tr>
+<tr><td><b>Static route</b> + next-hop (<code>ipRouteP</code>/<code>ipNexthopP</code>)</td><td><span class="pill p-ok">Accepted</span></td><td></td></tr>
+<tr><td><b>BGP</b>: <code>bgpExtP</code> + peer + remote AS + local AS</td><td><span class="pill p-ok">Accepted</span></td><td></td></tr>
+<tr><td><b>OSPF</b>: interface policy (p2p, timers) + area + <code>ospfIfP</code></td><td><span class="pill p-ok">Accepted</span></td><td></td></tr>
+<tr><td><b>EIGRP</b>: interface policy + <code>eigrpExtP</code> AS 100 + <code>eigrpIfP</code></td><td><span class="pill p-ok">Accepted</span></td><td>On a dedicated L3Out</td></tr>
+<tr><td><b>L4‑L7</b>: unmanaged firewall device + 2 logical interfaces</td><td><span class="pill p-ok">Accepted</span></td><td></td></tr>
+<tr><td><b>Service Graph</b>: one-node GoTo graph with terminals and function node</td><td><span class="pill p-ok">Accepted</span></td><td></td></tr>
+<tr><td><b>PBR</b>: redirect policy + L3 destination + health group + IP SLA</td><td><span class="pill p-ok">Accepted</span></td><td></td></tr>
+<tr><td><b>Full PBR wiring</b>: contract → graph, device context, interface context → redirect policy</td><td><span class="pill p-ok">Accepted</span></td><td>The complete insertion chain</td></tr>
+<tr><td><b>Route control</b>: route-map profile + context + match rule + prefix</td><td><span class="pill p-ok">Accepted</span></td><td></td></tr>
+<tr><td><b>VRF route leaking</b> between two different VRFs</td><td><span class="pill p-ok">Accepted</span></td><td></td></tr>
+<tr><td>EIGRP added to an L3Out that already had OSPF</td><td><span class="pill p-warn">Rejected</span></td><td><i>"Cannot enable both OSPF and EIGRP in the same L3 Out"</i> — a genuine ACI rule, not a simulator limit</td></tr>
+<tr><td>VRF leak to the same VRF</td><td><span class="pill p-warn">Rejected</span></td><td>A genuine ACI rule</td></tr>
+<tr><td><code>l3extMember</code> (SVI side A/B) on a single-port path</td><td><span class="pill p-warn">Rejected</span></td><td><i>"can be contained only if target is fabricProtPathEpCont/PathEp"</i> — side members require a vPC path. Genuine ACI rule</td></tr>
+</tbody>
+</table>
+<p>I also confirmed every relevant MIT class resolves on this APIC: <code>eigrp*</code>, <code>ospf*</code>, <code>bgp*</code>, <code>ipRouteP</code>/<code>ipNexthopP</code>, the full <code>rtctrl*</code> route-control family, the complete <code>vns*</code> L4‑L7 family including <code>vnsAbsNode</code>, <code>vnsAbsConnection</code>, <code>vnsLDevCtx</code>, <code>vnsLIfCtx</code>, <code>vnsRedirectHealthGroup</code>, <code>fvIPSLAMonitoringPol</code>, and <code>leakRoutes</code>/<code>leakInternalSubnet</code>/<code>leakExternalPrefix</code>.</p>
+
+<div class="box ok">
+<span class="t">The conclusion that changes the roadmap</span>
+<p><b>The Demo APIC is not the constraint on building your target platform.</b> Every construct you named — L3Out with routed/SVI/sub-interfaces, BGP, OSPF, EIGRP, static routes, route maps, L4‑L7 service devices, Service Graphs, PBR with health groups and IP SLA, VRF route leaking — can be modelled, generated, planned and <b>applied</b> against this simulator today.</p>
+<p>What the simulator cannot do is <b>deploy</b> and therefore <b>verify</b>. Objects sit in <code>unformed</code> state, faults such as F1298 <i>"Node Cannot Deploy EPG"</i> and F1299 <i>"Node Not Leaf For Infra Policies"</i> accumulate, and no BGP session will ever come up because there is no switch to run BGP on. You can build and test the entire configuration-management platform here. You cannot prove traffic works here.</p>
+</div>
+
+<h3>7.4 The real limits, stated precisely</h3>
+<table>
+<thead><tr><th style="width:34%">Capability</th><th style="width:16%">On this simulator</th><th>Why</th></tr></thead>
+<tbody>
+<tr><td>Create/modify/delete any policy object</td><td><span class="pill p-ok">Works fully</span></td><td>The APIC MIT is real and complete</td></tr>
+<tr><td>Terraform plan/apply/destroy lifecycle</td><td><span class="pill p-ok">Works fully</span></td><td>Provider talks to a real APIC REST API</td></tr>
+<tr><td>Object-existence verification</td><td><span class="pill p-ok">Works fully</span></td><td>Query the MIT and compare</td></tr>
+<tr><td>Configuration-validity verification (faults)</td><td><span class="pill p-ok">Works — and is unused</span></td><td>APIC raises real config faults; nothing in the pipeline reads them</td></tr>
+<tr><td>Relation resolution (<code>state: formed</code>)</td><td><span class="pill p-bad">Never</span></td><td>No nodes for the target DN to resolve against</td></tr>
+<tr><td>Policy deployment to switches</td><td><span class="pill p-bad">Never</span></td><td>No switches</td></tr>
+<tr><td>BGP/OSPF/EIGRP adjacency, route tables</td><td><span class="pill p-bad">Never</span></td><td>No control plane running anywhere</td></tr>
+<tr><td>Endpoint learning, traffic, PBR redirection</td><td><span class="pill p-bad">Never</span></td><td>No data plane</td></tr>
+<tr><td>vPC, port-channels, <code>l3extMember</code> side A/B</td><td><span class="pill p-bad">Never</span></td><td>Requires real <code>fabricProtPathEp</code> objects</td></tr>
+<tr><td>BGP Route Reflector node binding</td><td><span class="pill p-bad">Never</span></td><td>Requires real spine nodes</td></tr>
+</tbody>
+</table>
+
+<h3>7.5 Options to overcome the limits</h3>
+
+<h4>Option A — Register the discovered leaf <span class="pill p-info">try this first</span></h4>
+<p>A supported <code>N9K-C9396PX</code> leaf has been discovered and never registered — <code>fabricNodeIdentP</code> is empty. On a Cisco ACI Simulator appliance, registering discovered nodes through <b>Fabric → Inventory → Fabric Membership</b> (assign a node ID and name) is what brings the simulated switches into the fabric and populates <code>fabricNode</code>, <code>l1PhysIf</code> and <code>fabricPathEp</code>.</p>
+<p>It costs ten minutes, is reversible by decommissioning the node, and if it works it unblocks every item this project has recorded as "permanently blocked by simulator". Given the fault explicitly says the switch has been discovered, this is worth attempting before investing in anything else. Take a configuration snapshot first. If the node registers but stays <code>inactive</code> with no interfaces, the appliance is APIC-only and you move to Option B.</p>
+
+<h4>Option B — Use a fabric that has switch nodes for verification</h4>
+<table>
+<thead><tr><th style="width:26%">Option</th><th style="width:11%">Cost</th><th>What it gives you</th></tr></thead>
+<tbody>
+<tr><td>Cisco DevNet always-on ACI Sandbox</td><td>Free</td><td>A hosted APIC with a simulated fabric that has leaf/spine nodes and interface objects. Ideal as a second CI target for path-dependent scope. Shared and periodically reset — never for state you care about.</td></tr>
+<tr><td>Cisco dCloud ACI lab</td><td>Free w/ partner login</td><td>Time-boxed reserved lab with a fuller simulated fabric. Good for scheduled verification runs.</td></tr>
+<tr><td>Full ACI Simulator appliance</td><td>Licence</td><td>Ships with simulated leaf and spine nodes. Everything except data plane becomes verifiable.</td></tr>
+<tr><td>Physical/virtual hardware fabric</td><td>High</td><td>The only way to verify adjacencies and traffic. Your EVPN domain already proves the team can drive real hardware from this pipeline.</td></tr>
+</tbody>
+</table>
+<p>The architecture already supports this cleanly: the APIC URL comes from Vault and Terraform variables, so pointing a pipeline at a second fabric is a variable change plus a second state file — not a code change.</p>
+
+<h4>Option C — Make verification match what the environment can prove <span class="pill p-info">highest value today</span></h4>
+<p>Rather than treating the simulator as a blocker, define two verification tiers and assert the right one per environment.</p>
+<table>
+<thead><tr><th style="width:20%">Tier</th><th style="width:22%">Asserts</th><th style="width:16%">Works here?</th><th>Implementation</th></tr></thead>
+<tbody>
+<tr><td><b>Tier 1 — Configuration</b></td><td>Every object in the YAML exists in the MIT with the expected attributes</td><td><span class="pill p-ok">Yes</span></td><td>Extend pyATS beyond tenant/VRF names to walk the whole document</td></tr>
+<tr><td><b>Tier 2 — Validity</b></td><td>The apply raised no <i>new</i> configuration faults</td><td><span class="pill p-ok">Yes</span></td><td>Snapshot <code>faultInst</code> where <code>type == "config"</code> before and after apply; fail on any new fault whose DN is under a managed tenant. Catches the entire class of "Terraform said OK, APIC disagreed"</td></tr>
+<tr><td><b>Tier 3 — Deployment</b></td><td>Relations are <code>formed</code>; policies deployed to nodes</td><td><span class="pill p-bad">No</span></td><td>Gate on an environment flag; run only against a fabric with nodes</td></tr>
+<tr><td><b>Tier 4 — Operational</b></td><td>BGP/OSPF adjacencies up, routes present, endpoints learned</td><td><span class="pill p-bad">No</span></td><td>Same gate; this is what your EVPN domain already does on real hardware</td></tr>
+</tbody>
+</table>
+<p>Tiers 1 and 2 are buildable this week and would make the ACI domain's verification stronger than it has ever been — without any new infrastructure. Tier 2 in particular is the single most valuable verification improvement available, because it catches silent APIC rejections that Terraform reports as success.</p>
+</section>
+
+<!-- ================= PART VIII ================= -->
+<section class="page">
+<h2>Part VIII — Roadmap to the complete ACI service platform</h2>
+<p>Your target: complete L3Out services (BGP, OSPF, EIGRP, static), L4‑L7 services, PBR and Service Graphs, for both Day‑1 build and Day‑2 operations. Part VII establishes that the simulator does not prevent any of it. What follows is the gap analysis and the sequence.</p>
+
+<h3>8.1 Where the platform stands against the target</h3>
+<table>
+<thead><tr><th style="width:24%">Capability</th><th style="width:9%">Intent</th><th style="width:9%">Generator</th><th style="width:9%">Terraform</th><th style="width:9%">MCP</th><th>Gap</th></tr></thead>
+<tbody>
+<tr><td>Tenant / VRF / BD / Subnet</td><td><span class="pill p-ok">Yes</span></td><td><span class="pill p-ok">Yes</span></td><td><span class="pill p-ok">Yes</span></td><td><span class="pill p-ok">Yes</span></td><td>Complete and live-verified</td></tr>
+<tr><td>AP / EPG / Contracts / Filters</td><td><span class="pill p-ok">Yes</span></td><td><span class="pill p-ok">Yes</span></td><td><span class="pill p-ok">Yes</span></td><td><span class="pill p-ok">Yes</span></td><td>Complete</td></tr>
+<tr><td>L3Out logical (object, VRF, ext-EPG)</td><td><span class="pill p-ok">Yes</span></td><td><span class="pill p-ok">Yes</span></td><td><span class="pill p-ok">Yes</span></td><td><span class="pill p-ok">Yes</span></td><td>Complete</td></tr>
+<tr><td>L3Out node/interface profiles, paths</td><td><span class="pill p-ok">Yes</span></td><td><span class="pill p-ok">Yes</span></td><td><span class="pill p-ok">Yes</span></td><td><span class="pill p-ok">Yes</span></td><td>Never apply-verified — and Part VII shows it would succeed</td></tr>
+<tr><td><b>BGP peering</b></td><td><span class="pill p-ok">Yes</span></td><td><span class="pill p-ok">Yes</span></td><td><span class="pill p-warn">Partial</span></td><td><span class="pill p-ok">Yes</span></td><td>3 of 11 BGP resources used. No timers, prefix limits, best-path, address-family context, route summarization</td></tr>
+<tr><td><b>OSPF</b></td><td><span class="pill p-ok">Yes</span></td><td><span class="pill p-ok">Yes</span></td><td><span class="pill p-bad">Broken</span></td><td><span class="pill p-ok">Yes</span></td><td><span class="fid">F‑09</span> — interface profile silently not produced; area derived from the wrong level</td></tr>
+<tr><td><b>EIGRP</b></td><td><span class="pill p-bad">No</span></td><td><span class="pill p-bad">No</span></td><td><span class="pill p-bad">No</span></td><td><span class="pill p-bad">No</span></td><td>Entirely absent. Provider has no typed <code>eigrpExtP</code>/<code>eigrpIfP</code> — needs <code>aci_rest_managed</code></td></tr>
+<tr><td><b>Static routes</b></td><td><span class="pill p-bad">No</span></td><td><span class="pill p-bad">No</span></td><td><span class="pill p-bad">No</span></td><td><span class="pill p-bad">No</span></td><td>Absent, though <code>aci_l3out_static_route</code> and <code>_next_hop</code> exist in the provider</td></tr>
+<tr><td><b>Route control (route maps/prefix lists)</b></td><td><span class="pill p-bad">No</span></td><td><span class="pill p-bad">No</span></td><td><span class="pill p-bad">No</span></td><td><span class="pill p-bad">No</span></td><td>Absent. Four provider resources available and unused. Required for any production L3Out</td></tr>
+<tr><td>VRF route leaking</td><td><span class="pill p-ok">Yes</span></td><td><span class="pill p-ok">Yes</span></td><td><span class="pill p-ok">Yes</span></td><td><span class="pill p-ok">Yes</span></td><td>Never apply-verified; expected to work</td></tr>
+<tr><td><b>L4‑L7 device + Service Graph</b></td><td><span class="pill p-ok">Yes</span></td><td><span class="pill p-ok">Yes</span></td><td><span class="pill p-bad">Incomplete</span></td><td><span class="pill p-ok">Yes</span></td><td><b>No <code>aci_function_node</code> and no <code>aci_connection</code></b> — the graph is created without its service node, so it cannot render</td></tr>
+<tr><td><b>PBR</b></td><td><span class="pill p-ok">Yes</span></td><td><span class="pill p-ok">Yes</span></td><td><span class="pill p-warn">Partial</span></td><td><span class="pill p-ok">Yes</span></td><td>Redirect policy and destinations present; no health group, no IP SLA, no backup policy</td></tr>
+<tr><td>Concrete devices (vnsCDev)</td><td><span class="pill p-bad">No</span></td><td><span class="pill p-bad">No</span></td><td><span class="pill p-bad">No</span></td><td><span class="pill p-bad">No</span></td><td>Absent. A code comment says the provider lacks them; it does not — <code>aci_concrete_device</code>/<code>aci_concrete_interface</code> exist</td></tr>
+<tr><td>HSRP / BFD on L3Out</td><td><span class="pill p-bad">No</span></td><td><span class="pill p-bad">No</span></td><td><span class="pill p-bad">No</span></td><td><span class="pill p-bad">No</span></td><td>Provider resources available and unused</td></tr>
+<tr><td><b>Day‑2 operations</b></td><td>—</td><td>—</td><td>—</td><td>—</td><td>One verification playbook. No real Day‑2 catalogue</td></tr>
+<tr><td><b>Drift detection</b></td><td>—</td><td>—</td><td>—</td><td>—</td><td>Impossible without persistent Terraform state (<span class="fid">F‑02</span>)</td></tr>
+</tbody>
+</table>
+
+<h3>8.2 Sequenced plan</h3>
+
+<h4 style="color:var(--bad)">Phase 0 — Restore and stabilise the foundation <span class="pill p-bad">do first, ~1 week</span></h4>
+<p>None of the later phases can be verified until these are true. Every one is a P1 finding.</p>
+<ol>
+<li>Restart the Celery worker and beat with an adequate memory limit; add healthchecks. <span class="fid">F‑03</span></li>
+<li>Restart the MCP Server container; add a restart policy and wire its <code>/health</code> endpoint to a check.</li>
+<li>Write <code>scripts/bootstrap_nautobot_schema.py</code> declaring all ~36 Custom Fields and the webhooks; run it; add it as a CI pre-flight that fails on drift. <span class="fid">F‑01</span></li>
+<li>Extend webhook coverage to VRF, Prefix, VLAN and Location, with debounce. <span class="fid">F‑04</span></li>
+<li>Add a <code>test</code> stage running both pytest suites with coverage. <span class="fid">F‑05</span> <span class="fid">F‑06</span></li>
+<li>Commit <code>.terraform.lock.hcl</code>; use <code>-lockfile=readonly</code> in CI. <span class="fid">F‑12</span></li>
+<li>Decide the tenant-scope question, import existing objects, then wire an S3 backend on MinIO — in that order. <span class="fid">F‑02</span> <span class="fid">F‑14</span></li>
+<li>Correct the documented Nautobot token and the stale claims in the status document. <span class="fid">F‑11</span> <span class="fid">F‑13</span></li>
+</ol>
+
+<h4>Phase 1 — Make verification match the environment <span class="pill p-info">~1 week</span></h4>
+<p>Build Tier 1 and Tier 2 from Part VII §7.5 before adding features, so every subsequent phase gets real evidence rather than a clean plan.</p>
+<ol>
+<li>Rewrite the pyATS suite to walk the entire NetAsCode document and assert each object exists in the MIT with expected attributes.</li>
+<li>Add a fault-delta job: snapshot <code>faultInst</code> with <code>type == "config"</code> before apply, compare after, fail on new faults under managed DNs.</li>
+<li>Introduce an environment capability flag (<code>FABRIC_HAS_NODES</code>) that gates Tier 3/4 assertions, so the same pipeline can run against the simulator and a node-bearing fabric.</li>
+<li>Strengthen <code>validate_nac.py</code> with a JSON Schema and referential checks. <span class="fid">F‑07</span></li>
+</ol>
+
+<h4>Phase 2 — Complete L3Out routing <span class="pill p-info">~2–3 weeks</span></h4>
+<ol>
+<li><b>Fix OSPF</b> — correct the fixture/contract mismatch, lift <code>area_id</code>/<code>area_type</code> to the L3Out, add a test asserting the interface profile is produced. <span class="fid">F‑09</span></li>
+<li><b>Add static routes</b> — Custom Field entries under <code>aci_l3outs</code>, generator support, <code>aci_l3out_static_route</code> + <code>aci_l3out_static_route_next_hop</code>, MCP tool <code>create_static_route</code>, tests.</li>
+<li><b>Add EIGRP</b> — same path, but via <code>aci_rest_managed</code> for <code>eigrpExtP</code> and <code>eigrpIfP</code> since no typed resources exist; <code>aci_eigrp_address_family_context</code> for the VRF side. Enforce the "not alongside OSPF on one L3Out" rule in OPA so it fails at policy, not at apply.</li>
+<li><b>Deepen BGP</b> — timers, peer prefix limits, best-path policy, address-family context, route summarization.</li>
+<li><b>Add route control</b> — <code>aci_match_rule</code>, <code>aci_action_rule_profile</code>, <code>aci_route_control_profile</code>, <code>aci_route_control_context</code>. Without these an L3Out cannot filter what it advertises or accepts, which rules it out for production.</li>
+<li><b>Apply-verify the whole physical/protocol L3Out scope.</b> Part VII shows this will succeed. Doing it converts the largest block of "plan-validated only" into live-verified.</li>
+</ol>
+
+<h4>Phase 3 — Complete L4‑L7, PBR and Service Graphs <span class="pill p-info">~2–3 weeks</span></h4>
+<ol>
+<li><b>Add the function node</b> — <code>aci_function_node</code> and <code>aci_connection</code>. This is the correctness fix that makes the existing Service Graph support real rather than a shell.</li>
+<li><b>Complete PBR</b> — <code>aci_l4_l7_redirect_health_group</code>, IP SLA monitoring policy, <code>aci_service_redirect_backup_policy</code>, and the threshold/hashing attributes.</li>
+<li><b>Add concrete devices</b> — <code>aci_concrete_device</code>/<code>aci_concrete_interface</code>, correcting the code comment that says the provider lacks them.</li>
+<li><b>Support two-arm and one-arm patterns explicitly</b>, with fixtures for each, plus the symmetric-PBR case.</li>
+<li><b>Apply-verify</b> the full chain: contract → graph with function node → device context → interface context → redirect policy, with the fault-delta check proving the APIC accepted it cleanly.</li>
+</ol>
+
+<h4>Phase 4 — Day‑2 operations <span class="pill p-info">~2 weeks</span></h4>
+<p>Day‑2 is currently the weakest area relative to your goal. Terraform owns desired state; Ansible should own the operational verbs that are not state changes. Build a real catalogue:</p>
+<ul>
+<li><b>Query/report</b> — endpoint lookups, contract hit counters, interface and fault reports, health scores per tenant.</li>
+<li><b>Operational actions</b> — clear endpoints, decommission/recommission, enable or disable an interface, trigger an on-demand TechSupport bundle.</li>
+<li><b>Change-adjacent</b> — configuration snapshot before every apply and an explicit rollback runbook.</li>
+<li><b>Troubleshooting</b> — scripted traceroute/EP tracker equivalents driven from Nautobot intent.</li>
+</ul>
+<p>Expose the safe read-only ones as MCP tools so an AI agent can answer operational questions, not only make changes. That is where most day-to-day value will come from.</p>
+
+<h4>Phase 5 — Closed loop <span class="pill p-info">ongoing</span></h4>
+<ul>
+<li><b>Scheduled drift detection</b> — a nightly <code>terraform plan</code> that alerts if it is not empty. Requires Phase 0's remote state.</li>
+<li><b>Continuous compliance</b> — run the OPA policy set against the <i>observed</i> fabric, not only the desired state.</li>
+<li><b>Restore observability</b> — Prometheus/Grafana/Loki are documented but not running. Pipeline outcomes, fault counts and drift results are the metrics worth having.</li>
+<li><b>Multi-fabric</b> — once state is per-fabric, running the simulator and a node-bearing sandbox side by side gives both fast iteration and genuine verification.</li>
+</ul>
+
+<div class="box ok">
+<span class="t">If you only do three things</span>
+<p><b>1.</b> Bootstrap the Nautobot Custom Field schema as code (<span class="fid">F‑01</span>). Silent data loss is the worst failure mode a source-of-truth system can have, and it is happening now.</p>
+<p><b>2.</b> Add persistent Terraform state, in the safe order (<span class="fid">F‑02</span>). Without it there is no drift detection, no deletion, and no real convergence — the platform is an object creator, not a state manager.</p>
+<p><b>3.</b> Add the fault-delta verification job (Part VII §7.5, Tier 2). It is a day's work, it runs on the simulator you already have, and it catches the exact class of failure that "clean plan, clean apply" hides.</p>
+</div>
+</section>
+
+<!-- ================= APPENDICES ================= -->
+<section>
+<h2>Appendix A — Command reference</h2>
+<pre><code># ---- Tests -------------------------------------------------------------
+python -m pytest tests/unit -q                       # generator suite (52)
+cd mcp-server &amp;&amp; PYTHONPATH=src python -m pytest tests -q   # MCP suite (102)
+
+# ---- Generator ---------------------------------------------------------
+export VAULT_ADDR=http://localhost:8200
+export VAULT_TOKEN=&lt;root token from docker/vault/state/vault-keys.txt&gt;
+python platform/python/generate_aci.py \
+  --vault-addr "$VAULT_ADDR" --vault-token "$VAULT_TOKEN" --dry-run
+
+# ---- Terraform ---------------------------------------------------------
+cd platform/terraform/aci
+source scripts/load-vault-creds.sh
+terraform init &amp;&amp; terraform validate
+terraform plan -var="netascode_yaml_file=tests/fixtures/l4l7-pbr.yaml"
+
+# ---- Policy ------------------------------------------------------------
+python platform/workflows/scripts/policy_check.py \
+  platform/netascode/aci/tenants.yaml cisco_aci
+
+# ---- Verification ------------------------------------------------------
+cd tests/pyats &amp;&amp; source aci/scripts/load-vault-env.sh
+pyats run job aci/job.py --testbed-file aci/testbed.yml --no-mail
+
+# ---- Health checks -----------------------------------------------------
+curl -s http://localhost:8080/health/                     # Nautobot
+curl -s http://localhost:8181/health                      # OPA
+curl -s http://localhost:8200/v1/sys/health               # Vault
+curl -s http://localhost:9000/minio/health/live           # MinIO
+docker exec &lt;nautobot&gt; nautobot-server celery inspect ping # Celery workers
+
+# ---- APIC direct query -------------------------------------------------
+# POST /api/aaaLogin.json {"aaaUser":{"attributes":{"name":..,"pwd":..}}}
+# GET  /api/class/fabricNode.json        # fabric inventory
+# GET  /api/class/l1PhysIf.json          # physical interfaces
+# GET  /api/class/faultInst.json         # faults (the verification goldmine)</code></pre>
+
+<h2>Appendix B — Repository map</h2>
+<table class="kv">
+<tbody>
+<tr><td><code>platform/python/</code></td><td>Generator — <code>generate_aci.py</code>, <code>generate_evpn.py</code>, <code>generator/client.py</code> (GraphQL), <code>generator/transformer.py</code> (the 620-line conversion core)</td></tr>
+<tr><td><code>platform/netascode/</code></td><td>Generated desired-state YAML, committed by CI</td></tr>
+<tr><td><code>platform/terraform/aci/</code></td><td><code>main.tf</code> (1,650 lines, 71 resources), <code>variables.tf</code>, <code>providers.tf</code>, <code>tests/fixtures/</code></td></tr>
+<tr><td><code>platform/terraform/evpn/</code></td><td>The second domain, <code>CiscoDevNet/nxos</code> provider</td></tr>
+<tr><td><code>platform/ansible/</code></td><td>Day‑2 playbooks — currently minimal</td></tr>
+<tr><td><code>platform/workflows/scripts/</code></td><td><code>validate_nac.py</code>, <code>policy_check.py</code>, <code>write_results.py</code>, <code>capture_knowledge.py</code>, <code>check_determinism.sh</code>, <code>commit_generated_yaml.sh</code></td></tr>
+<tr><td><code>mcp-server/src/mcp_server/</code></td><td><code>main.py</code>, <code>tools/</code> (registry + 46 tools), <code>schemas/</code> (Pydantic), <code>clients/</code> (Nautobot 1,420 lines, GitLab)</td></tr>
+<tr><td><code>pipelines/</code></td><td><code>includes/common.gitlab-ci.yml</code> (shared stage logic) + one file per domain</td></tr>
+<tr><td><code>tests/</code></td><td><code>unit/</code> (offline), <code>pyats/</code> (live APIC/NX‑OS), <code>integration/</code></td></tr>
+<tr><td><code>knowledge/</code></td><td>ADRs 001–021, architecture documents, runbooks. ADR‑019 (Three Truths) and ADR‑018 (NetAsCode-centric) are the two that explain everything else</td></tr>
+<tr><td><code>docker/</code></td><td>Compose stacks — Nautobot, GitLab+runner, Vault, OPA, MinIO</td></tr>
+</tbody>
+</table>
+
+<h2>Appendix C — Evidence log</h2>
+<p class="small">Every finding in Parts V–VII traces to one of these, executed 14 September 2026.</p>
+<table class="small">
+<thead><tr><th style="width:30%">Action</th><th>Result used as evidence</th></tr></thead>
+<tbody>
+<tr><td><code>docker ps -a</code></td><td>MCP Server exited 255; Celery worker/beat exited 137; Prometheus/Grafana/Loki/Traefik absent</td></tr>
+<tr><td><code>nautobot-server celery inspect ping</code></td><td>"No nodes replied" — webhook delivery inert</td></tr>
+<tr><td>Nautobot REST with documented token</td><td><code>{"detail":"Invalid token"}</code></td></tr>
+<tr><td><code>nbshell</code> — Webhook, CustomField, Tenant, VLAN, Prefix, VRF queries</td><td>1 webhook (tenant-only); 19 CFs vs 36 used; orphan <code>aci_application_profile</code> data; 1 tenant</td></tr>
+<tr><td><code>nbshell</code> — <code>full_clean()</code> with an undeclared CF key</td><td>Logs "Unknown field key", returns ACCEPTED — the silent-loss mechanism</td></tr>
+<tr><td>Both pytest suites</td><td>52 pass / 102 pass; <code>grep</code> confirms zero pytest invocations in CI</td></tr>
+<tr><td><code>terraform init/validate/plan</code> × 2 fixtures</td><td>Valid; 27 and 37 to add; <b>zero</b> OSPF interface profiles</td></tr>
+<tr><td><code>terraform providers schema -json</code></td><td>348 resources available, 62 used; static-route, route-control, function-node, health-group, concrete-device resources all present and unused</td></tr>
+<tr><td>APIC class queries (30+ classes)</td><td>1 node, 0 leaf/spine, 0 <code>l1PhysIf</code>; all EIGRP/OSPF/BGP/route-control/L4‑L7/leak classes resolvable</td></tr>
+<tr><td>APIC <code>dhcpClient</code> / <code>fabricNodeIdentP</code></td><td>1 discovered supported leaf, never registered</td></tr>
+<tr><td>APIC <code>faultInst</code></td><td>F3944 discovered-not-registered; F1298/F1299/F0699 node-not-leaf; existing path attachments <code>state: unformed</code></td></tr>
+<tr><td>Create/verify/delete probe in tenant <code>zz-audit-probe</code></td><td>17 constructs tested; 14 accepted, 3 rejected by genuine ACI rules. Tenant deleted; the 4 pre-existing tenants verified untouched</td></tr>
+</tbody>
+</table>
+
+<hr>
+<p class="small">Prepared 14 September 2026 against branch <code>copilot/aci-platform-comparison</code> at commit <code>69b727e</code>. Measurements reflect the lab at that moment; the build-status observations are durable, the runtime observations are not.</p>
+</section>
+
+
+</body>
+</html>

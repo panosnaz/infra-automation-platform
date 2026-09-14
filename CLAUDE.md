@@ -34,6 +34,23 @@ Before making any changes, read in order:
 
 ---
 
+## Definition of Done
+
+Reading the files above tells you how to *make* a change. This section is what makes it *finished*. It exists because between 2026-09-08 and 2026-09-12, 22 of 31 commits touched no documentation at all and the MCP tool catalogue silently grew from 18 to 48 while every document still said 18. The discipline had been carried entirely by work being shaped as "ADR-020 Phase X" increments; the moment work became live debugging, nothing prompted it.
+
+When you add or change a capability, you must **also**:
+
+1. **Add or extend unit tests.** A new MCP tool needs **both** a schema-validation test in `mcp-server/tests/unit/test_schemas_aci.py` *and* a dispatch test in `test_tools_aci.py`. A generator change needs a positive *and* a negative test in `tests/unit/test_transformer.py` (the negative one asserts the key is absent when the Custom Field is unset — that rule is easy to break silently). Watch a new test fail before you make it pass.
+2. **Declare any new Nautobot Custom Field in Nautobot's schema before writing to it.** Writes to an undeclared field are silently discarded by the REST serializer — no error, no data. This has already produced orphaned data under `aci_application_profile`.
+3. **Attempt live verification, and say so either way.** Actually run it: a new MCP tool over the real MCP protocol against live Nautobot; a new or changed Terraform module against the real APIC — `plan`, then `apply` and `destroy` where that is safe on a throwaway object. Note that this simulator **accepts** configuration for switches that do not exist (relations simply sit at `state: unformed`), so far more is live-verifiable here than the older "permanently blocked by simulator" notes claim — verify before assuming a blocker. If live verification genuinely is not feasible, write down *why*, rather than silently downgrading the claim to a plan.
+4. **Record it in the relevant ADR** — [ADR-020](knowledge/adr/ADR-020-ACI-Domain-Coverage-Expansion.md) for ACI, [ADR-021](knowledge/adr/ADR-021-VXLAN-EVPN-Domain-Expansion.md) for EVPN.
+5. **Update [`Platform-Status-and-Pending-Items.md`](knowledge/architecture/Platform-Status-and-Pending-Items.md)**, and the tool catalogue in ADR-020 if you added an MCP tool.
+6. **State the evidence level explicitly, and never imply more than was proven.** `unit-tested`, `plan-verified`, and `live-verified (apply + destroy)` are three different claims. This is the one that keeps being lost: a clean `terraform plan` validates against the provider schema only, never against live APIC state, and treating "plan-verified" as "works" is what caused an applicable feature set to be recorded as permanently blocked.
+
+**Verifying a claim before you write it down.** A clean plan is not evidence a resource was produced — count it: `terraform plan ... | grep -c '<resource_type>'`. An OSPF fixture once planned cleanly while producing zero `aci_l3out_ospf_interface_profile` resources, and nobody noticed because the plan succeeded.
+
+---
+
 ## Custom Agents (`.github/agents/`)
 
 This repo is frequently opened alongside other repos in a multi-root workspace that already define their own custom agents (some with generic, easily-colliding names — e.g. a generic Nautobot DCIM/IPAM admin agent unrelated to this platform). When adding a new custom agent here:
