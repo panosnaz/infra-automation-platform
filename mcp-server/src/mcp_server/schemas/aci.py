@@ -683,6 +683,8 @@ class CreateL4L7DeviceRequest(BaseModel):
     managed: bool = Field(default=False, description="Whether APIC manages the service device.")
     context_aware: str = Field(default="single-Context", description="ACI context-awareness mode.")
     vmm_domain: str | None = Field(default=None, description="Existing VMM Domain name. Required when device_type is VIRTUAL.")
+    trunking: bool = Field(default=False, description="Trunking port mode on the service device interfaces (vnsLDevVip.trunking).")
+    promiscuous_mode: bool = Field(default=False, description="Promiscuous mode -- normally required for a virtual firewall/ADC on a VMM domain to see traffic not addressed to its own MAC (vnsLDevVip.promMode).")
     description: str = Field(default="", description="Optional free-text description.")
 
     @field_validator("name", "consumer_interface", "provider_interface")
@@ -728,17 +730,27 @@ class CreateServiceGraphRequest(BaseModel):
         return _validate_aci_name(v)
 
 
-class CreatePbrPolicyRequest(BaseModel):
-    """Create a policy-based redirect policy with one L3 destination."""
+class PbrDestinationSpec(BaseModel):
+    """One redirect destination (vnsRedirectDest) inside a PBR policy."""
 
-    tenant: str = Field(description="Name of the existing Tenant that owns the redirect policy.")
-    name: str = Field(description="PBR redirect policy name.")
-    destination_ip: str = Field(description="Redirect destination IPv4 or IPv6 address.")
-    destination_mac: str | None = Field(default=None, description="Optional destination MAC address.")
-    destination_type: str = Field(default="L3", description="ACI redirect destination type.")
-    anycast: bool = Field(default=False, description="Enable anycast on the redirect policy.")
-    pod_aware: bool = Field(default=False, description="Restrict programming to the local POD.")
-    resilient_hashing: bool = Field(default=False, description="Enable resilient hashing.")
+    ip: str = Field(description="Redirect destination IPv4 or IPv6 address.")
+    mac: str | None = Field(default=None, description="Optional destination MAC address.")
+    second_ip: str | None = Field(default=None, description="Optional second IP for a dual-IP destination.")
+    dest_name: str | None = Field(default=None, description="Optional destination name.")
+    pod_id: int | None = Field(default=None, ge=1, description="Optional pod ID for a multi-pod destination.")
+    health_group: str | None = Field(
+        default=None,
+        description="Name of an existing redirect health group that tracks this destination. Without one the destination is never health-checked and keeps receiving traffic after it dies.",
+    )
+    description: str = Field(default="", description="Optional free-text description.")
+
+
+class CreatePbrHealthGroupRequest(BaseModel):
+    """A redirect health group (vnsRedirectHealthGroup) -- the object a PBR
+    destination is bound to in order to be tracked at all."""
+
+    tenant: str = Field(description="Name of the existing Tenant that owns the health group.")
+    name: str = Field(description="Redirect health group name.")
     description: str = Field(default="", description="Optional free-text description.")
 
     @field_validator("name")
@@ -746,6 +758,85 @@ class CreatePbrPolicyRequest(BaseModel):
     def _validate_name(cls, v: str) -> str:
         return _validate_aci_name(v)
 
+
+class CreateIpSlaPolicyRequest(BaseModel):
+    """An IP SLA monitoring policy (fvIPSLAMonitoringPol) -- the probe that
+    determines whether a tracked PBR destination is actually alive."""
+
+    tenant: str = Field(description="Name of the existing Tenant that owns the policy.")
+    name: str = Field(description="IP SLA monitoring policy name.")
+    sla_type: str = Field(default="icmp", description="Probe type: 'icmp', 'tcp', 'l2ping' or 'http'.")
+    frequency: int | None = Field(default=None, ge=1, description="Probe interval in seconds.")
+    port: int | None = Field(default=None, ge=1, le=65535, description="Destination port -- required when sla_type is 'tcp'.")
+    detect_multiplier: int | None = Field(default=None, ge=1, description="Consecutive missed probes before the destination is declared down.")
+    timeout: int | None = Field(default=None, ge=1, description="Per-probe timeout in milliseconds.")
+    threshold: int | None = Field(default=None, ge=0, description="Rising threshold in milliseconds.")
+    description: str = Field(default="", description="Optional free-text description.")
+
+    @field_validator("name")
+    @classmethod
+    def _validate_name(cls, v: str) -> str:
+        return _validate_aci_name(v)
+
+    @model_validator(mode="after")
+    def _tcp_probe_needs_a_port(self):
+        if self.sla_type.lower() == "tcp" and self.port is None:
+            raise ValueError("port is required when sla_type is 'tcp'")
+        return self
+
+
+class CreatePbrPolicyRequest(BaseModel):
+    """Create a policy-based redirect policy.
+
+    Accepts either a single destination via the original
+    `destination_ip`/`destination_mac` shorthand, or a full `destinations`
+    list. Real PBR policies are routinely multi-destination -- the
+    single-destination-only shape was a limit of this tool, never of ACI or
+    of the Terraform beneath it, which has always flattened a
+    `destinations[]` list.
+    """
+
+    tenant: str = Field(description="Name of the existing Tenant that owns the redirect policy.")
+    name: str = Field(description="PBR redirect policy name.")
+    destination_ip: str | None = Field(default=None, description="Shorthand for a single destination IP. Use `destinations` for more than one.")
+    destination_mac: str | None = Field(default=None, description="Optional MAC accompanying the `destination_ip` shorthand.")
+    destinations: list[PbrDestinationSpec] = Field(default_factory=list, description="Full destination list. Mutually exclusive with `destination_ip`.")
+    destination_type: str = Field(default="L3", description="ACI redirect destination type.")
+    anycast: bool = Field(default=False, description="Enable anycast on the redirect policy.")
+    pod_aware: bool = Field(default=False, description="Restrict programming to the local POD.")
+    resilient_hashing: bool = Field(default=False, description="Enable resilient hashing.")
+    hashing_algorithm: str | None = Field(default=None, description="Load-balancing hash: 'sip', 'dip' or 'sip-dip-prototype'.")
+    ip_sla_policy: str | None = Field(default=None, description="Name of an existing IP SLA monitoring policy to attach.")
+    threshold_enable: bool = Field(default=False, description="Enable the min/max threshold behaviour.")
+    min_threshold_percent: int | None = Field(default=None, ge=0, le=100, description="Percentage of live destinations below which threshold_down_action fires.")
+    max_threshold_percent: int | None = Field(default=None, ge=0, le=100, description="Percentage at which the group is considered healthy again.")
+    threshold_down_action: str | None = Field(default=None, description="Action when below threshold: 'permit', 'deny' or 'bypass'.")
+    description: str = Field(default="", description="Optional free-text description.")
+
+    @field_validator("name")
+    @classmethod
+    def _validate_name(cls, v: str) -> str:
+        return _validate_aci_name(v)
+
+    @model_validator(mode="after")
+    def _normalise_destinations(self):
+        if self.destination_ip and self.destinations:
+            raise ValueError("provide either destination_ip or destinations, not both")
+        if self.destination_ip:
+            self.destinations = [PbrDestinationSpec(ip=self.destination_ip, mac=self.destination_mac)]
+        if not self.destinations:
+            raise ValueError("at least one destination is required (destination_ip or destinations)")
+        return self
+
+    @model_validator(mode="after")
+    def _thresholds_are_ordered(self):
+        if (
+            self.min_threshold_percent is not None
+            and self.max_threshold_percent is not None
+            and self.min_threshold_percent > self.max_threshold_percent
+        ):
+            raise ValueError("min_threshold_percent cannot exceed max_threshold_percent")
+        return self
 
 class CreateOneArmServiceGraphRequest(BaseModel):
     """Create a one-arm ADC/load-balancer Service Graph with one logical

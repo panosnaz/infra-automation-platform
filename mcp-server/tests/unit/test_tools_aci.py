@@ -43,6 +43,9 @@ from mcp_server.schemas.aci import (
     CreateOspfInterfaceRequest,
     CreateProtocolL3OutRequest,
     CreateStaticPathBindingRequest,
+    CreateIpSlaPolicyRequest,
+    CreatePbrHealthGroupRequest,
+    PbrDestinationSpec,
     CreateLocalUserRequest,
     CreateOneArmServiceGraphRequest,
     CreatePbrContractRequest,
@@ -87,6 +90,8 @@ from mcp_server.tools.aci import (
     create_ospf_interface_policy,
     create_ospf_l3out,
     create_static_path_binding,
+    create_ip_sla_policy,
+    create_pbr_health_group,
     create_local_user,
     create_one_arm_service_graph,
     create_pbr_contract,
@@ -189,6 +194,14 @@ class _FakeNautobotClient:
     def create_service_graph(self, **kwargs):
         self.calls.append(("create_service_graph", kwargs))
         return {"id": "graph-id", **kwargs}
+
+    def create_pbr_health_group(self, **kwargs):
+        self.calls.append(("create_pbr_health_group", kwargs))
+        return {"tenant": kwargs["tenant"], "health_group": kwargs["name"], "health_groups": []}
+
+    def create_ip_sla_policy(self, **kwargs):
+        self.calls.append(("create_ip_sla_policy", kwargs))
+        return {"tenant": kwargs["tenant"], "ip_sla_policy": kwargs["name"], "ip_sla_policies": []}
 
     def create_pbr_policy(self, **kwargs):
         self.calls.append(("create_pbr_policy", kwargs))
@@ -1248,3 +1261,113 @@ def test_create_ospf_interface_policy_returns_a_note_and_never_a_raw_key():
     assert not any("key" == k or k.endswith("_key") for k in kwargs)
     assert "OSPF_p2p" in result["note"]
     assert "sales" in result["note"]
+
+
+# ---------------------------------------------------------------------------
+# L4-L7 / PBR gap closure dispatch (2026-09-15).
+# ---------------------------------------------------------------------------
+
+def test_create_l4l7_device_passes_trunking_and_promiscuous_mode():
+    """Terraform has always had `trunking`/`promiscuous_mode` lookups on
+    aci_l4_l7_device, but nothing could set them -- no schema field, no
+    client argument -- so both always resolved to null. This pins the whole
+    chain now that it exists."""
+    fake = _FakeNautobotClient()
+    request = CreateL4L7DeviceRequest(
+        tenant="finance", name="fw", consumer_interface="inside", provider_interface="outside",
+        vmm_domain="finance-vmm", trunking=True, promiscuous_mode=True,
+    )
+
+    create_l4l7_device(request, nautobot=fake)
+
+    kwargs = fake.calls[0][1]
+    assert kwargs["trunking"] is True
+    assert kwargs["promiscuous_mode"] is True
+
+
+def test_create_pbr_policy_drops_the_shorthand_fields_before_the_client():
+    """The schema normalises destination_ip into `destinations`; the handler
+    must then drop the shorthand so the client sees exactly one destination
+    shape rather than having to reconcile two."""
+    fake = _FakeNautobotClient()
+    request = CreatePbrPolicyRequest(tenant="finance", name="web-pbr", destination_ip="10.0.0.10")
+
+    create_pbr_policy(request, nautobot=fake)
+
+    kwargs = fake.calls[0][1]
+    assert "destination_ip" not in kwargs
+    assert "destination_mac" not in kwargs
+    assert kwargs["destinations"] == [{
+        "ip": "10.0.0.10", "mac": None, "second_ip": None, "dest_name": None,
+        "pod_id": None, "health_group": None, "description": "",
+    }]
+
+
+def test_create_pbr_policy_warns_when_no_destination_is_health_tracked():
+    """An untracked destination keeps receiving redirected traffic after it
+    dies -- a silent black hole. The tool cannot refuse (untracked PBR is
+    legal) so it says so loudly in the response the agent reads back."""
+    fake = _FakeNautobotClient()
+    request = CreatePbrPolicyRequest(tenant="finance", name="web-pbr", destination_ip="10.0.0.10")
+
+    result = create_pbr_policy(request, nautobot=fake)
+
+    assert "WARNING" in result["note"]
+    assert "health group" in result["note"]
+
+
+def test_create_pbr_policy_does_not_warn_when_destinations_are_tracked():
+    fake = _FakeNautobotClient()
+    request = CreatePbrPolicyRequest(
+        tenant="finance", name="web-pbr",
+        destinations=[PbrDestinationSpec(ip="10.0.0.10", health_group="fw-hg")],
+    )
+
+    result = create_pbr_policy(request, nautobot=fake)
+
+    assert "WARNING" not in result["note"]
+    assert "1 destination(s)" in result["note"]
+
+
+def test_create_pbr_policy_passes_thresholds_and_sla_reference():
+    fake = _FakeNautobotClient()
+    request = CreatePbrPolicyRequest(
+        tenant="finance", name="web-pbr",
+        destinations=[PbrDestinationSpec(ip="10.0.0.10", health_group="fw-hg")],
+        ip_sla_policy="fw-icmp", threshold_enable=True,
+        min_threshold_percent=20, max_threshold_percent=80, threshold_down_action="bypass",
+        hashing_algorithm="sip-dip-prototype",
+    )
+
+    create_pbr_policy(request, nautobot=fake)
+
+    kwargs = fake.calls[0][1]
+    assert kwargs["ip_sla_policy"] == "fw-icmp"
+    assert kwargs["threshold_enable"] is True
+    assert (kwargs["min_threshold_percent"], kwargs["max_threshold_percent"]) == (20, 80)
+    assert kwargs["hashing_algorithm"] == "sip-dip-prototype"
+
+
+def test_create_pbr_health_group_dispatch():
+    fake = _FakeNautobotClient()
+    request = CreatePbrHealthGroupRequest(tenant="finance", name="fw-hg")
+
+    result = create_pbr_health_group(request, nautobot=fake)
+
+    assert fake.calls == [("create_pbr_health_group", {"tenant": "finance", "name": "fw-hg", "description": ""})]
+    assert "fw-hg" in result["note"]
+
+
+def test_create_ip_sla_policy_dispatch_passes_probe_settings():
+    fake = _FakeNautobotClient()
+    request = CreateIpSlaPolicyRequest(
+        tenant="finance", name="fw-tcp", sla_type="tcp", port=443, frequency=5, detect_multiplier=3
+    )
+
+    result = create_ip_sla_policy(request, nautobot=fake)
+
+    kwargs = fake.calls[0][1]
+    assert kwargs["sla_type"] == "tcp"
+    assert kwargs["port"] == 443
+    assert kwargs["detect_multiplier"] == 3
+    assert "tcp" in result["note"]

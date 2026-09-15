@@ -426,13 +426,21 @@ def _build_l4l7_services(tenant_cf: dict[str, Any]) -> dict[str, Any]:
     L4-L7 devices, service graphs, and PBR redirect policies are tenant
     scoped ACI objects without a natural first-class Nautobot equivalent,
     so they follow the existing Contract/L3Out Custom-Field-JSON pattern.
-    Concrete device discovery is deliberately excluded: the installed ACI
-    provider supports logical devices/interfaces, service graphs, and PBR
-    destinations, but not the example's concrete VMware device resources.
+
+    `health_groups` and `ip_sla_policies` (2026-09-15) back the PBR
+    resilience objects: a redirect policy with no health tracking fails
+    closed the moment its destination dies, silently black-holing the
+    redirected traffic.
+
+    Concrete device discovery remains out of scope -- but note that the
+    earlier claim here, that the installed provider has no concrete device
+    resources, was wrong: `aci_concrete_device` and `aci_concrete_interface`
+    both exist in CiscoDevNet/aci v2.20.0. Excluding them is a scope choice
+    (they need real vCenter VM identities), not a provider limitation.
     """
     data = tenant_cf.get("aci_l4l7_services") or {}
     services: dict[str, Any] = {}
-    for key in ("devices", "service_graphs", "redirect_policies"):
+    for key in ("devices", "service_graphs", "redirect_policies", "health_groups", "ip_sla_policies"):
         values = list(data.get(key) or [])
         if values:
             services[key] = values

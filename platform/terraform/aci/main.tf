@@ -186,6 +186,23 @@ locals {
     }
   ]...)
 
+  # PBR resilience objects (2026-09-15). Tenant-scoped named objects
+  # declared alongside devices/graphs/redirect_policies in the
+  # aci_l4l7_services Custom Field.
+  redirect_health_groups = merge([
+    for tn, t in local.tenants : {
+      for g in lookup(lookup(t, "services", {}), "health_groups", []) :
+      "${tn}/${g.name}" => merge(g, { tenant_name = tn })
+    }
+  ]...)
+
+  ip_sla_policies = merge([
+    for tn, t in local.tenants : {
+      for p in lookup(lookup(t, "services", {}), "ip_sla_policies", []) :
+      "${tn}/${p.name}" => merge(p, { tenant_name = tn })
+    }
+  ]...)
+
   redirect_destinations = merge([
     for policy_key, policy in local.redirect_policies : {
       for destination in lookup(policy, "destinations", []) :
@@ -843,6 +860,12 @@ resource "aci_l4_l7_device" "this" {
   )
   description = lookup(each.value, "description", null)
 
+  # A VIRTUAL device binds to a VMM Domain; a PHYSICAL device binds to a
+  # Physical Domain through a DIFFERENT attribute entirely, and the provider
+  # makes it mandatory -- `terraform plan` fails outright with
+  # "relation_vns_rs_al_dev_to_phys_dom_p is required when device_type is
+  # PHYSICAL". Until 2026-09-15 only the VMM relation existed here, so a
+  # physical service device could not be created at all.
   dynamic "relation_vns_rs_al_dev_to_dom_p" {
     for_each = lookup(each.value, "vmm_domain", null) != null ? [each.value.vmm_domain] : []
 
@@ -850,6 +873,21 @@ resource "aci_l4_l7_device" "this" {
       domain_dn = aci_vmm_domain.this[relation_vns_rs_al_dev_to_dom_p.value].id
     }
   }
+
+  # Built as a literal DN rather than referencing aci_physical_domain.this[
+  # ...].id, because the provider validates this attribute at PLAN time and
+  # a reference to a not-yet-created resource is unknown then -- the provider
+  # reads unknown as unset and fails with "is required when device_type is
+  # PHYSICAL" even though it IS configured. physDomP DNs are deterministic
+  # (`uni/phys-<name>`, confirmed against this APIC), so the literal is safe;
+  # depends_on restores the ordering the lost reference would have given.
+  relation_vns_rs_al_dev_to_phys_dom_p = (
+    lookup(each.value, "physical_domain", null) != null
+    ? "uni/phys-${each.value.physical_domain}"
+    : null
+  )
+
+  depends_on = [aci_physical_domain.this, aci_vmm_domain.this]
 }
 
 resource "aci_l4_l7_logical_interface" "this" {
@@ -879,6 +917,46 @@ resource "aci_l4_l7_service_graph_template" "this" {
   description    = lookup(each.value, "description", null)
 }
 
+# vnsAbsNode -- the service FUNCTION node inside the graph.
+#
+# aci_l4_l7_service_graph_template creates ONLY the graph shell and its two
+# terminal connectors (confirmed via `terraform providers schema -json`: that
+# resource has no nested blocks and no node attributes). Without this
+# resource the graph contains terminals and nothing in between, so a Contract
+# attaching to it has no service node to redirect through and the graph
+# cannot render -- APIC accepts the incomplete graph silently, which is why
+# this went unnoticed.
+#
+# `name` MUST equal aci_logical_device_context.node_name_or_lbl below, or the
+# device context binds to a node that does not exist.
+#
+# routing_mode = "Redirect" is what makes this a PBR node rather than a plain
+# go-to firewall insertion; it is set whenever either arm of the graph carries
+# a redirect policy.
+resource "aci_function_node" "this" {
+  for_each = local.service_graphs
+
+  l4_l7_service_graph_template_dn = aci_l4_l7_service_graph_template.this[each.key].id
+  name                            = lookup(each.value, "node_name", "node-1")
+
+  # Bind the node to the logical device that actually performs the function.
+  relation_vns_rs_node_to_l_dev = aci_l4_l7_device.this["${each.value.tenant_name}/${each.value.device}"].id
+
+  func_type = lookup(each.value, "function_type", "GoTo")
+  managed   = try(each.value.managed ? "yes" : "no", "no")
+  routing_mode = anytrue([
+    for side in ["consumer", "provider"] :
+    lookup(lookup(each.value, side, {}), "redirect_policy", null) != null
+  ]) ? "Redirect" : null
+
+  # Connector names must match the device's own logical interface names so
+  # the node's consumer/provider connectors resolve to real interfaces.
+  l4_l7_device_interface_consumer_name = try(each.value.consumer.logical_interface, null)
+  l4_l7_device_interface_provider_name = try(each.value.provider.logical_interface, null)
+
+  description = lookup(each.value, "description", null)
+}
+
 resource "aci_logical_device_context" "this" {
   for_each = local.service_graphs
 
@@ -890,6 +968,7 @@ resource "aci_logical_device_context" "this" {
   depends_on = [
     aci_contract.this,
     aci_l4_l7_service_graph_template.this,
+    aci_function_node.this,
   ]
 }
 
@@ -907,6 +986,33 @@ resource "aci_logical_interface_context" "this" {
   l3_dest = try(each.value.l3_destination ? "yes" : "no", null)
 }
 
+# PBR resilience objects. A redirect policy with a single destination and no
+# health tracking fails closed the moment that destination dies -- traffic is
+# redirected into a black hole. A health group plus an IP SLA monitoring
+# policy is what lets APIC detect the failure and bypass or drop per the
+# configured threshold action.
+resource "aci_l4_l7_redirect_health_group" "this" {
+  for_each = local.redirect_health_groups
+
+  tenant_dn   = aci_tenant.this[each.value.tenant_name].id
+  name        = each.value.name
+  description = lookup(each.value, "description", null)
+}
+
+resource "aci_ip_sla_monitoring_policy" "this" {
+  for_each = local.ip_sla_policies
+
+  tenant_dn             = aci_tenant.this[each.value.tenant_name].id
+  name                  = each.value.name
+  sla_type              = lookup(each.value, "sla_type", "icmp")
+  sla_frequency         = lookup(each.value, "frequency", null)
+  sla_port              = lookup(each.value, "port", null)
+  sla_detect_multiplier = lookup(each.value, "detect_multiplier", null)
+  timeout               = lookup(each.value, "timeout", null)
+  threshold             = lookup(each.value, "threshold", null)
+  description           = lookup(each.value, "description", null)
+}
+
 resource "aci_service_redirect_policy" "this" {
   for_each = local.redirect_policies
 
@@ -917,6 +1023,20 @@ resource "aci_service_redirect_policy" "this" {
   program_local_pod_only = try(each.value.pod_aware ? "yes" : "no", null)
   resilient_hash_enabled = try(each.value.resilient_hashing ? "yes" : "no", null)
   description            = lookup(each.value, "description", null)
+
+  # Threshold/hashing behaviour. Left unmanaged (null) when unset, same
+  # lookup(..., null) convention as everywhere else in this file.
+  hashing_algorithm     = lookup(each.value, "hashing_algorithm", null)
+  threshold_enable      = try(each.value.threshold_enable ? "yes" : "no", null)
+  min_threshold_percent = lookup(each.value, "min_threshold_percent", null)
+  max_threshold_percent = lookup(each.value, "max_threshold_percent", null)
+  threshold_down_action = lookup(each.value, "threshold_down_action", null)
+
+  relation_vns_rs_ipsla_monitoring_pol = (
+    lookup(each.value, "ip_sla_policy", null) != null
+    ? aci_ip_sla_monitoring_policy.this["${each.value.tenant_name}/${each.value.ip_sla_policy}"].id
+    : null
+  )
 }
 
 resource "aci_destination_of_redirected_traffic" "this" {
@@ -926,6 +1046,18 @@ resource "aci_destination_of_redirected_traffic" "this" {
   ip                         = each.value.ip
   mac                        = lookup(each.value, "mac", null)
   description                = lookup(each.value, "description", null)
+
+  ip2       = lookup(each.value, "second_ip", null)
+  dest_name = lookup(each.value, "dest_name", null)
+  pod_id    = lookup(each.value, "pod_id", null)
+
+  # Binding a destination to a health group is what actually arms tracking
+  # for it -- an IP SLA policy on the redirect policy alone monitors nothing.
+  relation_vns_rs_redirect_health_group = (
+    lookup(each.value, "health_group", null) != null
+    ? aci_l4_l7_redirect_health_group.this["${each.value.tenant_name}/${each.value.health_group}"].id
+    : null
+  )
 }
 
 # ---------------------------------------------------------------------------

@@ -1263,3 +1263,51 @@ def test_fabric_inventory_omits_serial_when_the_device_has_none():
     # Both still validate node references -- registration and validation are
     # independent concerns.
     assert {n["node_id"] for n in nodes.values()} == {101, 102}
+
+
+def test_l4l7_services_emit_health_groups_and_ip_sla_policies():
+    """PBR resilience objects (2026-09-15). Without a health group bound to
+    a destination and an IP SLA policy behind it, a redirect policy keeps
+    sending traffic to a dead destination -- so these have to survive the
+    generator, not just exist in Terraform."""
+    tenants = [{
+        "name": "ACI:sales", "description": "", "vrfs": [],
+        "_custom_field_data": {"aci_l4l7_services": {
+            "health_groups": [{"name": "fw-hg"}],
+            "ip_sla_policies": [{"name": "fw-icmp", "sla_type": "icmp", "frequency": 5}],
+            "redirect_policies": [{
+                "name": "web-pbr",
+                "ip_sla_policy": "fw-icmp",
+                "threshold_enable": True,
+                "min_threshold_percent": 20,
+                "max_threshold_percent": 80,
+                "destinations": [
+                    {"ip": "10.0.0.10", "health_group": "fw-hg"},
+                    {"ip": "10.0.0.11", "health_group": "fw-hg"},
+                ],
+            }],
+        }},
+    }]
+
+    services = build_netascode_yaml(tenants=tenants, prefixes=[])["apic"]["tenants"][0]["services"]
+
+    assert services["health_groups"] == [{"name": "fw-hg"}]
+    assert services["ip_sla_policies"][0]["sla_type"] == "icmp"
+    policy = services["redirect_policies"][0]
+    assert policy["ip_sla_policy"] == "fw-icmp"
+    assert [d["ip"] for d in policy["destinations"]] == ["10.0.0.10", "10.0.0.11"]
+    assert all(d["health_group"] == "fw-hg" for d in policy["destinations"])
+
+
+def test_l4l7_services_omit_resilience_keys_when_unset():
+    """Same only-emit-when-set rule as every other generator key -- an empty
+    health_groups list must not appear at all."""
+    tenants = [{
+        "name": "ACI:sales", "description": "", "vrfs": [],
+        "_custom_field_data": {"aci_l4l7_services": {"devices": [{"name": "fw"}]}},
+    }]
+
+    services = build_netascode_yaml(tenants=tenants, prefixes=[])["apic"]["tenants"][0]["services"]
+
+    assert "health_groups" not in services
+    assert "ip_sla_policies" not in services

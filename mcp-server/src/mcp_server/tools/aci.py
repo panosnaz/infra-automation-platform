@@ -53,7 +53,9 @@ from mcp_server.schemas.aci import (
     CreateOneArmServiceGraphRequest,
     CreateOspfInterfacePolicyRequest,
     CreateOspfInterfaceRequest,
+    CreateIpSlaPolicyRequest,
     CreatePbrContractRequest,
+    CreatePbrHealthGroupRequest,
     CreatePbrPolicyRequest,
     CreatePhysicalDomainRequest,
     CreateProtocolL3OutRequest,
@@ -746,12 +748,47 @@ def create_one_arm_service_graph(request: CreateOneArmServiceGraphRequest, *, na
 @registry.register(
     name="create_pbr_policy",
     domain="cisco_aci",
-    description="Create a Cisco ACI policy-based redirect policy with one destination by writing non-secret intent to the Tenant's aci_l4l7_services Nautobot Custom Field.",
+    description="Create a Cisco ACI policy-based redirect policy with one or more destinations, optional health-group tracking, IP SLA monitoring and threshold behaviour, by writing non-secret intent to the Tenant's aci_l4l7_services Nautobot Custom Field.",
     schema=CreatePbrPolicyRequest,
 )
 def create_pbr_policy(request: CreatePbrPolicyRequest, *, nautobot: NautobotClient) -> dict:
-    result = nautobot.create_pbr_policy(**request.model_dump())
-    return {"pbr_policy": result, "note": f"PBR policy '{request.name}' written to tenant '{request.tenant}'."}
+    # The schema's validator has already normalised the single-destination
+    # shorthand into `destinations`, so the shorthand fields are dropped here
+    # rather than reaching the client -- one destination shape, not two.
+    payload = request.model_dump(exclude={"destination_ip", "destination_mac"})
+    payload["destinations"] = [dest for dest in payload["destinations"]]
+    result = nautobot.create_pbr_policy(**payload)
+    tracked = [d for d in request.destinations if d.health_group]
+    note = f"PBR policy '{request.name}' written to tenant '{request.tenant}' with {len(request.destinations)} destination(s)."
+    if not tracked:
+        note += (
+            " WARNING: no destination is bound to a health group, so none are health-checked -- "
+            "traffic keeps being redirected to a destination after it dies. Create a health group "
+            "(create_pbr_health_group) and an IP SLA policy (create_ip_sla_policy), then reference them."
+        )
+    return {"pbr_policy": result, "note": note}
+
+
+@registry.register(
+    name="create_pbr_health_group",
+    domain="cisco_aci",
+    description="Create a Cisco ACI redirect health group (vnsRedirectHealthGroup). PBR destinations bound to a health group are health-tracked; unbound destinations keep receiving redirected traffic after they fail.",
+    schema=CreatePbrHealthGroupRequest,
+)
+def create_pbr_health_group(request: CreatePbrHealthGroupRequest, *, nautobot: NautobotClient) -> dict:
+    result = nautobot.create_pbr_health_group(**request.model_dump())
+    return {"health_group": result, "note": f"Redirect health group '{request.name}' written to tenant '{request.tenant}'. Reference it from a destination's health_group field."}
+
+
+@registry.register(
+    name="create_ip_sla_policy",
+    domain="cisco_aci",
+    description="Create a Cisco ACI IP SLA monitoring policy (fvIPSLAMonitoringPol) -- the probe that determines whether a health-tracked PBR destination is alive. Attach it to a redirect policy via its ip_sla_policy field.",
+    schema=CreateIpSlaPolicyRequest,
+)
+def create_ip_sla_policy(request: CreateIpSlaPolicyRequest, *, nautobot: NautobotClient) -> dict:
+    result = nautobot.create_ip_sla_policy(**request.model_dump())
+    return {"ip_sla_policy": result, "note": f"IP SLA monitoring policy '{request.name}' ({request.sla_type}) written to tenant '{request.tenant}'."}
 
 
 @registry.register(

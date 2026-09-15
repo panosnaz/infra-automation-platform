@@ -1213,6 +1213,8 @@ class NautobotClient:
         managed: bool = False,
         context_aware: str = "single-Context",
         vmm_domain: str | None = None,
+        trunking: bool = False,
+        promiscuous_mode: bool = False,
         description: str = "",
     ) -> dict:
         try:
@@ -1224,6 +1226,8 @@ class NautobotClient:
                 "function_type": function_type,
                 "managed": managed,
                 "context_aware": context_aware,
+                "trunking": trunking,
+                "promiscuous_mode": promiscuous_mode,
                 "logical_interfaces": [{"name": consumer_interface}],
             }
             if provider_interface:
@@ -1285,31 +1289,99 @@ class NautobotClient:
             raise NautobotError(f"Nautobot unreachable or auth failed: {exc}") from exc
         return {"tenant": tenant, "service_graph": name, "service_graphs": graphs}
 
+    def create_pbr_health_group(self, tenant: str, name: str, description: str = "") -> dict:
+        """Create a redirect health group. Destinations bound to one are
+        tracked; unbound destinations keep receiving redirected traffic
+        after they die."""
+        try:
+            tenant_obj = self._get_tenant_or_raise(tenant)
+            entry = {"name": name}
+            if description:
+                entry["description"] = description
+            groups = self._update_l4l7_services(tenant_obj, "health_groups", entry)
+        except pynautobot.RequestError as exc:
+            raise NautobotError(f"Nautobot rejected health group '{name}': {exc}") from exc
+        return {"tenant": tenant, "health_group": name, "health_groups": groups}
+
+    def create_ip_sla_policy(
+        self,
+        tenant: str,
+        name: str,
+        sla_type: str = "icmp",
+        frequency: int | None = None,
+        port: int | None = None,
+        detect_multiplier: int | None = None,
+        timeout: int | None = None,
+        threshold: int | None = None,
+        description: str = "",
+    ) -> dict:
+        """Create an IP SLA monitoring policy -- the probe behind PBR health
+        tracking."""
+        try:
+            tenant_obj = self._get_tenant_or_raise(tenant)
+            entry: dict = {"name": name, "sla_type": sla_type}
+            for key, value in (
+                ("frequency", frequency),
+                ("port", port),
+                ("detect_multiplier", detect_multiplier),
+                ("timeout", timeout),
+                ("threshold", threshold),
+            ):
+                if value is not None:
+                    entry[key] = value
+            if description:
+                entry["description"] = description
+            policies = self._update_l4l7_services(tenant_obj, "ip_sla_policies", entry)
+        except pynautobot.RequestError as exc:
+            raise NautobotError(f"Nautobot rejected IP SLA policy '{name}': {exc}") from exc
+        return {"tenant": tenant, "ip_sla_policy": name, "ip_sla_policies": policies}
+
     def create_pbr_policy(
         self,
         tenant: str,
         name: str,
-        destination_ip: str,
-        destination_mac: str | None = None,
+        destinations: list[dict],
         destination_type: str = "L3",
         anycast: bool = False,
         pod_aware: bool = False,
         resilient_hashing: bool = False,
+        hashing_algorithm: str | None = None,
+        ip_sla_policy: str | None = None,
+        threshold_enable: bool = False,
+        min_threshold_percent: int | None = None,
+        max_threshold_percent: int | None = None,
+        threshold_down_action: str | None = None,
         description: str = "",
     ) -> dict:
+        """Create a PBR redirect policy.
+
+        `destinations` is always a list -- the tool layer normalises the
+        single-destination shorthand into one before calling this, so there
+        is exactly one shape to reason about here.
+        """
         try:
             tenant_obj = self._get_tenant_or_raise(tenant)
-            destination = {"ip": destination_ip}
-            if destination_mac:
-                destination["mac"] = destination_mac
-            entry = {
+            entry: dict = {
                 "name": name,
                 "destination_type": destination_type,
                 "anycast": anycast,
                 "pod_aware": pod_aware,
                 "resilient_hashing": resilient_hashing,
-                "destinations": [destination],
+                "threshold_enable": threshold_enable,
+                "destinations": [
+                    {k: v for k, v in dest.items() if v not in (None, "")}
+                    for dest in destinations
+                ],
             }
+            for key, value in (
+                ("hashing_algorithm", hashing_algorithm),
+                ("ip_sla_policy", ip_sla_policy),
+                ("min_threshold_percent", min_threshold_percent),
+                ("max_threshold_percent", max_threshold_percent),
+                ("threshold_down_action", threshold_down_action),
+            ):
+                if value is not None:
+                    entry[key] = value
             if description:
                 entry["description"] = description
             policies = self._update_l4l7_services(tenant_obj, "redirect_policies", entry)
@@ -1319,7 +1391,7 @@ class NautobotClient:
             raise
         except Exception as exc:  # noqa: BLE001
             raise NautobotError(f"Nautobot unreachable or auth failed: {exc}") from exc
-        return {"tenant": tenant, "redirect_policy": name, "redirect_policies": policies}
+        return {"tenant": tenant, "pbr_policy": name, "redirect_policies": policies}
 
     def create_one_arm_service_graph(
         self,

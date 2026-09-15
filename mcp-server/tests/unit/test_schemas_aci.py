@@ -38,6 +38,9 @@ from mcp_server.schemas.aci import (
     CreateVmmDomainRequest,
     CreateVrfRequest,
     CreateVrfRouteLeakRequest,
+    CreateIpSlaPolicyRequest,
+    CreatePbrHealthGroupRequest,
+    PbrDestinationSpec,
     FilterEntrySpec,
 )
 from mcp_server.schemas.aci import (
@@ -961,3 +964,139 @@ def test_ospf_interface_policy_rejects_out_of_range_numeric_fields(field, bad_va
     kwargs = {"tenant": "sales", "name": "OSPF_bcast", field: bad_value}
     with pytest.raises(ValidationError):
         CreateOspfInterfacePolicyRequest(**kwargs)
+
+
+# ---------------------------------------------------------------------------
+# L4-L7 / PBR gap closure (2026-09-15).
+#
+# Three gaps were found by auditing the layers against each other:
+#   1. Terraform read `trunking`/`promiscuous_mode` from the YAML but no MCP
+#      field or client argument could ever set them -- dead capability.
+#   2. The Service Graph had no function node (Terraform side; see main.tf).
+#   3. PBR had no health group, IP SLA, thresholds, or multi-destination.
+# ---------------------------------------------------------------------------
+
+def test_l4l7_device_exposes_trunking_and_promiscuous_mode():
+    """Both default False and both reach the device. Terraform has always
+    had `trunking`/`promiscuous_mode` lookups, but until this schema gained
+    the fields there was no way to set them and both always resolved null."""
+    req = CreateL4L7DeviceRequest(
+        tenant="finance", name="fw", consumer_interface="inside",
+        provider_interface="outside", vmm_domain="finance-vmm",
+        trunking=True, promiscuous_mode=True,
+    )
+    assert req.trunking is True
+    assert req.promiscuous_mode is True
+
+
+def test_l4l7_device_trunking_and_promiscuous_default_off():
+    req = CreateL4L7DeviceRequest(
+        tenant="finance", name="fw", consumer_interface="inside", vmm_domain="finance-vmm"
+    )
+    assert req.trunking is False
+    assert req.promiscuous_mode is False
+
+
+def test_pbr_policy_shorthand_normalises_into_one_destination():
+    """The original single-destination shape is kept as shorthand so existing
+    callers keep working -- but it is normalised into `destinations` so the
+    client only ever sees one shape."""
+    req = CreatePbrPolicyRequest(tenant="finance", name="web-pbr", destination_ip="10.0.0.10", destination_mac="00:11:22:33:44:55")
+
+    assert len(req.destinations) == 1
+    assert req.destinations[0].ip == "10.0.0.10"
+    assert req.destinations[0].mac == "00:11:22:33:44:55"
+
+
+def test_pbr_policy_accepts_multiple_destinations():
+    req = CreatePbrPolicyRequest(
+        tenant="finance", name="web-pbr",
+        destinations=[
+            PbrDestinationSpec(ip="10.0.0.10", health_group="fw-hg"),
+            PbrDestinationSpec(ip="10.0.0.11", health_group="fw-hg"),
+        ],
+    )
+    assert [d.ip for d in req.destinations] == ["10.0.0.10", "10.0.0.11"]
+    assert all(d.health_group == "fw-hg" for d in req.destinations)
+
+
+def test_pbr_policy_rejects_both_shorthand_and_list():
+    """Accepting both would leave the precedence ambiguous and silently drop
+    one set of destinations."""
+    with pytest.raises(ValidationError):
+        CreatePbrPolicyRequest(
+            tenant="finance", name="web-pbr", destination_ip="10.0.0.10",
+            destinations=[PbrDestinationSpec(ip="10.0.0.11")],
+        )
+
+
+def test_pbr_policy_requires_at_least_one_destination():
+    """A redirect policy with no destination redirects into nothing."""
+    with pytest.raises(ValidationError):
+        CreatePbrPolicyRequest(tenant="finance", name="web-pbr")
+
+
+def test_pbr_policy_rejects_inverted_thresholds():
+    with pytest.raises(ValidationError):
+        CreatePbrPolicyRequest(
+            tenant="finance", name="web-pbr", destination_ip="10.0.0.10",
+            threshold_enable=True, min_threshold_percent=80, max_threshold_percent=20,
+        )
+
+
+def test_pbr_policy_accepts_ordered_thresholds_and_sla_reference():
+    req = CreatePbrPolicyRequest(
+        tenant="finance", name="web-pbr", destination_ip="10.0.0.10",
+        threshold_enable=True, min_threshold_percent=20, max_threshold_percent=80,
+        threshold_down_action="bypass", hashing_algorithm="sip-dip-prototype",
+        ip_sla_policy="fw-icmp",
+    )
+    assert req.threshold_down_action == "bypass"
+    assert req.ip_sla_policy == "fw-icmp"
+
+
+@pytest.mark.parametrize("bad_pct", [-1, 101])
+def test_pbr_policy_rejects_out_of_range_threshold_percent(bad_pct):
+    with pytest.raises(ValidationError):
+        CreatePbrPolicyRequest(tenant="finance", name="web-pbr", destination_ip="10.0.0.10", min_threshold_percent=bad_pct)
+
+
+def test_pbr_destination_pod_id_must_be_positive():
+    with pytest.raises(ValidationError):
+        PbrDestinationSpec(ip="10.0.0.10", pod_id=0)
+
+
+def test_pbr_health_group_request_defaults():
+    req = CreatePbrHealthGroupRequest(tenant="finance", name="fw-hg")
+    assert req.description == ""
+
+
+@pytest.mark.parametrize("bad_name", ["fw hg", "fw/hg", ""])
+def test_invalid_pbr_health_group_name_rejected(bad_name):
+    with pytest.raises(ValidationError):
+        CreatePbrHealthGroupRequest(tenant="finance", name=bad_name)
+
+
+def test_ip_sla_policy_defaults_to_icmp():
+    """icmp needs no port, which is why it is the safe default."""
+    req = CreateIpSlaPolicyRequest(tenant="finance", name="fw-icmp")
+    assert req.sla_type == "icmp"
+    assert req.port is None
+
+
+def test_ip_sla_tcp_probe_requires_a_port():
+    """A TCP probe with no port cannot be programmed -- ACI would reject it
+    later, so it is refused here where the error is explainable."""
+    with pytest.raises(ValidationError):
+        CreateIpSlaPolicyRequest(tenant="finance", name="fw-tcp", sla_type="tcp")
+
+
+def test_ip_sla_tcp_probe_with_a_port_is_accepted():
+    req = CreateIpSlaPolicyRequest(tenant="finance", name="fw-tcp", sla_type="tcp", port=443, frequency=5, detect_multiplier=3)
+    assert (req.port, req.frequency, req.detect_multiplier) == (443, 5, 3)
+
+
+@pytest.mark.parametrize("bad_port", [0, 65536])
+def test_ip_sla_rejects_out_of_range_port(bad_port):
+    with pytest.raises(ValidationError):
+        CreateIpSlaPolicyRequest(tenant="finance", name="fw-tcp", sla_type="tcp", port=bad_port)

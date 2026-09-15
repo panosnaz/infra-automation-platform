@@ -1,0 +1,109 @@
+# Full L4-L7 / PBR / Service Graph chain including the constructs added
+# 2026-09-15: the graph's function node, device trunking/promiscuous mode,
+# multi-destination PBR, redirect health groups and IP SLA monitoring.
+#
+# Deliberately a PHYSICAL device with no VMM domain, so a live apply of this
+# fixture creates only tenant-scoped objects and touches nothing fabric-wide.
+apic:
+  access_policies:
+    physical_domains:
+      - name: zz-svc-physdom
+  tenants:
+    - name: zz-l4l7-resilient
+      vrfs:
+        - name: svc-vrf
+      bridge_domains:
+        - name: consumer-bd
+          vrf: svc-vrf
+          subnets:
+            - ip: 10.251.1.1/24
+              private: true
+        - name: provider-bd
+          vrf: svc-vrf
+          subnets:
+            - ip: 10.251.2.1/24
+              private: true
+      application_profiles:
+        - name: svc-ap
+          endpoint_groups:
+            - name: consumer-epg
+              bridge_domain: consumer-bd
+              consumed_contracts: [c2p]
+            - name: provider-epg
+              bridge_domain: provider-bd
+              provided_contracts: [c2p]
+      filters:
+        - name: tcp-filter
+          entries:
+            - name: https
+              ether_type: ip
+              ip_protocol: tcp
+              dest_from_port: "443"
+              dest_to_port: "443"
+      contracts:
+        - name: c2p
+          scope: context
+          subjects:
+            - name: c2p-subj
+              filters: [tcp-filter]
+              service_graph: fw-graph
+      services:
+        health_groups:
+          - name: fw-hg
+        ip_sla_policies:
+          - name: fw-icmp
+            sla_type: icmp
+            frequency: 5
+            detect_multiplier: 3
+        devices:
+          - name: fw
+            service_type: FW
+            device_type: Physical
+            physical_domain: zz-svc-physdom
+            function_type: GoTo
+            managed: false
+            context_aware: single-Context
+            trunking: true
+            promiscuous_mode: true
+            logical_interfaces:
+              - name: consumer
+              - name: provider
+        service_graphs:
+          - name: fw-graph
+            contract: c2p
+            device: fw
+            node_name: node-1
+            function_type: GoTo
+            managed: false
+            template_type: FW_ROUTED
+            consumer:
+              logical_interface: consumer
+              redirect_policy: consumer-pbr
+              l3_destination: true
+            provider:
+              logical_interface: provider
+              redirect_policy: provider-pbr
+              l3_destination: true
+        redirect_policies:
+          - name: consumer-pbr
+            destination_type: L3
+            ip_sla_policy: fw-icmp
+            hashing_algorithm: sip-dip-prototype
+            threshold_enable: true
+            min_threshold_percent: 20
+            max_threshold_percent: 80
+            threshold_down_action: bypass
+            destinations:
+              - ip: 10.251.1.10
+                mac: "00:11:22:33:44:55"
+                health_group: fw-hg
+              - ip: 10.251.1.11
+                mac: "00:11:22:33:44:56"
+                health_group: fw-hg
+          - name: provider-pbr
+            destination_type: L3
+            ip_sla_policy: fw-icmp
+            destinations:
+              - ip: 10.251.2.10
+                mac: "00:11:22:33:44:65"
+                health_group: fw-hg
