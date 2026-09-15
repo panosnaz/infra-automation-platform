@@ -282,6 +282,40 @@ That is a silent-failure mode, and a bad one: the APIC accepts a path DN naming 
 
 **Why "Pod 1" stays empty either way.** `Fabric > Inventory > Fabric Membership` is the *reservation list* — registration puts entries there. `Fabric > Inventory > Pod 1` is the *topology* — what is physically present and reporting. A node appears there once it boots, is discovered, is assigned a TEP address, receives firmware and is commissioned; `topSystem` (the APIC's list of machines actually running and reporting) stays at 1 until then. Every step of that handshake requires software running on a switch, so there is no configuration path to it. This is the genuine, permanent floor of this lab — distinct from the *configuration* limits corrected elsewhere in this ADR, which turned out not to be limits at all.
 
+## Phase H follow-up — L4-L7 / PBR / Service Graph gap closure ✅ live-verified (2026-09-15)
+
+An audit of the L4-L7 layers against each other found four gaps. Three were the ones looked for; the fourth only surfaced because a real `terraform plan` was run instead of trusting the code read.
+
+**1. Service Graphs had no function node — a correctness bug, not a missing feature.** `aci_l4_l7_service_graph_template` creates *only* the graph shell and its two terminal connectors; confirmed via `terraform providers schema -json`, that resource has no nested blocks and no node attributes. The separate `aci_function_node` resource was never used, so every graph this platform produced contained terminals with nothing between them. A Contract attaching to such a graph has no service node to redirect through and the graph cannot render — and APIC accepts the incomplete graph silently, which is why it went unnoticed through Phase H. Added `aci_function_node.this`, keyed so its `name` matches `aci_logical_device_context.node_name_or_lbl` (a mismatch there binds the device context to a node that does not exist), with `routing_mode = "Redirect"` set automatically whenever either arm carries a redirect policy.
+
+**2. `trunking` and `promiscuous_mode` were unreachable.** Terraform had `lookup()`s for both on `aci_l4_l7_device` from the start, but `CreateL4L7DeviceRequest` had no such fields and `create_l4l7_device()` never wrote them, so both always resolved to `null`. Dead capability, not a design choice. Both are now first-class tool inputs. Promiscuous mode in particular is normally *required* for a virtual firewall/ADC on a VMM domain to see traffic not addressed to its own MAC.
+
+**3. PBR had no resilience constructs and only one destination.** A redirect policy whose single destination dies keeps receiving redirected traffic — a silent black hole. Added:
+* `aci_l4_l7_redirect_health_group` and `aci_ip_sla_monitoring_policy` (both typed provider resources, no `aci_rest_managed` needed), plus `health_groups`/`ip_sla_policies` keys in the generator.
+* Destination-level `health_group`, `second_ip`, `dest_name`, `pod_id`; policy-level `hashing_algorithm`, `threshold_enable`, `min`/`max_threshold_percent`, `threshold_down_action` and the IP SLA relation.
+* **Multi-destination support.** `create_pbr_policy` accepted a single `destination_ip`; Terraform and the YAML had always flattened a `destinations[]` list, so the limit was the tool's alone. The single-destination form is kept as shorthand and normalised into the list by a validator, so the client sees exactly one shape. The tool now returns an explicit WARNING when no destination is bound to a health group — untracked PBR is legal, so it cannot be refused, but it must not be silent.
+* Two new MCP tools: `create_pbr_health_group`, `create_ip_sla_policy` (catalogue now **50**).
+
+**4. A PHYSICAL L4-L7 device could not be created at all.** Found only by running the plan: the provider makes `relation_vns_rs_al_dev_to_phys_dom_p` *mandatory* when `device_type` is PHYSICAL, and `main.tf` had only the VMM relation (`relation_vns_rs_al_dev_to_dom_p`, a different attribute entirely). Every physical service device failed at plan time with `"relation_vns_rs_al_dev_to_phys_dom_p" is required when "device_type" is PHYSICAL`. Fixed by adding the relation, built as a **literal** `uni/phys-<name>` DN rather than a reference to `aci_physical_domain.this[...].id`: the provider validates this attribute at plan time, a reference to a not-yet-created resource is unknown then, and the provider reads unknown as unset — so the reference form fails with the same error even though the attribute *is* configured. `depends_on` restores the ordering the lost reference would have provided.
+
+**Live-verified (apply + destroy) against the real ACI simulator**, via `tests/fixtures/l4l7-pbr-resilient.yaml` — deliberately a PHYSICAL device with no VMM domain, so the run creates only tenant-scoped objects plus one physical domain and touches nothing fabric-wide. `Plan: 31 to add` → `Apply complete! Resources: 31 added` → verified by direct APIC query → `Destroy complete! Resources: 31 destroyed`, tenants back to the original four, faults back to the 13 baseline.
+
+Every relation came back **`state: formed`**, not `unformed` — unlike the physical/protocol L3Out scope, none of this depends on switch hardware, so this is genuine live verification rather than "the APIC accepted it":
+
+| Object | Evidence |
+|---|---|
+| `vnsAbsNode` | `AbsGraph-fw-graph/AbsNode-node-1`, `funcType: GoTo`, `routingMode: Redirect` |
+| `vnsRsNodeToLDev` | → `lDevVip-fw`, **formed** |
+| `vnsLDevVip` | `devtype: PHYSICAL`, **`trunking: yes`**, **`promMode: yes`**, `contextAware: single-Context` |
+| `vnsRsALDevToPhysDomP` | → `uni/phys-zz-svc-physdom`, **formed** |
+| `vnsSvcRedirectPol` | `hashingAlgorithm: sip-dip-prototype`, `thresholdEnable: yes`, `20`/`80`, `thresholdDownAction: bypass` |
+| `vnsRedirectDest` ×3 | each with `rsRedirectHealthGroup` → `redirectHealthGroup-fw-hg`, **formed** |
+| `fvIPSLAMonitoringPol` | `slaType: icmp`, `slaFrequency: 5`, `slaDetectMultiplier: 3`, bound to both policies, **formed** |
+
+Tests: 327 passing (67 generator + 260 MCP); all 50 tools retain both a schema and a dispatch test.
+
+**Still out of scope, and now for the right reason.** Concrete devices (`vnsCDev`) remain unmodeled because they need real vCenter VM identities — *not* because the provider lacks them. `aci_concrete_device` and `aci_concrete_interface` both exist in CiscoDevNet/aci v2.20.0; the comment in `transformer.py` claiming otherwise was wrong and has been corrected.
+
 ## MCP tool catalogue — consolidated index and evidence levels (2026-09-14)
 
 The catalogue had drifted badly out of sync with the code: this ADR and the status tracker both still described 18 tools while 48 were registered, because the work that added the last 30 arrived as live-debugging commits rather than phase increments and nothing prompted a catalogue update. This section is the single consolidated index, so a reader never has to reconstruct the catalogue by grepping `tools/aci.py`. **Query the registry, not this list, if the two ever disagree** — `registry.catalogue()` is authoritative:
@@ -290,7 +324,7 @@ The catalogue had drifted badly out of sync with the code: this ADR and the stat
 cd mcp-server && PYTHONPATH=src python -c "import mcp_server.tools.aci, mcp_server.tools.evpn, mcp_server.tools.generic; from mcp_server.tools.registry import registry; print(len(registry.catalogue()))"
 ```
 
-**48 tools: 44 `cisco_aci`, 3 `vxlan_evpn`, 1 generic.** Grouped by the phase that introduced them:
+**50 tools: 46 `cisco_aci`, 3 `vxlan_evpn`, 1 generic.** Grouped by the phase that introduced them:
 
 | Group | Tools |
 |---|---|
@@ -300,7 +334,7 @@ cd mcp-server && PYTHONPATH=src python -c "import mcp_server.tools.aci, mcp_serv
 | Phase D — VMM + EPG binding | `create_vmm_domain`, `bind_epg_domain` |
 | Phase E — pod policy | `create_pod_policy_group` |
 | Phase F — RBAC | `create_security_domain`, `create_local_user` |
-| Phase H — L4-L7 / PBR | `create_l4l7_device`, `create_service_graph`, `create_one_arm_service_graph`, `create_pbr_policy`, `create_pbr_contract` |
+| Phase H — L4-L7 / PBR | `create_l4l7_device`, `create_service_graph`, `create_one_arm_service_graph`, `create_pbr_policy`, `create_pbr_contract`, `create_pbr_health_group`, `create_ip_sla_policy` |
 | Phase I — VRF route leak | `create_vrf_route_leak` |
 | Phase J — access hierarchy (XML-equivalent) | `create_leaf_interface_profile`, `create_interface_selector`, `create_static_path_binding`, `create_access_port_profile`, `create_access_port_selector`, `create_access_port_block`, `create_leaf_profile`, `create_leaf_selector`, `create_leaf_node_block` |
 | Phase J — protocol L3Out | `create_bgp_l3out`, `create_ospf_l3out`, `create_l3out_node_profile`, `create_l3out_interface_profile`, `create_l3out_interface`, `create_bgp_peer`, `create_ospf_interface`, `create_ospf_interface_policy` |
@@ -311,7 +345,7 @@ cd mcp-server && PYTHONPATH=src python -c "import mcp_server.tools.aci, mcp_serv
 **Evidence levels — these are three different claims and must not be collapsed:**
 
 * **Live-verified over the real MCP protocol (18)** — the Phase A/B/D/F tools plus the three EVPN tools and `show_status`; see the Phase D verification note below for the 2026-09-04 session.
-* **Unit-tested only (30)** — every tool in the Phase A-follow-on, E, H, I, J and DCIM groups. They have never been called over the MCP protocol against live Nautobot.
+* **Unit-tested only (32)** — every tool in the Phase A-follow-on, E, H, I, J and DCIM groups. They have never been called over the MCP protocol against live Nautobot.
 * **Apply-verified against the APIC** — a separate axis again, covered by the phase sections above. A tool being unit-tested says nothing about whether the Terraform it eventually drives applies cleanly.
 
 **Unit-test coverage is complete as of 2026-09-14**: all 48 tools have both a schema-validation test and a dispatch test (`mcp-server/tests/unit/`, 222 cases passing). Before that date 12 tools had no tests at all — the eight Phase J protocol-L3Out tools, `create_leaf_interface_profile`, `create_interface_selector`, `create_static_path_binding`, and `show_status`, the last being the only tool in the catalogue with real branching logic — and 13 more had a dispatch test but no schema test. New tests of note: `show_status` now covers all four of its branches (tenant missing, recorded pipeline id, recorded id that no longer resolves, no id recorded yet); `create_bgp_l3out`/`create_ospf_l3out` pin the injected `protocol=` kwarg, which is the only thing distinguishing two tools that share one schema and is what `local.l3out_bgp_policies`/`l3out_ospf_policies` filter on in `main.tf`; and `create_ospf_interface_policy` asserts the schema has no field capable of carrying a raw authentication key, so an OSPF MD5 key cannot reach Nautobot or the committed YAML.
