@@ -395,6 +395,26 @@ The physical concrete-device model is retained and is correct — it is what the
 
 The path to a genuinely fault-free L4-L7 chain on this lab is the **VMware** route — a concrete device identified by `vmm_controller_dn` + `vm_name` resolves through vCenter rather than a leaf port, so it has no dependency on switch hardware. That needs a VMM Domain with a live Controller (none exists today, `vmmDomP` count 0) and vCenter credentials, which are **not currently in Vault** despite Phase D having used them.
 
+## Virtual (VMM-backed) L4-L7 chain — plan-verified, apply blocked (2026-09-15)
+
+The physical L4-L7 chain bottoms out at 6 faults on this fabric because a concrete device must attach to a leaf port that does not exist. The **virtual** chain has no such dependency: a VMM-backed concrete device identifies its ports by vCenter **vNIC adapter name** (`vnic_name`), not by a `pathep-` DN. It is therefore the only route to a fault-free L4-L7 chain on a switch-less fabric.
+
+`platform/terraform/aci/tests/fixtures/l4l7-vmm-virtual.yaml` transcribes the design from `docs/ACI_PBR_Lab_APIC_SourceOfTruth_EXPANDED.xlsx` (tabs `vmm_domain`, `vlan_pool`, `l4l7_device`, `l4l7_concrete_device`, `l4l7_concrete_interfaces`, `l4l7_cluster_interfaces`, `l4l7_graph_node`).
+
+**Plan-verified against the real APIC: `Plan: 37 to add, 0 to change, 0 to destroy`, and `grep -c pathep-` over the plan returns 0** — no leaf-port dependency anywhere in the chain. All 28 resource types resolve, including `aci_vmm_domain`/`aci_vmm_controller`/`aci_vmm_credential`, `aci_concrete_device`/`aci_concrete_interface`, and `aci_function_node`.
+
+Two corrections the plan surfaced in the workbook data:
+
+* `dvs_version: 6.6.0` is rejected — the provider enum accepts only `5.1`/`5.5`/`6.0`/`6.5`/`6.6`/`7.0`/`unmanaged`. Corrected to `6.6` in the fixture.
+* The workbook's `l4l7_device` tab sets both `trunking_port` and `promiscuous_mode` to `False`, which is consistent with the validator added the same day — though on a VIRTUAL device trunking would have been permitted.
+
+**Apply is blocked on two things, neither of them code:**
+
+1. **The vCenter password is not available.** It is deliberately absent from the workbook (its README: *"vCenter password not stored in plaintext - held in an APIC credential"*) and is not in Vault at `secret/lab/platform`, despite Phase D having used one. It must be supplied via `TF_VAR_vmm_vcenter_password`, never through Nautobot or committed YAML.
+2. **Reachability is unproven.** The workbook's controller is `192.168.10.62`, which does not respond to ping from the platform host and is on a different network from the APIC (`172.30.46.103`). Note this is a *different* vCenter from the `netvcenter.sc.gr` recorded in Phase D — the lab's VMM details have changed and are expected to change again.
+
+**Do not apply with a placeholder password.** APIC would repeatedly attempt to authenticate to the real vCenter as `administrator@dc.local` and risks locking that account out. Applying also makes APIC create a Distributed Virtual Switch in vCenter — a real change to the virtualisation environment, reversible by deleting the domain but not confined to the APIC.
+
 ## MCP tool catalogue — consolidated index and evidence levels (2026-09-14)
 
 The catalogue had drifted badly out of sync with the code: this ADR and the status tracker both still described 18 tools while 48 were registered, because the work that added the last 30 arrived as live-debugging commits rather than phase increments and nothing prompted a catalogue update. This section is the single consolidated index, so a reader never has to reconstruct the catalogue by grepping `tools/aci.py`. **Query the registry, not this list, if the two ever disagree** — `registry.catalogue()` is authoritative:

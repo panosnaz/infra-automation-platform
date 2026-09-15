@@ -1,0 +1,138 @@
+# Virtual (VMM-backed) L4-L7 chain, transcribed from
+# docs/ACI_PBR_Lab_APIC_SourceOfTruth_EXPANDED.xlsx
+# (tabs: vmm_domain, vlan_pool, l4l7_device, l4l7_concrete_device,
+#  l4l7_concrete_interfaces, l4l7_cluster_interfaces, l4l7_graph_node).
+#
+# Why this exists alongside l4l7-pbr-resilient.yaml: a VIRTUAL concrete
+# device identifies its ports by vCenter vNIC ADAPTER NAME, not by a leaf
+# port. There is no `pathep-` DN anywhere in this file, so it has no
+# dependency on switch hardware -- which is why it is the only path to a
+# fault-free L4-L7 chain on a fabric with no switches. The physical fixture
+# bottoms out at 6 faults; see ADR-020.
+#
+# The vCenter password is deliberately absent -- supplied at apply time via
+# TF_VAR_vmm_vcenter_password, same convention as the APIC's own credentials.
+apic:
+  fabric_policies:
+    vlan_pools:
+      - name: vCenter_VMM_Pool
+        alloc_mode: dynamic
+        ranges:
+          - from: 100
+            to: 199
+            alloc_mode: dynamic
+            role: external
+    vmm_domains:
+      - name: vCenter_VMM
+        vendor: VMware
+        vlan_pool: vCenter_VMM_Pool
+        controller:
+          name: vCenter
+          host_or_ip: 192.168.10.62
+          root_cont_name: DC
+          # Workbook says 6.6.0; the provider enum accepts only
+          # 5.1/5.5/6.0/6.5/6.6/7.0/unmanaged -- 6.6.0 fails validation.
+          dvs_version: "6.6"
+        credential:
+          name: vCenter_Creds
+  tenants:
+    - name: zz-l4l7-vmm
+      vrfs:
+        - name: svc-vrf
+      bridge_domains:
+        - name: db-bd
+          vrf: svc-vrf
+          subnets:
+            - ip: 10.252.1.1/24
+              private: true
+        - name: backup-bd
+          vrf: svc-vrf
+          subnets:
+            - ip: 10.252.2.1/24
+              private: true
+      application_profiles:
+        - name: svc-ap
+          endpoint_groups:
+            - name: db-epg
+              bridge_domain: db-bd
+              consumed_contracts: [db-to-backup]
+            - name: backup-epg
+              bridge_domain: backup-bd
+              provided_contracts: [db-to-backup]
+      filters:
+        - name: any-filter
+          entries:
+            - name: any
+              ether_type: unspecified
+      contracts:
+        - name: db-to-backup
+          scope: context
+          subjects:
+            - name: db-to-backup-subj
+              filters: [any-filter]
+              service_graph: FW_SGT
+      services:
+        health_groups:
+          - name: fw-hg
+        ip_sla_policies:
+          - name: fw-icmp
+            sla_type: icmp
+            frequency: 5
+            detect_multiplier: 3
+        devices:
+          # Workbook l4l7_device: trunking and promiscuous both False,
+          # context_aware Single, unmanaged virtual ASAv.
+          - name: FW
+            service_type: FW
+            device_type: Virtual
+            vmm_domain: vCenter_VMM
+            function_type: GoTo
+            managed: false
+            context_aware: single-Context
+            trunking: false
+            promiscuous_mode: false
+            concrete_devices:
+              # Identified by vCenter VM name -- no leaf port involved.
+              - name: FW_concrete
+                vm_name: ASAv
+                interfaces:
+                  - name: concrete_db_int
+                    vnic_name: "Network adapter 2"
+                  - name: concrete_backup_int
+                    vnic_name: "Network adapter 3"
+            logical_interfaces:
+              - name: db_int
+                concrete_interfaces: ["FW_concrete/concrete_db_int"]
+              - name: backup_int
+                concrete_interfaces: ["FW_concrete/concrete_backup_int"]
+        service_graphs:
+          - name: FW_SGT
+            contract: db-to-backup
+            device: FW
+            node_name: N1
+            function_type: GoTo
+            managed: false
+            template_type: FW_ROUTED
+            consumer:
+              logical_interface: db_int
+              redirect_policy: db-pbr
+              l3_destination: true
+            provider:
+              logical_interface: backup_int
+              redirect_policy: backup-pbr
+              l3_destination: true
+        redirect_policies:
+          - name: db-pbr
+            destination_type: L3
+            ip_sla_policy: fw-icmp
+            destinations:
+              - ip: 10.252.1.10
+                mac: "00:50:56:AA:BB:01"
+                health_group: fw-hg
+          - name: backup-pbr
+            destination_type: L3
+            ip_sla_policy: fw-icmp
+            destinations:
+              - ip: 10.252.2.10
+                mac: "00:50:56:AA:BB:02"
+                health_group: fw-hg
