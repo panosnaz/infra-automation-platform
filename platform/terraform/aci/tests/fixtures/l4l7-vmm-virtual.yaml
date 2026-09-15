@@ -1,3 +1,6 @@
+# EVIDENCE: plan-verified only (37 to add, 0 pathep- references). Apply is
+# blocked on the vCenter password and on unproven reachability to
+# 192.168.10.62 -- see ADR-020. Do NOT apply with a placeholder password.
 # Virtual (VMM-backed) L4-L7 chain, transcribed from
 # docs/ACI_PBR_Lab_APIC_SourceOfTruth_EXPANDED.xlsx
 # (tabs: vmm_domain, vlan_pool, l4l7_device, l4l7_concrete_device,

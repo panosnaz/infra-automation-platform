@@ -1,3 +1,5 @@
+# EVIDENCE: plan-verified only -- superseded for live testing by
+# l4l7-pbr-resilient.yaml, which is apply+destroy verified.
 apic:
   fabric_policies:
     vmm_domains:

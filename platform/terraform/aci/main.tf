@@ -960,6 +960,12 @@ resource "aci_concrete_device" "this" {
 # Critically it raises NO fault of its own, so modelling concrete devices
 # is still worth doing here: it clears every structural L4-L7 fault even
 # though the port itself can never come up on this simulator.
+# EVIDENCE: live-verified apply + destroy, but the PHYSICAL path bottoms
+# out at 6 APIC faults on this fabric and cannot reach zero -- a concrete
+# device is an appliance plugged into a leaf port, and there are no
+# switches. Measured both with the path attachment present (unformed) and
+# omitted entirely; both give 6. Read any count ABOVE 6 as a regression.
+# The virtual (VMM) path has no such floor -- see l4l7-vmm-virtual.yaml.
 resource "aci_concrete_interface" "this" {
   for_each = local.l4l7_concrete_interfaces
 
@@ -1262,6 +1268,12 @@ resource "aci_logical_interface_profile" "this" {
   description             = lookup(each.value, "description", null)
 }
 
+# EVIDENCE: plan-verified only -- no apply has ever been run for the
+# physical/protocol L3Out scope. The APIC accepts a pathep- DN naming a
+# switch that does not exist and leaves the relation state: unformed
+# (measured 2026-09-14), so an apply is expected to SUCCEED -- but expected
+# is not verified. Promote to live-verified only after a real apply +
+# destroy with check_apic_faults.py showing no new faults.
 resource "aci_l3out_path_attachment" "this" {
   for_each                     = local.l3out_interfaces
   logical_interface_profile_dn = aci_logical_interface_profile.this[each.value.interface_profile_key].id
@@ -1297,6 +1309,9 @@ resource "aci_l3out_bgp_protocol_profile" "this" {
   logical_node_profile_dn = one([for k, p in local.l3out_node_profiles : aci_logical_node_profile.this[k].id if startswith(k, "${each.key}/")])
 }
 
+# EVIDENCE: plan-verified only -- see aci_l3out_path_attachment above. No
+# BGP session can ever establish on this fabric (no switches), so only the
+# configuration half is verifiable here.
 resource "aci_bgp_peer_connectivity_profile" "this" {
   for_each            = local.bgp_peers
   parent_dn           = aci_l3out_path_attachment.this[each.value.interface_key].id
@@ -1346,6 +1361,9 @@ resource "aci_ospf_interface_policy" "this" {
 # ---------------------------------------------------------------------------
 # VRF Route Leaking
 # ---------------------------------------------------------------------------
+# EVIDENCE: plan-verified only -- apply has never been run for VRF route
+# leaking in this repo's history. It has no dependency on switch hardware,
+# so a clean apply is expected; verify before claiming it.
 resource "aci_vrf_leak_epg_bd_subnet" "this" {
   for_each = local.vrf_route_leaks
 

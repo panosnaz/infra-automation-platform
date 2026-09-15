@@ -21,6 +21,8 @@ class ShowStatusRequest(BaseModel):
 
 @registry.register(
     name="show_status",
+    evidence="live-verified",
+    evidence_note="MCP protocol, Milestone 6 gate -- merged Nautobot + live GitLab status",
     domain="generic",
     description=(
         "Merge Nautobot's stored deployment status (validation_status, "

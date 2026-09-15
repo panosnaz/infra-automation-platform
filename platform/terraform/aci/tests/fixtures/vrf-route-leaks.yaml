@@ -1,3 +1,4 @@
+# EVIDENCE: plan-verified only -- apply never run for VRF route leaking.
 apic:
   tenants:
     - name: route-leak-plan-test

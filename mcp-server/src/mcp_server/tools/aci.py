@@ -74,6 +74,8 @@ from mcp_server.tools.registry import registry
 
 @registry.register(
     name="create_tenant",
+    evidence="live-verified",
+    evidence_note="MCP protocol + Nautobot, Milestone 6 end-to-end",
     domain="cisco_aci",
     description=(
         "Create a new Cisco ACI Tenant by writing a Tenant object directly "
@@ -99,6 +101,8 @@ def create_tenant(request: CreateTenantRequest, *, nautobot: NautobotClient) -> 
 
 @registry.register(
     name="create_vrf",
+    evidence="live-verified",
+    evidence_note="MCP protocol + Nautobot, Milestone 6 end-to-end",
     domain="cisco_aci",
     description=(
         "Create a VRF inside an existing Cisco ACI Tenant by writing an "
@@ -118,6 +122,8 @@ def create_vrf(request: CreateVrfRequest, *, nautobot: NautobotClient) -> dict:
 
 @registry.register(
     name="create_bridge_domain",
+    evidence="live-verified",
+    evidence_note="MCP protocol + Nautobot, Milestone 6 end-to-end",
     domain="cisco_aci",
     description=(
         "Create a Bridge Domain inside an existing Cisco ACI Tenant/VRF by "
@@ -145,6 +151,8 @@ def create_bridge_domain(request: CreateBridgeDomainRequest, *, nautobot: Nautob
 
 @registry.register(
     name="create_epg",
+    evidence="live-verified",
+    evidence_note="MCP protocol + Nautobot (ADR-020 Phase A)",
     domain="cisco_aci",
     description=(
         "Create an EPG inside an existing Cisco ACI Tenant by writing a "
@@ -176,6 +184,8 @@ def create_epg(request: CreateEpgRequest, *, nautobot: NautobotClient) -> dict:
 
 @registry.register(
     name="bind_epg_domain",
+    evidence="live-verified",
+    evidence_note="MCP protocol session 2026-09-04, verified in Nautobot then cleaned up",
     domain="cisco_aci",
     description=(
         "Bind an existing EPG to a Physical or VMM Domain (ADR-020 Phase D "
@@ -204,6 +214,8 @@ def bind_epg_domain(request: BindEpgDomainRequest, *, nautobot: NautobotClient) 
 
 @registry.register(
     name="create_contract",
+    evidence="live-verified",
+    evidence_note="MCP protocol + Nautobot (ADR-020 Phase A)",
     domain="cisco_aci",
     description=(
         "Create a Contract (with a single Subject binding one Filter) "
@@ -365,6 +377,8 @@ def bind_epg_contract(request: BindEpgContractRequest, *, nautobot: NautobotClie
 
 @registry.register(
     name="create_l3out",
+    evidence="live-verified",
+    evidence_note="MCP protocol + Nautobot (ADR-020 Phase A, logical scope)",
     domain="cisco_aci",
     description=(
         "Create an L3Out (with a single External EPG + subnet) inside an "
@@ -394,6 +408,8 @@ def create_l3out(request: CreateL3OutRequest, *, nautobot: NautobotClient) -> di
 
 @registry.register(
     name="create_vlan_pool",
+    evidence="live-verified",
+    evidence_note="MCP protocol session 2026-09-04",
     domain="cisco_aci",
     description=(
         "Create or extend a fabric-wide VLAN Pool by writing to the "
@@ -425,6 +441,8 @@ def create_vlan_pool(request: CreateVlanPoolRequest, *, nautobot: NautobotClient
 
 @registry.register(
     name="create_physical_domain",
+    evidence="live-verified",
+    evidence_note="MCP protocol session 2026-09-04",
     domain="cisco_aci",
     description=(
         "Create a Physical Domain, optionally bound to an existing VLAN "
@@ -450,6 +468,8 @@ def create_physical_domain(request: CreatePhysicalDomainRequest, *, nautobot: Na
 
 @registry.register(
     name="create_aep",
+    evidence="live-verified",
+    evidence_note="MCP protocol session 2026-09-04",
     domain="cisco_aci",
     description=(
         "Create or extend an Attachable Access Entity Profile (AEP), bound "
@@ -474,6 +494,8 @@ def create_aep(request: CreateAepRequest, *, nautobot: NautobotClient) -> dict:
 
 @registry.register(
     name="create_leaf_interface_policy_group",
+    evidence="live-verified",
+    evidence_note="MCP protocol session 2026-09-04",
     domain="cisco_aci",
     description=(
         "Create a Leaf Interface Policy Group, optionally bound to an "
@@ -628,6 +650,8 @@ def create_ospf_interface_policy(request: CreateOspfInterfacePolicyRequest, *, n
 
 @registry.register(
     name="create_vmm_domain",
+    evidence="live-verified",
+    evidence_note="MCP protocol session 2026-09-04, against this lab's real vCenter",
     domain="cisco_aci",
     description=(
         "Create a VMM Domain and its Controller (vCenter host/datacenter "
@@ -661,6 +685,8 @@ def create_vmm_domain(request: CreateVmmDomainRequest, *, nautobot: NautobotClie
 
 @registry.register(
     name="create_security_domain",
+    evidence="live-verified",
+    evidence_note="MCP protocol session 2026-09-04 (ADR-020 Phase F)",
     domain="cisco_aci",
     description=(
         "Create a Security Domain (RBAC) by writing to the aci_aaa_policies "
@@ -679,6 +705,8 @@ def create_security_domain(request: CreateSecurityDomainRequest, *, nautobot: Na
 
 @registry.register(
     name="create_local_user",
+    evidence="live-verified",
+    evidence_note="MCP protocol session 2026-09-04 (ADR-020 Phase F)",
     domain="cisco_aci",
     description=(
         "Create a Local User, optionally bound to one Security Domain + "

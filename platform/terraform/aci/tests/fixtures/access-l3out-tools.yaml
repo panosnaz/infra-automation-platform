@@ -1,3 +1,7 @@
+# EVIDENCE: plan-verified only -- no apply has been run for this scope, and
+# the plan emits ZERO aci_l3out_ospf_interface_profile resources despite
+# declaring OSPF (the fixture nests ospf: under the interface; main.tf reads
+# ospf_interfaces at the L3Out level). A clean plan is not coverage.
 apic:
   fabric_policies:
     vlan_pools:

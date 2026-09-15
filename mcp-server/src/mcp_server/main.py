@@ -136,7 +136,23 @@ def _register_with_mcp(server: MCPServer, spec, available_clients: dict) -> None
     ]
     _tool_impl.__signature__ = inspect.Signature(params)
 
-    server.tool(name=spec.name, description=spec.description)(_tool_impl)
+    # Surface the evidence level to the AI client that is about to call this.
+    # A tool proven only by offline unit tests may still fail the first time it
+    # touches live Nautobot, and the agent should be able to say so to the user
+    # rather than reporting confident success. Only stated when it is NOT
+    # live-verified -- no need to caveat the tools that are.
+    description = spec.description
+    if spec.evidence != "live-verified":
+        caveat = f" [EVIDENCE: {spec.evidence}"
+        if spec.evidence_note:
+            caveat += f" -- {spec.evidence_note}"
+        caveat += (
+            ". This tool has not been exercised against live infrastructure; "
+            "report that uncertainty if it fails.]"
+        )
+        description += caveat
+
+    server.tool(name=spec.name, description=description)(_tool_impl)
 
 
 def main() -> None:

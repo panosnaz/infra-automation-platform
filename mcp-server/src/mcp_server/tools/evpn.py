@@ -17,6 +17,8 @@ from mcp_server.tools.registry import registry
 
 @registry.register(
     name="create_evpn_tenant",
+    evidence="live-verified",
+    evidence_note="MCP protocol + Nautobot (ADR-021)",
     domain="vxlan_evpn",
     description=(
         "Create a new VXLAN EVPN Tenant by writing a Tenant object "
@@ -43,6 +45,8 @@ def create_evpn_tenant(request: CreateEvpnTenantRequest, *, nautobot: NautobotCl
 
 @registry.register(
     name="create_evpn_vrf",
+    evidence="live-verified",
+    evidence_note="MCP protocol + Nautobot (ADR-021)",
     domain="vxlan_evpn",
     description=(
         "Create a VRF inside an existing VXLAN EVPN Tenant by writing an "
@@ -67,6 +71,8 @@ def create_evpn_vrf(request: CreateEvpnVrfRequest, *, nautobot: NautobotClient) 
 
 @registry.register(
     name="create_evpn_bridge_domain",
+    evidence="live-verified",
+    evidence_note="MCP protocol + Nautobot (ADR-021)",
     domain="vxlan_evpn",
     description=(
         "Create a Bridge Domain inside an existing VXLAN EVPN Tenant/VRF "
