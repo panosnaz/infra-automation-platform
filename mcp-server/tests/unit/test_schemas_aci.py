@@ -1100,3 +1100,57 @@ def test_ip_sla_tcp_probe_with_a_port_is_accepted():
 def test_ip_sla_rejects_out_of_range_port(bad_port):
     with pytest.raises(ValidationError):
         CreateIpSlaPolicyRequest(tenant="finance", name="fw-tcp", sla_type="tcp", port=bad_port)
+
+
+def test_trunking_rejected_on_a_physical_device():
+    """Trunking is a VMM port-group option. Setting it on a PHYSICAL device
+    is accepted by APIC and then flagged invalid -- proven 2026-09-15 by an
+    A/B probe of two identical PHYSICAL devices differing only in trunking,
+    which isolated three faults caused solely by trunking=yes, led by
+    'Configuration is invalid due to trunked port group option specified for
+    physical device'. Refused here so the mistake never reaches a fault log
+    nobody reads."""
+    with pytest.raises(ValidationError):
+        CreateL4L7DeviceRequest(
+            tenant="finance", name="fw", consumer_interface="inside",
+            device_type="PHYSICAL", physical_domain="phys-dom", trunking=True,
+        )
+
+
+def test_trunking_allowed_on_a_virtual_device():
+    req = CreateL4L7DeviceRequest(
+        tenant="finance", name="fw", consumer_interface="inside",
+        device_type="VIRTUAL", vmm_domain="finance-vmm", trunking=True,
+    )
+    assert req.trunking is True
+
+
+def test_physical_device_without_trunking_is_accepted():
+    req = CreateL4L7DeviceRequest(
+        tenant="finance", name="fw", consumer_interface="inside",
+        device_type="PHYSICAL", physical_domain="phys-dom", trunking=False,
+    )
+    assert req.device_type.upper() == "PHYSICAL"
+    assert req.trunking is False
+
+
+def test_physical_device_requires_a_physical_domain():
+    """The provider makes relation_vns_rs_al_dev_to_phys_dom_p mandatory for
+    PHYSICAL and fails at PLAN time without it. Terraform and the YAML gained
+    `physical_domain` on 2026-09-15 but the MCP schema did not, so a physical
+    device created through the tool silently had no domain -- Pydantic drops
+    unknown fields -- and then failed the provider check. Same silent-drop
+    shape as an undeclared Nautobot Custom Field."""
+    with pytest.raises(ValidationError):
+        CreateL4L7DeviceRequest(
+            tenant="finance", name="fw", consumer_interface="inside", device_type="PHYSICAL"
+        )
+
+
+def test_virtual_device_still_requires_a_vmm_domain():
+    """Regression guard: the physical rule was added to the same validator
+    that enforces the virtual one."""
+    with pytest.raises(ValidationError):
+        CreateL4L7DeviceRequest(
+            tenant="finance", name="fw", consumer_interface="inside", device_type="VIRTUAL"
+        )

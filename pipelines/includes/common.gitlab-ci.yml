@@ -83,10 +83,17 @@ stages:
     - cd "${TERRAFORM_DIR}"
     - terraform init -input=false
     - terraform plan -input=false -lock-timeout=60s -out=tfplan
+    # Snapshot APIC faults BEFORE anything changes. This fabric already
+    # carries unrelated faults (undiscovered nodes, licensing), so only a
+    # before/after delta can attribute a fault to this deployment.
+    - cd "${CI_PROJECT_DIR}"
+    - pip install --quiet --no-cache-dir PyYAML
+    - python3 platform/workflows/scripts/check_apic_faults.py --snapshot apic-faults-before.json
   resource_group: "terraform-${POLICY_DOMAIN}-${CI_ENVIRONMENT_NAME}"
   artifacts:
     paths:
       - "${TERRAFORM_DIR}/tfplan"
+      - "apic-faults-before.json"
     expire_in: "1 week"
 
 .terraform_apply:
@@ -149,6 +156,32 @@ stages:
     when: always
     paths:
       - "pyats-results/"
+    expire_in: "1 week"
+
+.verify_apic_faults:
+  stage: verify
+  image: "python:3.12-slim"
+  # `terraform apply` succeeding only means APIC accepted the POSTs. APIC
+  # routinely accepts configuration it then marks invalid, raising a fault and
+  # deploying nothing -- proven 2026-09-15, when an apply of this repo's own
+  # L4-L7 fixture completed cleanly with every relation `state: formed` while
+  # the service device was flagged invalid throughout. This job is the only
+  # thing in the pipeline that would have caught it.
+  #
+  # needs: is domain-specific (it must list BOTH terraform_plan, for the
+  # snapshot artifact, and terraform_apply, for ordering) -- set in the domain
+  # pipeline file, same pattern as .write_results below. needs: is not
+  # transitive in GitLab CI.
+  before_script:
+    - apt-get update -qq && apt-get install -y -qq curl >/dev/null
+    - pip install --quiet --no-cache-dir PyYAML
+    - . "${TERRAFORM_DIR}/scripts/load-vault-creds.sh"
+  script:
+    - python3 platform/workflows/scripts/check_apic_faults.py --compare apic-faults-before.json "${NETASCODE_YAML}"
+  artifacts:
+    when: always
+    paths:
+      - "apic-faults-before.json"
     expire_in: "1 week"
 
 .write_results:

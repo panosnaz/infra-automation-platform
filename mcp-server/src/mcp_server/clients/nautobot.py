@@ -1213,6 +1213,7 @@ class NautobotClient:
         managed: bool = False,
         context_aware: str = "single-Context",
         vmm_domain: str | None = None,
+        physical_domain: str | None = None,
         trunking: bool = False,
         promiscuous_mode: bool = False,
         description: str = "",
@@ -1234,6 +1235,8 @@ class NautobotClient:
                 entry["logical_interfaces"].append({"name": provider_interface})
             if vmm_domain:
                 entry["vmm_domain"] = vmm_domain
+            if physical_domain:
+                entry["physical_domain"] = physical_domain
             if description:
                 entry["description"] = description
             devices = self._update_l4l7_services(tenant_obj, "devices", entry)

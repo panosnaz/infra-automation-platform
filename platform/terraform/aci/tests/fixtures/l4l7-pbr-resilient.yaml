@@ -5,9 +5,22 @@
 # Deliberately a PHYSICAL device with no VMM domain, so a live apply of this
 # fixture creates only tenant-scoped objects and touches nothing fabric-wide.
 apic:
+  fabric_policies:
+    # A service Physical Domain with no VLAN namespace raises
+    # "Configuration is invalid due to no vlan/vxlan namespace found" on the
+    # L4-L7 device -- caught by check_apic_faults.py, invisible before it.
+    vlan_pools:
+      - name: zz-svc-pool
+        alloc_mode: dynamic
+        ranges:
+          - from: 3900
+            to: 3910
+            alloc_mode: inherit
+            role: external
   access_policies:
     physical_domains:
       - name: zz-svc-physdom
+        vlan_pool: zz-svc-pool
   tenants:
     - name: zz-l4l7-resilient
       vrfs:
@@ -63,7 +76,7 @@ apic:
             function_type: GoTo
             managed: false
             context_aware: single-Context
-            trunking: true
+            trunking: false          # invalid on a PHYSICAL device -- see ADR-020
             promiscuous_mode: true
             logical_interfaces:
               - name: consumer

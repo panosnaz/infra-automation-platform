@@ -97,6 +97,16 @@ pyats_verify:
     <<: *aci_job_vars
     NAUTOBOT_URL: "http://host.docker.internal:8080"
 
+verify_apic_faults:
+  extends: ".verify_apic_faults"
+  needs:
+    - job: "terraform_plan"          # supplies apic-faults-before.json
+    - job: "terraform_apply"         # ordering only -- must run after the change
+    - job: "generate_nac"            # supplies NETASCODE_YAML (names the managed tenants)
+  variables:
+    <<: *aci_job_vars
+    NAUTOBOT_URL: "http://host.docker.internal:8080"
+
 # needs generate_nac explicitly (not just the normal upstream chain) so this
 # job always downloads the freshly-generated NETASCODE_YAML artifact, even
 # when pyats_verify (and everything after policy_check) was skipped/failed --

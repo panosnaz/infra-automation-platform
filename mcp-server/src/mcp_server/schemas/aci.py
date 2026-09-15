@@ -683,6 +683,7 @@ class CreateL4L7DeviceRequest(BaseModel):
     managed: bool = Field(default=False, description="Whether APIC manages the service device.")
     context_aware: str = Field(default="single-Context", description="ACI context-awareness mode.")
     vmm_domain: str | None = Field(default=None, description="Existing VMM Domain name. Required when device_type is VIRTUAL.")
+    physical_domain: str | None = Field(default=None, description="Existing Physical Domain name. Required when device_type is PHYSICAL -- the provider makes the physDomP relation mandatory for a physical service device.")
     trunking: bool = Field(default=False, description="Trunking port mode on the service device interfaces (vnsLDevVip.trunking).")
     promiscuous_mode: bool = Field(default=False, description="Promiscuous mode -- normally required for a virtual firewall/ADC on a VMM domain to see traffic not addressed to its own MAC (vnsLDevVip.promMode).")
     description: str = Field(default="", description="Optional free-text description.")
@@ -693,9 +694,48 @@ class CreateL4L7DeviceRequest(BaseModel):
         return _validate_aci_name(v) if v is not None else v
 
     @model_validator(mode="after")
-    def _validate_virtual_device_vmm_domain(self):
-        if self.device_type.upper() == "VIRTUAL" and not self.vmm_domain:
+    def _trunking_is_virtual_only(self):
+        """Trunking is a VMM port-group option and is invalid on a PHYSICAL
+        device.
+
+        APIC accepts the combination and then marks the device invalid, so
+        nothing downstream fails -- proven 2026-09-15 by an A/B probe of two
+        identical PHYSICAL devices differing only in `trunking`, which
+        isolated three faults caused solely by trunking=yes, led by
+        "Configuration is invalid due to trunked port group option specified
+        for physical device". Refusing it here turns a silent invalid object
+        into an immediate, explainable error -- same rationale as
+        CreateTenantRequest mirroring the OPA naming rule.
+        """
+        if self.trunking and self.device_type.upper() == "PHYSICAL":
+            raise ValueError(
+                "trunking is a VMM port-group option and is invalid on a PHYSICAL "
+                "device -- APIC accepts it and then flags the L4-L7 device as "
+                "invalid. Set trunking=False, or use device_type='VIRTUAL' with a "
+                "vmm_domain."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _validate_device_domain_binding(self):
+        """Each device type binds to a different domain through a different
+        provider attribute, and both are mandatory.
+
+        VIRTUAL -> relation_vns_rs_al_dev_to_dom_p (a VMM domain).
+        PHYSICAL -> relation_vns_rs_al_dev_to_phys_dom_p, which the provider
+        rejects at PLAN time when absent ("is required when device_type is
+        PHYSICAL"). Catching both here means the failure names the missing
+        field instead of surfacing as a provider error twenty minutes later.
+        """
+        device_type = self.device_type.upper()
+        if device_type == "VIRTUAL" and not self.vmm_domain:
             raise ValueError("vmm_domain is required when device_type is VIRTUAL")
+        if device_type == "PHYSICAL" and not self.physical_domain:
+            raise ValueError(
+                "physical_domain is required when device_type is PHYSICAL -- the "
+                "provider makes relation_vns_rs_al_dev_to_phys_dom_p mandatory and "
+                "fails at plan time without it"
+            )
         return self
 
 
