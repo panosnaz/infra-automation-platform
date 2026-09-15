@@ -151,6 +151,31 @@ locals {
     }
   ]...)
 
+  # Concrete devices (2026-09-15). A logical L4-L7 device with no concrete
+  # device is INVALID, not merely incomplete -- measured: it raises
+  # "No device found in cluster", "LIf has no relation to CIf" and
+  # "invalid abstract graph config", and the service graph never renders.
+  # Concrete devices are what make the whole L4-L7 chain valid.
+  l4l7_concrete_devices = merge([
+    for device_key, device in local.l4l7_devices : {
+      for cdev in lookup(device, "concrete_devices", []) :
+      "${device_key}/${cdev.name}" => merge(cdev, {
+        tenant_name = device.tenant_name
+        device_key  = device_key
+      })
+    }
+  ]...)
+
+  l4l7_concrete_interfaces = merge([
+    for cdev_key, cdev in local.l4l7_concrete_devices : {
+      for cif in lookup(cdev, "interfaces", []) :
+      "${cdev_key}/${cif.name}" => merge(cif, {
+        tenant_name = cdev.tenant_name
+        cdev_key    = cdev_key
+      })
+    }
+  ]...)
+
   service_graphs = merge([
     for tn, t in local.tenants : {
       for graph in lookup(lookup(t, "services", {}), "service_graphs", []) :
@@ -896,6 +921,83 @@ resource "aci_l4_l7_logical_interface" "this" {
   l4_l7_device_dn = aci_l4_l7_device.this["${each.value.tenant_name}/${each.value.device_name}"].id
   name            = each.value.name
   description     = lookup(each.value, "description", null)
+
+  # Binding the logical interface to its concrete interface(s) is what
+  # clears "LIf has no relation to CIf" / "LIf has an invalid CIf". Without
+  # it the device is invalid however complete the rest of the graph looks.
+  # Referenced by "<concrete_device>/<interface>" so one logical interface
+  # can front several concrete ones (an HA pair).
+  relation_vns_rs_c_if_att_n = [
+    for ref in lookup(each.value, "concrete_interfaces", []) :
+    aci_concrete_interface.this["${each.value.tenant_name}/${each.value.device_name}/${ref}"].id
+  ]
+
+  # Left unset by default. For an UNMANAGED device APIC allocates the encap
+  # from the domain's VLAN pool; pinning one that is not in the pool raises
+  # "Configuration is invalid due to invalid encapsulation on LIf".
+  encap = lookup(each.value, "encap", null)
+}
+
+# vnsCDev -- the actual appliance behind the logical device.
+resource "aci_concrete_device" "this" {
+  for_each = local.l4l7_concrete_devices
+
+  l4_l7_device_dn = aci_l4_l7_device.this[each.value.device_key].id
+  name            = each.value.name
+  description     = lookup(each.value, "description", null)
+
+  # vm_name/vmm_controller_dn apply to a VIRTUAL device discovered from
+  # vCenter; a PHYSICAL concrete device is identified by its interfaces'
+  # paths instead, so both stay null here.
+  vm_name            = lookup(each.value, "vm_name", null)
+  vmm_controller_dn  = lookup(each.value, "vmm_controller_dn", null)
+}
+
+# vnsCIf -- a physical port on the appliance, attached to a leaf port.
+#
+# The path attachment resolves to `pathep-[...]` and therefore stays
+# `state: unformed` on a fabric with no switches -- measured 2026-09-15.
+# Critically it raises NO fault of its own, so modelling concrete devices
+# is still worth doing here: it clears every structural L4-L7 fault even
+# though the port itself can never come up on this simulator.
+resource "aci_concrete_interface" "this" {
+  for_each = local.l4l7_concrete_interfaces
+
+  concrete_device_dn = aci_concrete_device.this[each.value.cdev_key].id
+  name               = each.value.name
+  vnic_name          = lookup(each.value, "vnic_name", null)
+  encap              = lookup(each.value, "encap", null)
+
+  # NOTE: relation_vns_rs_c_if_path_att is deliberately NOT set here -- see
+  # aci_rest_managed.concrete_interface_path below.
+}
+
+# vnsRsCIfPathAtt -- the concrete interface's attachment to a leaf port.
+#
+# Set through aci_rest_managed rather than aci_concrete_interface's own
+# `relation_vns_rs_c_if_path_att` attribute because the typed resource
+# PRE-VALIDATES that the target DN resolves and fails the apply outright
+# with "Relation target dn topology/pod-1/paths-101/pathep-[eth1/30] not
+# found" on a fabric with no switches.
+#
+# That is a PROVIDER check, not an APIC rule -- verified 2026-09-15 by
+# POSTing the identical object over raw REST, which the APIC accepted and
+# stored with `state: unformed`, exactly like every other pathep- relation
+# in this module. aci_rest_managed issues the same raw POST, so it behaves
+# the way the rest of this file already does: configuration is stored,
+# the relation forms if and when real hardware appears.
+#
+# Ordinary destroy behaviour is correct -- this is an additive relation on
+# an object this module owns, not a mandatory system singleton, so no
+# content_on_destroy is needed (contrast the Phase C/G resources).
+resource "aci_rest_managed" "concrete_interface_path" {
+  for_each = { for k, i in local.l4l7_concrete_interfaces : k => i if lookup(i, "node_id", null) != null }
+
+  dn         = "${aci_concrete_interface.this[each.key].id}/rsCIfPathAtt"
+  class_name = "vnsRsCIfPathAtt"
+  content = {
+    tDn = "topology/pod-${lookup(each.value, "pod_id", 1)}/paths-${each.value.node_id}/pathep-[eth${each.value.module}/${each.value.port}]"
+  }
 }
 
 resource "aci_l4_l7_service_graph_template" "this" {

@@ -358,6 +358,43 @@ Adding a complete concrete device clears every *structural* fault — "No device
 
 **Consequence for the roadmap:** the earlier decision to leave `vnsCDev`/`vnsCIf` unmodelled was made on the assumption that they add untestable code. That assumption is wrong — they are what makes an L4-L7 device valid at all, and the path attachment being `unformed` does not itself raise a fault. Modelling them is the difference between a permanently-faulted service graph and one that is structurally correct. Treat this as the next increment, not as deferred scope.
 
+## Concrete devices implemented; the true L4-L7 floor measured (2026-09-15)
+
+Acting on the finding above that a logical L4-L7 device is invalid without a concrete device, `vnsCDev`/`vnsCIf` are now modelled — `aci_concrete_device`, `aci_concrete_interface`, and the logical interface's `relation_vns_rs_c_if_att_n` binding.
+
+**Result: 10 → 6 new faults, with every structural fault cleared.** "No device found in cluster", "LIf has no relation to CIf" and "LIf has an invalid CIf" all disappear, and `vnsRsCIfAttN` reports `state: formed`.
+
+### The provider blocks what APIC allows
+
+`aci_concrete_interface`'s own `relation_vns_rs_c_if_path_att` attribute **pre-validates that the target path resolves** and fails the apply outright:
+
+```
+Error: Relation target dn topology/pod-1/paths-101/pathep-[eth1/30] not found
+```
+
+This is a **provider check, not an APIC rule** — verified by POSTing the identical object over raw REST, which the APIC accepted and stored with `state: unformed`, exactly like every other `pathep-` relation in this module. The path attachment is therefore set through `aci_rest_managed.concrete_interface_path`, which issues the same raw POST. Without that indirection, concrete devices would be un-appliable on this fabric at all.
+
+Note this is the opposite behaviour to `aci_l3out_path_attachment`, which accepts an unresolvable path happily. Provider-side validation is inconsistent between resources; do not generalise from one to another — test each.
+
+### 6 faults is the floor for PHYSICAL L4-L7 here, and that is unavoidable
+
+Tested both directions on the same tenant:
+
+| Configuration | New faults |
+|---|---|
+| Path attachment present, `state: unformed` | 6 |
+| Path attachment omitted entirely | 6 — explicit `cdev-missing-path-for-interface` |
+
+A concrete device *is* an appliance plugged into a switch port. With no switches in the fabric, it is invalid whether the port is declared or omitted — there is no configuration that makes it valid. **This is the genuine simulator limitation for L4-L7, located at its true layer:** not `device_type`, not the logical device, not the service graph, not PBR — all of those are fully valid. Only the concrete-interface-to-leaf-port attachment.
+
+The residual 6 are all rollups of that one root cause: `F0765` on the concrete device, and `F0764`/`F0772`/`F0757`/`F1690` summarising it upward to the device, its logical interfaces and the graph.
+
+### Decision: keep the code, accept the floor
+
+The physical concrete-device model is retained and is correct — it is what the platform will need the day real leaf ports exist, and it already clears every fault that is not environmental. **Do not treat a clean fault check as achievable for physical L4-L7 on this fabric**, and do not add an allowlist to make it look clean: an allowlist is how a check like this quietly stops catching things. Record the floor, and read any count above 6 on this scope as a real regression.
+
+The path to a genuinely fault-free L4-L7 chain on this lab is the **VMware** route — a concrete device identified by `vmm_controller_dn` + `vm_name` resolves through vCenter rather than a leaf port, so it has no dependency on switch hardware. That needs a VMM Domain with a live Controller (none exists today, `vmmDomP` count 0) and vCenter credentials, which are **not currently in Vault** despite Phase D having used them.
+
 ## MCP tool catalogue — consolidated index and evidence levels (2026-09-14)
 
 The catalogue had drifted badly out of sync with the code: this ADR and the status tracker both still described 18 tools while 48 were registered, because the work that added the last 30 arrived as live-debugging commits rather than phase increments and nothing prompted a catalogue update. This section is the single consolidated index, so a reader never has to reconstruct the catalogue by grepping `tools/aci.py`. **Query the registry, not this list, if the two ever disagree** — `registry.catalogue()` is authoritative:

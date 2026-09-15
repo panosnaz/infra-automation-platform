@@ -1311,3 +1311,42 @@ def test_l4l7_services_omit_resilience_keys_when_unset():
 
     assert "health_groups" not in services
     assert "ip_sla_policies" not in services
+
+
+def test_l4l7_concrete_interface_referencing_an_unknown_node_is_rejected():
+    """A concrete interface resolves to the same topology/pod-N/paths-M DN as
+    a static path, so a typo'd node is just as silent -- APIC accepts it and
+    leaves the path attachment unformed."""
+    tenants = [{
+        "name": "ACI:sales", "description": "", "vrfs": [],
+        "_custom_field_data": {"aci_l4l7_services": {"devices": [{
+            "name": "fw",
+            "concrete_devices": [{"name": "fw1", "interfaces": [
+                {"name": "eth1", "node_id": 999, "pod_id": 1, "module": 1, "port": 30}]}],
+        }]}},
+    }]
+
+    with pytest.raises(FabricInventoryError) as exc:
+        build_netascode_yaml(tenants=tenants, prefixes=[], devices=[_device("leaf-a", 101, "leaf")])
+
+    assert "node 999" in str(exc.value)
+    assert "concrete interface 'eth1'" in str(exc.value)
+
+
+def test_l4l7_concrete_interface_on_a_known_node_is_accepted():
+    tenants = [{
+        "name": "ACI:sales", "description": "", "vrfs": [],
+        "_custom_field_data": {"aci_l4l7_services": {"devices": [{
+            "name": "fw",
+            "concrete_devices": [{"name": "fw1", "interfaces": [
+                {"name": "eth1", "node_id": 101, "pod_id": 1, "module": 1, "port": 30}]}],
+            "logical_interfaces": [{"name": "consumer", "concrete_interfaces": ["fw1/eth1"]}],
+        }]}},
+    }]
+
+    services = build_netascode_yaml(
+        tenants=tenants, prefixes=[], devices=[_device("leaf-a", 101, "leaf")]
+    )["apic"]["tenants"][0]["services"]
+
+    assert services["devices"][0]["concrete_devices"][0]["interfaces"][0]["node_id"] == 101
+    assert services["devices"][0]["logical_interfaces"][0]["concrete_interfaces"] == ["fw1/eth1"]

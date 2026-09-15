@@ -78,9 +78,28 @@ apic:
             context_aware: single-Context
             trunking: false          # invalid on a PHYSICAL device -- see ADR-020
             promiscuous_mode: true
+            # A logical device with no concrete device is INVALID -- not
+            # merely incomplete. Measured 2026-09-15: without these, APIC
+            # raises "No device found in cluster" and the service graph
+            # never renders.
+            concrete_devices:
+              - name: fw1
+                interfaces:
+                  - name: eth1
+                    node_id: 101
+                    pod_id: 1
+                    module: 1
+                    port: 30
+                  - name: eth2
+                    node_id: 101
+                    pod_id: 1
+                    module: 1
+                    port: 31
             logical_interfaces:
               - name: consumer
+                concrete_interfaces: ["fw1/eth1"]
               - name: provider
+                concrete_interfaces: ["fw1/eth2"]
         service_graphs:
           - name: fw-graph
             contract: c2p

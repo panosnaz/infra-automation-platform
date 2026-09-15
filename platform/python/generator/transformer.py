@@ -729,6 +729,17 @@ def _collect_node_references(data: dict[str, Any]) -> list[tuple[int, str]]:
                             (int(node_id), f"tenant '{tenant_name}' EPG '{epg.get('name')}' static path")
                         )
 
+        # L4-L7 concrete interfaces resolve to the same
+        # topology/pod-N/paths-M/... DN as a static path, so they get the
+        # same inventory validation -- a typo here is just as silent.
+        for device in (tenant.get("services") or {}).get("devices", []):
+            for cdev in device.get("concrete_devices", []):
+                for interface in cdev.get("interfaces", []):
+                    if (node_id := interface.get("node_id")) is not None:
+                        references.append(
+                            (int(node_id), f"tenant '{tenant_name}' L4-L7 device '{device.get('name')}' concrete interface '{interface.get('name')}'")
+                        )
+
         for l3out in tenant.get("l3outs", []):
             l3out_name = l3out.get("name", "?")
             for node_profile in l3out.get("node_profiles", []):
