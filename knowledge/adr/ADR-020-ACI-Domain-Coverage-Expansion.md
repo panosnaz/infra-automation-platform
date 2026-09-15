@@ -316,6 +316,48 @@ Tests: 327 passing (67 generator + 260 MCP); all 50 tools retain both a schema a
 
 **Still out of scope, and now for the right reason.** Concrete devices (`vnsCDev`) remain unmodeled because they need real vCenter VM identities — *not* because the provider lacks them. `aci_concrete_device` and `aci_concrete_interface` both exist in CiscoDevNet/aci v2.20.0; the comment in `transformer.py` claiming otherwise was wrong and has been corrected.
 
+## L4-L7 validity, the concrete-device boundary, and APIC fault checking (2026-09-15)
+
+### The verification gap this exposed
+
+The 2026-09-14 entry above claimed the L4-L7 scope was "live-verified (apply + destroy)" on the strength of two things: the objects existed, and every relation reported `state: formed`. **That is not sufficient, and the claim was too strong.**
+
+APIC routinely accepts configuration it then marks *invalid* — raising a fault and deploying nothing. Terraform sees only the accepted POST. Re-checking the same apply with a fault delta found **11 new faults** that the original verification never looked at. The 2026-09-14 audit had recommended exactly this check ("Tier 2 — the apply raised no new configuration faults") and the very next feature shipped without it.
+
+**`terraform apply` succeeding means APIC accepted the POSTs. It does not mean the configuration is valid.** Object existence plus `state: formed` does not close that gap.
+
+### Fix: `check_apic_faults.py`
+
+`platform/workflows/scripts/check_apic_faults.py` snapshots `faultInst` before a change and diffs after, failing on any *new* fault whose DN sits under a tenant named in the generated YAML. Scoping matters: this fabric already carries unrelated faults (undiscovered nodes, licensing), and a check that blocks on those gets switched off. Matching anchors on the `tn-<name>/` segment so `sales` never claims a fault belonging to `sales-archive`. Fail-closed on an unreachable APIC, per ADR-014.
+
+Wired into the pipeline: the snapshot is taken at the end of `.terraform_plan` and published as an artifact; `.verify_apic_faults` consumes it in the `verify` stage. Its `needs:` lists `terraform_plan`, `terraform_apply` and `generate_nac` explicitly — `needs:` is not transitive in GitLab CI and the snapshot comes from the plan job.
+
+### Two real defects it caught immediately
+
+**1. `trunking` is invalid on a PHYSICAL device.** An A/B probe of two identical PHYSICAL devices differing only in `trunking` isolated three faults caused solely by `trunking=yes`, led by *"Configuration is invalid due to trunked port group option specified for physical device"*. Trunking is a VMM port-group option. The 2026-09-14 fixture set it on a physical device; the apply succeeded and the device was invalid throughout. Now refused by a `CreateL4L7DeviceRequest` validator.
+
+**2. `physical_domain` was unreachable from MCP.** Terraform and the YAML gained the field on 2026-09-14, but the MCP schema and client did not — so a physical device created *through the tool* silently had no domain (Pydantic drops unknown fields) and then failed the provider's mandatory-relation check at plan time. Same silent-drop shape as an undeclared Nautobot Custom Field. Now a first-class field, and required when `device_type` is PHYSICAL.
+
+### The concrete-device boundary — measured
+
+| Layer | Result |
+|---|---|
+| Logical device `vnsLDevVip` (PHYSICAL or VIRTUAL) | Created; `vnsRsALDevToPhysDomP` **formed** |
+| `vnsCDev` / `vnsCIf` objects | Created |
+| `vnsRsCIfPathAtt` → `pathep-[eth1/30]` | **`unformed`** — same dead end as L3Out, but raises **no fault of its own** |
+
+**A logical L4-L7 device is inherently invalid without a concrete device.** "Logical-only L4-L7" is not a valid subset of the model — it is a permanently-faulted configuration. Measured fault counts for the same tenant:
+
+| Configuration | New faults |
+|---|---|
+| Logical device only, no VLAN pool on the domain | 11 |
+| + VLAN pool on the service Physical Domain | 10 |
+| + complete `vnsCDev` + `vnsCIf` + `vnsRsCIfAttN` | **5** |
+
+Adding a complete concrete device clears every *structural* fault — "No device found in cluster", "LIf has no relation to CIf", "LIf has an invalid CIf", "invalid abstract graph config" all disappear. The residual 5 are encapsulation details and transient relation-formation noise, not architectural blockers.
+
+**Consequence for the roadmap:** the earlier decision to leave `vnsCDev`/`vnsCIf` unmodelled was made on the assumption that they add untestable code. That assumption is wrong — they are what makes an L4-L7 device valid at all, and the path attachment being `unformed` does not itself raise a fault. Modelling them is the difference between a permanently-faulted service graph and one that is structurally correct. Treat this as the next increment, not as deferred scope.
+
 ## MCP tool catalogue — consolidated index and evidence levels (2026-09-14)
 
 The catalogue had drifted badly out of sync with the code: this ADR and the status tracker both still described 18 tools while 48 were registered, because the work that added the last 30 arrived as live-debugging commits rather than phase increments and nothing prompted a catalogue update. This section is the single consolidated index, so a reader never has to reconstruct the catalogue by grepping `tools/aci.py`. **Query the registry, not this list, if the two ever disagree** — `registry.catalogue()` is authoritative:
