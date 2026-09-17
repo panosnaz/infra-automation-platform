@@ -1,0 +1,143 @@
+# L3Out Logical Interface Profile sub-policies (2026-09-16).
+#
+# Every policy an l3extLIfP can carry that this provider can both CREATE and
+# BIND: ND, ingress/egress Data Plane Policing, PIM v4/v6, IGMP, Custom QoS,
+# plus the profile's own QoS priority.
+#
+# None of these depend on a leaf port, a switch, or a vCenter, so unlike the
+# L4-L7 scope this is fully live-verifiable on this simulator.
+#
+# EVIDENCE: see ADR-020. Applied + destroyed against the lab APIC on a
+# throwaway tenant, with the resulting MOs read back to confirm the relations
+# resolve by NAME.
+apic:
+  tenants:
+    - name: ifpol-fixture
+      vrfs:
+        - name: ifpol_VRF
+
+      nd_interface_policies:
+        - name: ND_Strict
+          description: IPv6 ND tuned for a fast-failover edge
+          hop_limit: 64
+          mtu: 1500
+          retransmit_timer: 1000
+          reachable_time: 30000
+          neighbor_solicitation_interval: 1000
+          neighbor_solicitation_retries: 3
+          router_advertisement_interval: 600
+          router_advertisement_lifetime: 1800
+
+      dpp_policies:
+        - name: Ingress_100M
+          description: Ingress policer, 100 Mbps with 200 Mb burst
+          admin_state: enabled
+          type: "1R2C"
+          mode: bit
+          rate: 100
+          rate_unit: mega
+          burst: 200
+          burst_unit: mega
+          conform_action: transmit
+          exceed_action: drop
+        - name: Egress_50M
+          description: Egress policer, 50 Mbps
+          admin_state: enabled
+          type: "1R2C"
+          mode: bit
+          rate: 50
+          rate_unit: mega
+          burst: 100
+          burst_unit: mega
+          conform_action: transmit
+          exceed_action: drop
+
+      pim_interface_policies:
+        - name: PIM_Edge
+          description: PIM on the external edge
+          designated_router_priority: 10
+          hello_interval: 30000
+          join_prune_interval: 60
+        - name: PIM6_Edge
+          description: PIMv6 on the external edge
+          designated_router_priority: 10
+
+      igmp_interface_policies:
+        - name: IGMP_v3
+          description: IGMPv3 querier settings
+          version: v3
+          query_interval: 125
+          response_interval: 10
+          group_timeout: 260
+          last_member_count: 2
+          robustness_variable: 2
+
+      custom_qos_policies:
+        - name: CQos_Edge
+          description: Map inbound DSCP EF to level1
+          dscp_to_priority_maps:
+            - from: EF
+              to: EF
+              priority: level1
+              target: EF
+              target_cos: "5"
+
+      l3outs:
+        - name: IfPol_L3Out
+          vrf: ifpol_VRF
+          # Deliberately NOT ExtL3Dom: an L3 domain is a GLOBAL object, and
+          # this fixture is applied in an isolated state. On 2026-09-16 the
+          # destroy of this fixture deleted the shared ExtL3Dom out from
+          # under the real `sales` L3Outs, leaving both domain relations at
+          # state=missing-target. A fixture must never name a global object
+          # that production intent also uses.
+          domain: IfPol_L3Dom
+          node_profiles:
+            - name: IfPol_NP
+              nodes:
+                - node_id: 101
+                  pod_id: 1
+                  # Must NOT fall inside any interface subnet below -- APIC
+                  # rejects that outright ("Loopback IP address ... belongs to
+                  # the subnet ..."), and it does so even on a fabric with no
+                  # switches. Measured 2026-09-16.
+                  router_id: 10.99.100.1
+              interface_profiles:
+                # Every relation set at once, plus the profile's QoS class.
+                - name: IfPol_Fully_Bound
+                  description: Exercises every bindable policy relation
+                  qos_priority: level3
+                  nd_interface_policy: ND_Strict
+                  ingress_dpp_policy: Ingress_100M
+                  egress_dpp_policy: Egress_50M
+                  pim_interface_policy: PIM_Edge
+                  pim_v6_interface_policy: PIM6_Edge
+                  igmp_interface_policy: IGMP_v3
+                  custom_qos_policy: CQos_Edge
+                  interfaces:
+                    - node_id: 101
+                      pod_id: 1
+                      module: 1
+                      port: 20
+                      ip: 10.99.99.2/30
+                # Control: no policies at all. Proves the relations are left
+                # for APIC to default rather than being forced to a value.
+                #
+                # Note the literal string `default` is NOT valid here: the
+                # provider resolves the name inside the OWNING tenant, and
+                # fails the apply with "Relation target dn default not found"
+                # (measured 2026-09-16). You get tn-common's default by
+                # OMITTING the field, which is what this profile does.
+                - name: IfPol_Bare
+                  description: No policy bindings -- APIC defaults apply
+                  interfaces:
+                    - node_id: 101
+                      pod_id: 1
+                      module: 1
+                      port: 21
+                      ip: 10.99.99.6/30
+          external_epgs:
+            - name: IfPol_ExtNet
+              subnets:
+                - ip: 0.0.0.0/0
+                  scope: [import-security]

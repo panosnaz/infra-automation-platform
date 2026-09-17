@@ -1,0 +1,118 @@
+# Virtual L4-L7 chain WITH a concrete device -- the shape create_concrete_device
+# produces (2026-09-15).
+#
+# Purpose: prove the Terraform path consumes `vnic_name` and
+# `vmm_controller_dn`. main.tf has read both since the concrete-device work
+# landed, but until create_concrete_device existed nothing upstream could
+# produce them, so neither had ever appeared in a real plan.
+#
+# EVIDENCE: plan-verified only. Applying this needs a real vCenter with the
+# appliance VM present -- APIC resolves `vm_name` and each `vnic_name` against
+# the controller's live inventory, they are not free text. Measured on this
+# fabric 2026-09-15: a virtual L4-L7 device with NO controller bottoms out at
+# 10 faults whether or not a concrete device is present, so this fixture is
+# deliberately not applied here.
+apic:
+  tenants:
+    - name: cdev-fixture
+      vrfs:
+        - name: cdev_VRF
+      bridge_domains:
+        - name: cdev_BD
+          vrf: cdev_VRF
+          subnets:
+            - ip: 10.99.1.254/24
+      application_profiles:
+        - name: cdev_AP
+          endpoint_groups:
+            - name: cdev_consumer_EPG
+              bridge_domain: cdev_BD
+            - name: cdev_provider_EPG
+              bridge_domain: cdev_BD
+      filters:
+        - name: cdev_Fltr
+          entries:
+            - name: http
+              ether_type: ip
+              ip_protocol: tcp
+              dest_from_port: "80"
+              dest_to_port: "80"
+      contracts:
+        - name: cdev_Ct
+          scope: context
+          subjects:
+            - name: cdev_Subj
+              filters: [cdev_Fltr]
+              service_graph: cdev_SGT
+      services:
+        devices:
+          - name: cdev_FW
+            device_type: VIRTUAL
+            service_type: FW
+            function_type: GoTo
+            context_aware: single-Context
+            managed: false
+            trunking: false
+            promiscuous_mode: false
+            vmm_domain: cdev_VMM
+            concrete_devices:
+              # Identified through vCenter inventory -- no leaf port involved.
+              - name: ASAv_cdev
+                vm_name: ASAv-1
+                vmm_controller_dn: uni/vmmp-VMware/dom-cdev_VMM/ctrlr-vCenter
+                interfaces:
+                  - name: cif1
+                    vnic_name: "Network adapter 2"
+                  - name: cif2
+                    vnic_name: "Network adapter 3"
+            logical_interfaces:
+              # These bindings are what clear "LIf has no relation to CIf".
+              - name: consumer_int
+                concrete_interfaces: ["ASAv_cdev/cif1"]
+              - name: provider_int
+                concrete_interfaces: ["ASAv_cdev/cif2"]
+        redirect_policies:
+          - name: cdev_consumer_PBR
+            destination_type: L3
+            destinations:
+              - ip: 10.99.1.253
+                mac: 00:50:56:00:00:c1
+          - name: cdev_provider_PBR
+            destination_type: L3
+            destinations:
+              - ip: 10.99.1.252
+                mac: 00:50:56:00:00:c2
+        service_graphs:
+          - name: cdev_SGT
+            contract: cdev_Ct
+            device: cdev_FW
+            node_name: N1
+            template_type: FW_ROUTED
+            consumer:
+              logical_interface: consumer_int
+              redirect_policy: cdev_consumer_PBR
+              l3_destination: false
+            provider:
+              logical_interface: provider_int
+              redirect_policy: cdev_provider_PBR
+              l3_destination: false
+  fabric_policies:
+    vlan_pools:
+      - name: cdev_Pool
+        alloc_mode: dynamic
+        ranges:
+          - from: 300
+            to: 399
+            alloc_mode: dynamic
+            role: external
+    vmm_domains:
+      - name: cdev_VMM
+        vendor: VMware
+        vlan_pool: cdev_Pool
+        # A controller IS declared here, unlike the lab's live vCenter_VMM
+        # domain -- a virtual concrete device cannot resolve without one.
+        controller:
+          name: vCenter
+          host_or_ip: 192.0.2.10
+          root_cont_name: Datacenter
+          dvs_version: unmanaged

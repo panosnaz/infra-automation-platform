@@ -20,6 +20,22 @@ from mcp_server.schemas.aci import (
     CreateFilterEntryRequest,
     CreateFilterRequest,
     CreateL3OutRequest,
+    BindExternalEpgRouteControlProfileRequest,
+    BindL3OutInterfaceProfilePoliciesRequest,
+    AddExternalEpgSubnetRequest,
+    AddMatchRulePrefixRequest,
+    AepDomainSpec,
+    BindExternalEpgContractRequest,
+    CreateL3DomainRequest,
+    CreateMatchRuleRequest,
+    CreateRouteControlProfileRequest,
+    SetExternalEpgSubnetScopeRequest,
+    CreateConcreteDeviceRequest,
+    CreateCustomQosPolicyRequest,
+    CreateDppPolicyRequest,
+    CreateIgmpInterfacePolicyRequest,
+    CreateNdInterfacePolicyRequest,
+    CreatePimInterfacePolicyRequest,
     CreateL4L7DeviceRequest,
     CreateLeafInterfacePolicyGroupRequest,
     CreateLeafNodeBlockRequest,
@@ -147,7 +163,7 @@ def test_valid_l3out_request_defaults():
 
 def test_valid_vlan_pool_request_defaults():
     req = CreateVlanPoolRequest(name="pool1", range_from=100, range_to=200)
-    assert req.location == "ACI-Lab"
+    assert req.location is None, "location must auto-resolve, not carry a hardcoded default"
     assert req.alloc_mode == "static"
     assert req.role == "external"
     assert req.range_alloc_mode is None
@@ -161,7 +177,7 @@ def test_vlan_pool_range_out_of_bounds_rejected(bad_vid):
 
 def test_valid_physical_domain_request_defaults():
     req = CreatePhysicalDomainRequest(name="phys-dom1")
-    assert req.location == "ACI-Lab"
+    assert req.location is None, "location must auto-resolve, not carry a hardcoded default"
     assert req.vlan_pool is None
 
 
@@ -184,7 +200,7 @@ def test_valid_vmm_domain_request_defaults():
     req = CreateVmmDomainRequest(
         name="vmm1", controller_name="vc1", host_or_ip="vcenter.example.com", root_cont_name="Datacenter1"
     )
-    assert req.location == "ACI-Lab"
+    assert req.location is None, "location must auto-resolve, not carry a hardcoded default"
     assert req.vendor == "VMware"
     assert req.vlan_pool is None
     assert req.credential_name is None
@@ -214,13 +230,13 @@ def test_invalid_vmm_domain_name_rejected(bad_name):
 
 def test_valid_security_domain_request_defaults():
     req = CreateSecurityDomainRequest(name="phase-f-domain")
-    assert req.location == "ACI-Lab"
+    assert req.location is None, "location must auto-resolve, not carry a hardcoded default"
     assert req.description == ""
 
 
 def test_valid_local_user_request_defaults():
     req = CreateLocalUserRequest(name="phase-f-user")
-    assert req.location == "ACI-Lab"
+    assert req.location is None, "location must auto-resolve, not carry a hardcoded default"
     assert req.account_status == "active"
     assert req.security_domain is None
     assert req.role is None
@@ -660,7 +676,7 @@ def test_fabric_device_request_defaults():
     assert req.role == "leaf"
     assert req.pod_id == 1
     assert req.model == "Nexus 9000v"
-    assert req.location == "Isolated Lab Site"
+    assert req.location is None, "location must auto-resolve, not carry a hardcoded default"
     assert req.serial == ""
 
 
@@ -1154,3 +1170,564 @@ def test_virtual_device_still_requires_a_vmm_domain():
         CreateL4L7DeviceRequest(
             tenant="finance", name="fw", consumer_interface="inside", device_type="VIRTUAL"
         )
+
+
+# ---------------------------------------------------------------------------
+# VMM Domain without a Controller (2026-09-15).
+#
+# The Controller is the only object in the VMM chain that actually reaches
+# vCenter -- APIC connects, authenticates, and builds a DVS there. A domain
+# alone is inert, which is exactly what you want when modelling a VMM-backed
+# L4-L7 device on a fabric whose vCenter is unreachable, or when a DVS must
+# not be created yet.
+# ---------------------------------------------------------------------------
+
+def test_vmm_domain_can_be_created_with_no_controller():
+    req = CreateVmmDomainRequest(name="vCenter_VMM", vlan_pool="vCenter_VMM_Pool")
+
+    assert req.controller_name is None
+    assert req.host_or_ip is None
+    assert req.root_cont_name is None
+
+
+def test_vmm_domain_with_a_full_controller_is_still_accepted():
+    req = CreateVmmDomainRequest(
+        name="vCenter_VMM", controller_name="vCenter", host_or_ip="192.168.10.62", root_cont_name="DC"
+    )
+    assert req.host_or_ip == "192.168.10.62"
+
+
+@pytest.mark.parametrize(
+    "partial",
+    [
+        {"controller_name": "vCenter"},
+        {"host_or_ip": "192.168.10.62"},
+        {"root_cont_name": "DC"},
+        {"controller_name": "vCenter", "host_or_ip": "192.168.10.62"},
+    ],
+)
+def test_partial_vmm_controller_is_rejected(partial):
+    """ACI needs controller name, host and datacenter together. A partial set
+    is always a mistake -- and silently emitting it would produce a
+    controller that can never connect."""
+    with pytest.raises(ValidationError):
+        CreateVmmDomainRequest(name="vCenter_VMM", **partial)
+
+
+def test_credential_without_a_controller_is_rejected():
+    """A credential exists to authenticate the controller's vCenter login.
+    Without a controller it authenticates nothing."""
+    with pytest.raises(ValidationError):
+        CreateVmmDomainRequest(name="vCenter_VMM", credential_name="vCenter_Creds")
+
+
+# ---------------------------------------------------------------------------
+# Concrete devices (vnsCDev) -- 2026-09-15.
+#
+# A logical L4-L7 device with nothing behind it is not deployable: APIC marks
+# it invalid with vnsConfIssue-missing-cdev and the whole service graph above
+# it inherits the fault. These tests pin the rules that were MEASURED against
+# the lab APIC, not assumed.
+# ---------------------------------------------------------------------------
+
+def _virtual_iface(**overrides):
+    base = {"name": "cif1", "logical_interface": "db_int", "vnic_name": "Network adapter 2"}
+    base.update(overrides)
+    return base
+
+
+def _physical_iface(**overrides):
+    base = {"name": "eth1", "logical_interface": "consumer", "node_id": 101, "port": 30}
+    base.update(overrides)
+    return base
+
+
+def test_valid_virtual_concrete_device():
+    req = CreateConcreteDeviceRequest(
+        tenant="ACI:acme", device="FW", name="ASAv_cdev",
+        vm_name="ASAv-1", vmm_domain="vCenter_VMM", vmm_controller="vCenter",
+        interfaces=[_virtual_iface(), _virtual_iface(name="cif2", logical_interface="backup_int",
+                                                     vnic_name="Network adapter 3")],
+    )
+
+    assert req.device_type == "VIRTUAL"
+    assert req.vendor == "VMware"
+    assert [i.name for i in req.interfaces] == ["cif1", "cif2"]
+    assert req.interfaces[0].node_id is None
+
+
+def test_valid_physical_concrete_device():
+    req = CreateConcreteDeviceRequest(
+        tenant="ACI:acme", device="FW", name="fw1", device_type="PHYSICAL",
+        interfaces=[_physical_iface()],
+    )
+
+    assert req.interfaces[0].pod_id == 1
+    assert req.interfaces[0].module == 1
+    assert req.interfaces[0].vnic_name is None
+
+
+@pytest.mark.parametrize("missing", ["vm_name", "vmm_domain", "vmm_controller"])
+def test_virtual_concrete_device_requires_vcenter_identity(missing):
+    """Measured 2026-09-15: a concrete device on a CONTROLLER-LESS VMM domain
+    does not reduce the fault count -- it holds at 10 and trades them for
+    F1778/F0765. Refusing the combination stops a caller building the
+    strictly worse configuration."""
+    kwargs = {
+        "tenant": "ACI:acme", "device": "FW", "name": "ASAv_cdev",
+        "vm_name": "ASAv-1", "vmm_domain": "vCenter_VMM", "vmm_controller": "vCenter",
+        "interfaces": [_virtual_iface()],
+    }
+    kwargs[missing] = None
+
+    with pytest.raises(ValidationError, match=missing):
+        CreateConcreteDeviceRequest(**kwargs)
+
+
+def test_virtual_concrete_device_rejects_a_leaf_path():
+    with pytest.raises(ValidationError, match="need vnic_name"):
+        CreateConcreteDeviceRequest(
+            tenant="ACI:acme", device="FW", name="ASAv_cdev",
+            vm_name="ASAv-1", vmm_domain="vCenter_VMM", vmm_controller="vCenter",
+            interfaces=[_physical_iface()],
+        )
+
+
+def test_physical_concrete_device_rejects_a_vnic():
+    with pytest.raises(ValidationError, match="need node_id and port"):
+        CreateConcreteDeviceRequest(
+            tenant="ACI:acme", device="FW", name="fw1", device_type="PHYSICAL",
+            interfaces=[_virtual_iface()],
+        )
+
+
+@pytest.mark.parametrize("field", ["vm_name", "vmm_controller"])
+def test_physical_concrete_device_rejects_virtual_only_fields(field):
+    with pytest.raises(ValidationError, match="VIRTUAL-only field"):
+        CreateConcreteDeviceRequest(
+            tenant="ACI:acme", device="FW", name="fw1", device_type="PHYSICAL",
+            interfaces=[_physical_iface()], **{field: "something"},
+        )
+
+
+def test_concrete_interface_cannot_be_identified_two_ways():
+    with pytest.raises(ValidationError, match="not both"):
+        CreateConcreteDeviceRequest(
+            tenant="ACI:acme", device="FW", name="ASAv_cdev",
+            vm_name="ASAv-1", vmm_domain="vCenter_VMM", vmm_controller="vCenter",
+            interfaces=[_virtual_iface(node_id=101, port=30)],
+        )
+
+
+def test_concrete_interface_needs_some_identification():
+    with pytest.raises(ValidationError, match="vnic name is missing in CIf"):
+        CreateConcreteDeviceRequest(
+            tenant="ACI:acme", device="FW", name="ASAv_cdev",
+            vm_name="ASAv-1", vmm_domain="vCenter_VMM", vmm_controller="vCenter",
+            interfaces=[{"name": "cif1", "logical_interface": "db_int"}],
+        )
+
+
+def test_physical_path_needs_both_node_and_port():
+    with pytest.raises(ValidationError, match="BOTH"):
+        CreateConcreteDeviceRequest(
+            tenant="ACI:acme", device="FW", name="fw1", device_type="PHYSICAL",
+            interfaces=[{"name": "eth1", "logical_interface": "consumer", "node_id": 101}],
+        )
+
+
+def test_concrete_device_needs_at_least_one_interface():
+    with pytest.raises(ValidationError, match="at least one concrete interface"):
+        CreateConcreteDeviceRequest(
+            tenant="ACI:acme", device="FW", name="ASAv_cdev",
+            vm_name="ASAv-1", vmm_domain="vCenter_VMM", vmm_controller="vCenter",
+            interfaces=[],
+        )
+
+
+def test_duplicate_concrete_interface_names_rejected():
+    with pytest.raises(ValidationError, match="duplicate concrete interface"):
+        CreateConcreteDeviceRequest(
+            tenant="ACI:acme", device="FW", name="ASAv_cdev",
+            vm_name="ASAv-1", vmm_domain="vCenter_VMM", vmm_controller="vCenter",
+            interfaces=[_virtual_iface(), _virtual_iface(logical_interface="backup_int")],
+        )
+
+
+def test_unknown_concrete_device_type_rejected():
+    with pytest.raises(ValidationError, match="must be VIRTUAL or PHYSICAL"):
+        CreateConcreteDeviceRequest(
+            tenant="ACI:acme", device="FW", name="fw1", device_type="CONTAINER",
+            interfaces=[_physical_iface()],
+        )
+
+
+@pytest.mark.parametrize("bad_name", ["bad name", "bad/name", ""])
+def test_invalid_concrete_device_name_rejected(bad_name):
+    with pytest.raises(ValidationError):
+        CreateConcreteDeviceRequest(
+            tenant="ACI:acme", device="FW", name=bad_name, device_type="PHYSICAL",
+            interfaces=[_physical_iface()],
+        )
+
+
+# ---------------------------------------------------------------------------
+# L3Out Logical Interface Profile sub-policies (2026-09-16).
+#
+# The rules pinned here were MEASURED against the lab APIC, not assumed --
+# in particular the two that a reasonable person would get wrong: these
+# relations take a DN rather than a name, and the literal string "default"
+# is rejected rather than selecting APIC's built-in default.
+# ---------------------------------------------------------------------------
+
+def _bind(**overrides):
+    base = {"tenant": "ACI:acme", "l3out": "Edge", "node_profile": "NP",
+            "interface_profile": "IP", "nd_interface_policy": "ND_Pol"}
+    base.update(overrides)
+    return base
+
+
+def test_valid_nd_interface_policy_leaves_unset_attributes_alone():
+    req = CreateNdInterfacePolicyRequest(tenant="ACI:acme", name="ND_Pol", hop_limit=64)
+
+    assert req.hop_limit == 64
+    assert req.mtu is None, "an unset attribute must stay None so APIC applies its own default"
+
+
+@pytest.mark.parametrize("bad_mtu", [1279, 9217])
+def test_nd_policy_rejects_an_mtu_outside_the_ipv6_range(bad_mtu):
+    """1280 is the IPv6 minimum; APIC would take a smaller value and produce
+    an interface that cannot carry IPv6."""
+    with pytest.raises(ValidationError):
+        CreateNdInterfacePolicyRequest(tenant="ACI:acme", name="ND_Pol", mtu=bad_mtu)
+
+
+def test_nd_policy_rejects_a_hop_limit_above_255():
+    with pytest.raises(ValidationError):
+        CreateNdInterfacePolicyRequest(tenant="ACI:acme", name="ND_Pol", hop_limit=256)
+
+
+def test_valid_dpp_policy():
+    req = CreateDppPolicyRequest(
+        tenant="ACI:acme", name="Ingress_100M", rate=100, rate_unit="mega",
+        burst=200, burst_unit="mega", conform_action="transmit", exceed_action="drop",
+    )
+
+    assert (req.rate, req.rate_unit) == (100, "mega")
+
+
+@pytest.mark.parametrize(
+    "value_field,unit_field",
+    [("rate", "rate_unit"), ("burst", "burst_unit"),
+     ("peak_rate", "peak_rate_unit"), ("excessive_burst", "excessive_burst_unit")],
+)
+def test_dpp_rate_without_its_unit_is_rejected(value_field, unit_field):
+    """`rate: 100` could be 100 bps or 100 Gbps -- APIC silently picks its own
+    default unit, which is never what a caller specifying a rate meant."""
+    with pytest.raises(ValidationError, match=unit_field):
+        CreateDppPolicyRequest(tenant="ACI:acme", name="P", **{value_field: 100})
+
+
+def test_dpp_unit_without_a_value_is_allowed():
+    """Only the value implies the unit, not the other way round -- a lone unit
+    is harmless and APIC ignores it."""
+    req = CreateDppPolicyRequest(tenant="ACI:acme", name="P", rate_unit="mega")
+
+    assert req.rate is None
+
+
+def test_pim_policy_has_no_field_that_could_carry_an_auth_key():
+    """Same rule as create_ospf_interface_policy: a shared secret must never
+    reach Nautobot or the committed YAML. pimIfPol supports one; this schema
+    deliberately does not."""
+    fields = set(CreatePimInterfacePolicyRequest.model_fields)
+
+    assert "auth_key" not in fields
+    assert not [f for f in fields if "key" in f.lower() or "password" in f.lower()]
+    assert "auth_type" in fields, "the type is not a secret and stays configurable"
+
+
+def test_valid_igmp_interface_policy():
+    req = CreateIgmpInterfacePolicyRequest(
+        tenant="ACI:acme", name="IGMP_v3", version="v3", query_interval=125
+    )
+
+    assert req.version == "v3"
+    assert req.group_timeout is None
+
+
+def test_valid_custom_qos_policy():
+    req = CreateCustomQosPolicyRequest(
+        tenant="ACI:acme", name="CQos",
+        dscp_to_priority_maps=[{"from": "EF", "to": "EF", "priority": "level1"}],
+    )
+
+    assert len(req.dscp_to_priority_maps) == 1
+
+
+def test_custom_qos_policy_with_no_mappings_is_rejected():
+    """A classifier that classifies nothing is almost certainly a mistake."""
+    with pytest.raises(ValidationError, match="classifies nothing"):
+        CreateCustomQosPolicyRequest(tenant="ACI:acme", name="CQos")
+
+
+def test_valid_interface_profile_policy_binding():
+    req = BindL3OutInterfaceProfilePoliciesRequest(**_bind(
+        qos_priority="level3", ingress_dpp_policy="In", egress_dpp_policy="Out"
+    ))
+
+    assert req.qos_priority == "level3"
+    assert req.pim_interface_policy is None
+
+
+def test_binding_nothing_is_rejected():
+    with pytest.raises(ValidationError, match="nothing to bind"):
+        BindL3OutInterfaceProfilePoliciesRequest(
+            tenant="ACI:acme", l3out="Edge", node_profile="NP", interface_profile="IP"
+        )
+
+
+@pytest.mark.parametrize(
+    "field",
+    ["nd_interface_policy", "ingress_dpp_policy", "egress_dpp_policy",
+     "pim_interface_policy", "pim_v6_interface_policy", "igmp_interface_policy",
+     "custom_qos_policy"],
+)
+def test_the_literal_default_is_rejected_on_every_relation(field):
+    """Measured 2026-09-16: the provider resolves the name inside the OWNING
+    tenant, so `default` fails the apply with "Relation target dn default not
+    found". The way to inherit APIC's built-in default is to omit the field.
+    Catching it here turns a 20-minute apply failure into an instant one."""
+    payload = {"tenant": "ACI:acme", "l3out": "Edge", "node_profile": "NP",
+               "interface_profile": "IP", field: "default"}
+
+    with pytest.raises(ValidationError, match="omit the field"):
+        BindL3OutInterfaceProfilePoliciesRequest(**payload)
+
+
+def test_a_full_dn_is_accepted_as_a_policy_reference():
+    """The documented escape hatch for pointing at a policy this platform does
+    not manage -- main.tf passes a uni/... value straight through."""
+    req = BindL3OutInterfaceProfilePoliciesRequest(**_bind(
+        nd_interface_policy="uni/tn-common/ndifpol-default"
+    ))
+
+    assert req.nd_interface_policy.startswith("uni/")
+
+
+# ---------------------------------------------------------------------------
+# Route control / route maps (2026-09-16).
+#
+# The rules pinned here were learned by applying, not by reading the schema.
+# Two in particular: an ACI route map ends in an implicit deny, so an empty or
+# unmatched map silently advertises NOTHING; and a custom-named map is inert
+# until something references it.
+# ---------------------------------------------------------------------------
+
+def _ctx(**over):
+    base = {"name": "permit-explicit", "order": 0, "action": "permit",
+            "match_rule": "match-permit-prefix-out"}
+    base.update(over)
+    return base
+
+
+def test_valid_match_rule_defaults_match_the_apic_ui():
+    """Screenshots 1 and 3 show Aggregate=False and both mask bounds 0 --
+    the APIC defaults. The schema must produce the same without being told."""
+    req = CreateMatchRuleRequest(
+        tenant="ACI:acme", name="match-permit-prefix-out",
+        prefixes=[{"ip": "172.16.200.200/32"}],
+    )
+
+    p0 = req.prefixes[0]
+    assert (p0.aggregate, p0.greater_than_mask, p0.less_than_mask) == (False, 0, 0)
+
+
+def test_match_rule_with_no_prefixes_is_rejected():
+    """A rule matching nothing, inside a map ending in an implicit deny,
+    drops every route without any error."""
+    with pytest.raises(ValidationError, match="matches nothing"):
+        CreateMatchRuleRequest(tenant="ACI:acme", name="empty", prefixes=[])
+
+
+def test_mask_bounds_must_be_ordered():
+    with pytest.raises(ValidationError, match="never match"):
+        CreateMatchRuleRequest(
+            tenant="ACI:acme", name="r",
+            prefixes=[{"ip": "10.0.0.0/8", "greater_than_mask": 24, "less_than_mask": 16}],
+        )
+
+
+def test_valid_route_control_profile_defaults_to_match_routing_policy_only():
+    """Screenshot 2 selects 'Match Routing Policy Only', which is type=global."""
+    req = CreateRouteControlProfileRequest(
+        tenant="ACI:acme", l3out="OSPF_L3Out", name="Uni-Route-Profile-OUT",
+        contexts=[_ctx(), _ctx(name="explicit-deny-out", order=1, action="deny",
+                        match_rule="deny-prefix-out")],
+    )
+
+    assert req.type == "global"
+    assert [(c.order, c.action) for c in req.contexts] == [(0, "permit"), (1, "deny")]
+
+
+def test_route_map_with_no_contexts_is_rejected():
+    with pytest.raises(ValidationError, match="permits nothing"):
+        CreateRouteControlProfileRequest(
+            tenant="ACI:acme", l3out="OSPF_L3Out", name="rm", contexts=[]
+        )
+
+
+def test_duplicate_context_order_is_rejected():
+    """In a permit/deny list the order IS the meaning, so two contexts sharing
+    an order is not a cosmetic problem."""
+    with pytest.raises(ValidationError, match="used more than once"):
+        CreateRouteControlProfileRequest(
+            tenant="ACI:acme", l3out="OSPF_L3Out", name="rm",
+            contexts=[_ctx(order=0), _ctx(name="other", order=0)],
+        )
+
+
+def test_duplicate_context_name_is_rejected():
+    with pytest.raises(ValidationError, match="duplicate context name"):
+        CreateRouteControlProfileRequest(
+            tenant="ACI:acme", l3out="OSPF_L3Out", name="rm",
+            contexts=[_ctx(order=0), _ctx(order=1)],
+        )
+
+
+@pytest.mark.parametrize("bad", ["allow", "block", "PERMIT_ALL", ""])
+def test_context_action_must_be_permit_or_deny(bad):
+    with pytest.raises(ValidationError):
+        CreateRouteControlProfileRequest(
+            tenant="ACI:acme", l3out="OSPF_L3Out", name="rm",
+            contexts=[_ctx(action=bad)],
+        )
+
+
+def test_context_action_is_case_normalised():
+    req = CreateRouteControlProfileRequest(
+        tenant="ACI:acme", l3out="OSPF_L3Out", name="rm", contexts=[_ctx(action="Permit")]
+    )
+
+    assert req.contexts[0].action == "permit"
+
+
+@pytest.mark.parametrize("bad_type", ["Global", "match-routing-policy-only", "aggregate"])
+def test_unknown_route_map_type_is_rejected(bad_type):
+    with pytest.raises(ValidationError, match="global"):
+        CreateRouteControlProfileRequest(
+            tenant="ACI:acme", l3out="OSPF_L3Out", name="rm",
+            contexts=[_ctx()], type=bad_type,
+        )
+
+
+def test_a_context_may_omit_its_match_rule():
+    """A context with no match rule matches everything -- as a final deny that
+    is how you make ACI's implicit deny explicit."""
+    req = CreateRouteControlProfileRequest(
+        tenant="ACI:acme", l3out="OSPF_L3Out", name="rm",
+        contexts=[_ctx(name="catch-all-deny", order=9, action="deny", match_rule=None)],
+    )
+
+    assert req.contexts[0].match_rule is None
+
+
+@pytest.mark.parametrize("direction", ["export", "import"])
+def test_valid_route_map_binding(direction):
+    req = BindExternalEpgRouteControlProfileRequest(
+        tenant="ACI:acme", l3out="OSPF_L3Out", external_epg="Cat_ExtNet",
+        route_control_profile="Uni-Route-Profile-OUT", direction=direction,
+    )
+
+    assert req.direction == direction
+
+
+def test_binding_direction_must_be_export_or_import():
+    with pytest.raises(ValidationError, match="export"):
+        BindExternalEpgRouteControlProfileRequest(
+            tenant="ACI:acme", l3out="OSPF_L3Out", external_epg="Cat_ExtNet",
+            route_control_profile="rm", direction="both",
+        )
+
+
+def test_valid_subnet_scope_change():
+    req = SetExternalEpgSubnetScopeRequest(
+        tenant="ACI:acme", l3out="OSPF_L3Out", external_epg="Cat_ExtNet",
+        ip="172.16.200.200/32", scope=["import-security"],
+    )
+
+    assert req.scope == ["import-security"]
+
+
+def test_empty_subnet_scope_is_rejected():
+    """ACI rejects an external EPG subnet carrying no scope flags at all."""
+    with pytest.raises(ValidationError, match="cannot be empty"):
+        SetExternalEpgSubnetScopeRequest(
+            tenant="ACI:acme", l3out="OSPF_L3Out", external_epg="Cat_ExtNet",
+            ip="172.16.200.200/32", scope=[],
+        )
+
+
+def test_unknown_subnet_scope_value_is_rejected():
+    with pytest.raises(ValidationError, match="unknown scope"):
+        SetExternalEpgSubnetScopeRequest(
+            tenant="ACI:acme", l3out="OSPF_L3Out", external_epg="Cat_ExtNet",
+            ip="172.16.200.200/32", scope=["export-route-control"],
+        )
+
+
+# ---------------------------------------------------------------------------
+# Transit-lab corrections (2026-09-16).
+# ---------------------------------------------------------------------------
+
+def test_external_epg_contract_binding_needs_something_to_bind():
+    with pytest.raises(ValidationError, match="at least one provided or consumed"):
+        BindExternalEpgContractRequest(tenant="t", l3out="o", external_epg="e")
+
+
+def test_external_epg_contract_binding_accepts_either_direction():
+    req = BindExternalEpgContractRequest(
+        tenant="t", l3out="o", external_epg="e", provided_contracts=["C"]
+    )
+    assert req.consumed_contracts == []
+
+
+def test_added_external_epg_subnet_defaults_to_the_contract_classification():
+    """import-security is External Subnets for the External EPG -- what a
+    contract matches on. Defaulting to anything else would silently make the
+    subnet invisible to contracts."""
+    req = AddExternalEpgSubnetRequest(tenant="t", l3out="o", external_epg="e",
+                                      ip="172.16.199.199/32")
+    assert req.scope == ["import-security"]
+
+
+def test_added_external_epg_subnet_rejects_an_unknown_scope():
+    with pytest.raises(ValidationError, match="unknown scope"):
+        AddExternalEpgSubnetRequest(tenant="t", l3out="o", external_epg="e",
+                                    ip="1.1.1.1/32", scope=["bogus"])
+
+
+def test_match_rule_prefix_defaults_match_the_apic_ui():
+    req = AddMatchRulePrefixRequest(tenant="t", match_rule="deny-prefix-out",
+                                    ip="172.16.199.199/32")
+    assert (req.aggregate, req.greater_than_mask, req.less_than_mask) == (False, 0, 0)
+
+
+def test_l3_domain_vlan_pool_is_optional_but_meaningful():
+    assert CreateL3DomainRequest(name="ExtL3Dom").vlan_pool is None
+    assert CreateL3DomainRequest(name="ExtL3Dom", vlan_pool="P").vlan_pool == "P"
+
+
+def test_aep_accepts_a_bare_string_and_a_typed_domain():
+    """A physical domain and an L3 domain can share a name, so the type cannot
+    be inferred -- but a bare string must keep working for existing callers."""
+    req = CreateAepRequest(name="A", domains=["PhysDom", {"name": "ExtL3Dom", "type": "l3"}])
+    assert req.domains[0] == "PhysDom"
+    assert isinstance(req.domains[1], AepDomainSpec)
+    assert req.domains[1].type == "l3"
+
+
+@pytest.mark.parametrize("bad", ["vmm", "L3", "external"])
+def test_aep_domain_type_must_be_physical_or_l3(bad):
+    with pytest.raises(ValidationError):
+        CreateAepRequest(name="A", domains=[{"name": "d", "type": bad}])

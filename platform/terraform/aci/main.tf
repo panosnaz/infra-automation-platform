@@ -290,6 +290,62 @@ locals {
     }
   ]...)
 
+  # Route control (2026-09-16). A route map in ACI is four objects, not one:
+  #
+  #   rtctrlSubjP        a named match rule, TENANT scoped
+  #   rtctrlMatchRtDest  one prefix inside that match rule
+  #   rtctrlProfile      the route map itself, scoped UNDER an L3Out
+  #   rtctrlCtxP         one ordered permit/deny entry in the map, pointing
+  #                      at a match rule by name
+  #
+  # Match rules are tenant-scoped on purpose (the provider requires
+  # tenant_dn) so one rule can be reused by several route maps.
+  match_rules = merge([
+    for tn, t in local.tenants : {
+      for rule in lookup(t, "match_rules", []) :
+      "${tn}/${rule.name}" => merge(rule, { tenant_name = tn })
+    }
+  ]...)
+
+  match_rule_destinations = merge([
+    for rule_key, rule in local.match_rules : {
+      for prefix in lookup(rule, "prefixes", []) :
+      "${rule_key}/${prefix.ip}" => merge(prefix, { rule_key = rule_key, tenant_name = rule.tenant_name })
+    }
+  ]...)
+
+  route_control_profiles = merge([
+    for l3out_key, l3out in local.l3outs : {
+      for profile in lookup(l3out, "route_control_profiles", []) :
+      "${l3out_key}/${profile.name}" => merge(profile, {
+        l3out_key   = l3out_key
+        tenant_name = l3out.tenant_name
+        l3out_name  = l3out.l3out_name
+      })
+    }
+  ]...)
+
+  route_control_contexts = merge([
+    for profile_key, profile in local.route_control_profiles : {
+      for ctx in lookup(profile, "contexts", []) :
+      "${profile_key}/${ctx.name}" => merge(ctx, {
+        profile_key = profile_key
+        tenant_name = profile.tenant_name
+      })
+    }
+  ]...)
+
+  # Optional: bind a named route map to an external EPG for one direction.
+  # A profile named `default-export` applies to the whole L3Out on its own; a
+  # custom-named one does NOT take effect until something references it, and
+  # this is the reference.
+  external_epg_route_profiles = merge([
+    for epg_key, epg in local.external_epgs : {
+      for rp in lookup(epg, "route_control_profiles", []) :
+      "${epg_key}/${rp.direction}/${rp.name}" => merge(rp, { epg_key = epg_key })
+    }
+  ]...)
+
   # Flat map of all External EPG subnets: "tenant/l3out/epg/ip" => {...}
   external_epg_subnets = merge([
     for epg_key, epg in local.external_epgs : {
@@ -308,6 +364,60 @@ locals {
   # External Routed Domains referenced by L3Out `domain:`. Fabric-wide
   # objects (uni/l3dom-*), so deduped across every tenant's L3Outs.
   l3out_domains = toset(compact([for k, l in local.l3outs : lookup(l, "domain", null)]))
+
+  # Explicitly declared L3 domains, which unlike the inferred ones above can
+  # carry a VLAN pool. An L3Out's encap VLAN must come from the pool bound to
+  # its L3 domain; without this the fabric had NO pool covering vlan-51 even
+  # though BGP_L3Out uses it (found 2026-09-16).
+  declared_l3_domains = {
+    for d in lookup(lookup(local.nac.apic, "access_policies", {}), "l3_domains", []) :
+    d.name => d
+  }
+
+  # L3Out Logical Interface Profile sub-policies (2026-09-16). Each is a
+  # tenant-scoped policy object that an interface profile then REFERENCES.
+  # Modelled as five separate flat maps rather than one, because the provider
+  # splits them across five resources with two different parent arguments
+  # (parent_dn for ND/DPP/custom-QoS, tenant_dn for PIM/IGMP).
+  #
+  # Why this exists: APIC auto-creates every one of these relations on a new
+  # l3extLIfP pointing at uni/tn-common/<kind>-default, so an interface
+  # profile has NEVER been unconfigured here -- it has silently run on fabric
+  # defaults, with no way to change them. Measured on the live lab 2026-09-16.
+  nd_interface_policies = merge([
+    for tn, t in local.tenants : {
+      for p in lookup(t, "nd_interface_policies", []) :
+      "${tn}/${p.name}" => merge(p, { tenant_name = tn })
+    }
+  ]...)
+
+  dpp_policies = merge([
+    for tn, t in local.tenants : {
+      for p in lookup(t, "dpp_policies", []) :
+      "${tn}/${p.name}" => merge(p, { tenant_name = tn })
+    }
+  ]...)
+
+  pim_interface_policies = merge([
+    for tn, t in local.tenants : {
+      for p in lookup(t, "pim_interface_policies", []) :
+      "${tn}/${p.name}" => merge(p, { tenant_name = tn })
+    }
+  ]...)
+
+  igmp_interface_policies = merge([
+    for tn, t in local.tenants : {
+      for p in lookup(t, "igmp_interface_policies", []) :
+      "${tn}/${p.name}" => merge(p, { tenant_name = tn })
+    }
+  ]...)
+
+  custom_qos_policies = merge([
+    for tn, t in local.tenants : {
+      for p in lookup(t, "custom_qos_policies", []) :
+      "${tn}/${p.name}" => merge(p, { tenant_name = tn })
+    }
+  ]...)
 
   ospf_interface_policies = merge([
     for tn, t in local.tenants : {
@@ -677,6 +787,19 @@ resource "aci_bridge_domain" "this" {
   name            = each.value.name
   unicast_routing = lookup(each.value, "unicast_routing", true) ? "yes" : "no"
 
+  # fvRsBDToOut -- which L3Out(s) this bridge domain's subnets may be
+  # advertised through (2026-09-16). Without it a BD subnet marked public is
+  # still never advertised: ACI needs both the public scope AND an L3Out
+  # association, and neither alone does anything. Taken by NAME; the
+  # generator validates each against the L3Outs declared in the same tenant.
+  # DN, not name -- the provider rejects a bare name with "planned set element
+  # does not correlate with any element in actual" at APPLY time (2026-09-16).
+  # Same trap as the L3Out interface-profile policy relations. Resolved through
+  # the L3Out resource's own id; the generator validates the name first.
+  relation_fv_rs_bd_to_out = lookup(each.value, "l3outs", null) == null ? null : [
+    for name in each.value.l3outs : aci_l3_outside.this["${each.value.tenant_name}/${name}"].id
+  ]
+
   # ADR-020 Phase A item 1 -- Bridge Domain attribute depth. String-valued
   # attributes pass through via lookup(..., null) (unmanaged when unset,
   # same as unicast_routing/description elsewhere in this file); boolean
@@ -949,8 +1072,8 @@ resource "aci_concrete_device" "this" {
   # vm_name/vmm_controller_dn apply to a VIRTUAL device discovered from
   # vCenter; a PHYSICAL concrete device is identified by its interfaces'
   # paths instead, so both stay null here.
-  vm_name            = lookup(each.value, "vm_name", null)
-  vmm_controller_dn  = lookup(each.value, "vmm_controller_dn", null)
+  vm_name           = lookup(each.value, "vm_name", null)
+  vmm_controller_dn = lookup(each.value, "vmm_controller_dn", null)
 }
 
 # vnsCIf -- a physical port on the appliance, attached to a leaf port.
@@ -1193,8 +1316,17 @@ resource "aci_epg_to_contract" "this" {
 # without additional manual interface/routing configuration in the APIC.
 # ---------------------------------------------------------------------------
 resource "aci_l3_domain_profile" "this" {
-  for_each = local.l3out_domains
+  # Union of domains named by an L3Out and domains declared explicitly, so a
+  # domain works whether or not anyone bothered to declare it separately.
+  for_each = toset(concat(tolist(local.l3out_domains), keys(local.declared_l3_domains)))
   name     = each.value
+
+  # VLAN pool relation takes a DN, and the pool's allocation mode is part of
+  # the pool's own DN, so it cannot be built from the name alone.
+  relation_infra_rs_vlan_ns = lookup(local.declared_l3_domains, each.value, null) == null ? null : (
+    lookup(local.declared_l3_domains[each.value], "vlan_pool", null) == null ? null :
+    aci_vlan_pool.this[local.declared_l3_domains[each.value].vlan_pool].id
+  )
 }
 
 resource "aci_l3_outside" "this" {
@@ -1261,19 +1393,281 @@ resource "aci_logical_node_to_fabric_node" "this" {
   rtr_id_loop_back        = try(each.value.router_id_as_loopback ? "yes" : "no", null)
 }
 
+# ---------------------------------------------------------------------------
+# Route control / route maps (2026-09-16).
+#
+# Built for the transit-routing lab, where the requirement was to stop using
+# per-subnet "Export Route Control Subnet" flags and drive export from a route
+# map instead: permit one prefix, deny a bridge-domain subnet, and let ACI's
+# implicit deny drop everything else.
+# ---------------------------------------------------------------------------
+
+resource "aci_match_rule" "this" {
+  for_each = local.match_rules
+
+  tenant_dn   = aci_tenant.this[each.value.tenant_name].id
+  name        = each.value.name
+  description = lookup(each.value, "description", null)
+}
+
+resource "aci_match_route_destination_rule" "this" {
+  for_each = local.match_rule_destinations
+
+  match_rule_dn = aci_match_rule.this[each.value.rule_key].id
+  ip            = each.value.ip
+  description   = lookup(each.value, "description", null)
+
+  # aggregate is APIC's "Aggregate" checkbox; the two mask bounds are the
+  # ge/le of a prefix-list entry. All three default to off/0, matching the
+  # APIC UI defaults shown in the lab screenshots.
+  # The provider takes "yes"/"no" here, not a bool -- same convention as the
+  # bridge-domain flags above. A raw false fails the apply with
+  # 'expected aggregate to be one of ["no" "yes"], got false' (2026-09-16),
+  # and only at apply time: the plan renders the bool happily.
+  aggregate         = try(each.value.aggregate ? "yes" : "no", null)
+  greater_than_mask = lookup(each.value, "greater_than_mask", null)
+  less_than_mask    = lookup(each.value, "less_than_mask", null)
+}
+
+resource "aci_route_control_profile" "this" {
+  for_each = local.route_control_profiles
+
+  parent_dn   = aci_l3_outside.this[each.value.l3out_key].id
+  name        = each.value.name
+  description = lookup(each.value, "description", null)
+
+  # "global"     = Match Routing Policy Only  (the screenshots' setting)
+  # "combinable" = Match Prefix AND Routing Policy
+  route_control_profile_type = lookup(each.value, "type", "global")
+}
+
+resource "aci_route_control_context" "this" {
+  for_each = local.route_control_contexts
+
+  route_control_profile_dn = aci_route_control_profile.this[each.value.profile_key].id
+  name                     = each.value.name
+  action                   = lookup(each.value, "action", "permit")
+  order                    = lookup(each.value, "order", null)
+  description              = lookup(each.value, "description", null)
+
+  # DN, not name. The schema gives no hint either way and the plan renders a
+  # bare name happily; the APPLY then fails with "Relation target dn
+  # match-permit-prefix-out not found" (measured 2026-09-16). Match rules are
+  # tenant-scoped, so the DN comes from the match rule resource in this
+  # context's own tenant.
+  relation_rtctrl_rs_ctx_p_to_subj_p = lookup(each.value, "match_rule", null) == null ? null : [
+    aci_match_rule.this["${each.value.tenant_name}/${each.value.match_rule}"].id
+  ]
+
+  set_rule = lookup(each.value, "set_rule", null)
+
+  depends_on = [aci_match_rule.this]
+}
+
+# Binds a named route map to an external EPG for one direction. Only needed
+# for a custom-named profile; `default-export` applies on its own.
+resource "aci_relation_from_external_epg_to_route_control_profile" "this" {
+  for_each = local.external_epg_route_profiles
+
+  parent_dn                  = aci_external_network_instance_profile.this[each.value.epg_key].id
+  route_control_profile_name = each.value.name
+  direction                  = each.value.direction
+
+  depends_on = [aci_route_control_profile.this]
+}
+
 resource "aci_logical_interface_profile" "this" {
   for_each                = local.l3out_interface_profiles
   logical_node_profile_dn = aci_logical_node_profile.this[each.value.node_profile_key].id
   name                    = each.value.name
   description             = lookup(each.value, "description", null)
+
+  # QoS class for traffic on this profile's interfaces (l3extLIfP.prio).
+  # Left null -> APIC's own "unspecified", which is what every profile this
+  # platform has created to date has carried.
+  prio = lookup(each.value, "qos_priority", null)
+
+  # Policy relations. Each takes the policy's NAME, not a DN -- the
+  # underlying MOs use tnXxxName attributes.
+  #
+  # These relations take a full DN, NOT a policy name -- measured 2026-09-16
+  # by applying name values and getting "Relation target dn ND_Strict not
+  # found" for all seven at once. The provider validates the target resolves
+  # at APPLY time (plan renders whatever string you give it, so a plan proves
+  # nothing here). The same run disproved a second assumption: the literal
+  # `default` is not accepted either. To inherit APIC's built-in default,
+  # OMIT the field entirely and let APIC populate the relation itself.
+  #
+  # Resolved through each policy resource's own `.id` rather than by building
+  # "uni/tn-<t>/<prefix>-<name>" strings, because the prefixes are NOT
+  # consistent: ndifpol / qosdpppol / pimifpol / qoscustom are lowercase but
+  # igmpIfPol is camelCase. Hand-built DNs would work for four of the five
+  # and silently fail on IGMP.
+  #
+  # A value already starting with "uni/" is passed through untouched, so a
+  # profile can still point at a policy this module does not manage. Anything
+  # else must name a policy declared in the SAME tenant; the generator
+  # enforces that ahead of Terraform so a typo fails at generate time with a
+  # message naming the tenant, not 20 minutes into an apply.
+  relation_l3ext_rs_nd_if_pol = lookup(each.value, "nd_interface_policy", null) == null ? null : (
+    startswith(each.value.nd_interface_policy, "uni/") ? each.value.nd_interface_policy :
+    aci_neighbor_discovery_interface_policy.this["${each.value.tenant_name}/${each.value.nd_interface_policy}"].id
+  )
+  relation_l3ext_rs_ingress_qos_dpp_pol = lookup(each.value, "ingress_dpp_policy", null) == null ? null : (
+    startswith(each.value.ingress_dpp_policy, "uni/") ? each.value.ingress_dpp_policy :
+    aci_data_plane_policing_policy.this["${each.value.tenant_name}/${each.value.ingress_dpp_policy}"].id
+  )
+  relation_l3ext_rs_egress_qos_dpp_pol = lookup(each.value, "egress_dpp_policy", null) == null ? null : (
+    startswith(each.value.egress_dpp_policy, "uni/") ? each.value.egress_dpp_policy :
+    aci_data_plane_policing_policy.this["${each.value.tenant_name}/${each.value.egress_dpp_policy}"].id
+  )
+  relation_l3ext_rs_pim_ip_if_pol = lookup(each.value, "pim_interface_policy", null) == null ? null : (
+    startswith(each.value.pim_interface_policy, "uni/") ? each.value.pim_interface_policy :
+    aci_pim_interface_policy.this["${each.value.tenant_name}/${each.value.pim_interface_policy}"].id
+  )
+  relation_l3ext_rs_pim_ipv6_if_pol = lookup(each.value, "pim_v6_interface_policy", null) == null ? null : (
+    startswith(each.value.pim_v6_interface_policy, "uni/") ? each.value.pim_v6_interface_policy :
+    aci_pim_interface_policy.this["${each.value.tenant_name}/${each.value.pim_v6_interface_policy}"].id
+  )
+  relation_l3ext_rs_igmp_if_pol = lookup(each.value, "igmp_interface_policy", null) == null ? null : (
+    startswith(each.value.igmp_interface_policy, "uni/") ? each.value.igmp_interface_policy :
+    aci_igmp_interface_policy.this["${each.value.tenant_name}/${each.value.igmp_interface_policy}"].id
+  )
+  relation_l3ext_rs_l_if_p_cust_qos_pol = lookup(each.value, "custom_qos_policy", null) == null ? null : (
+    startswith(each.value.custom_qos_policy, "uni/") ? each.value.custom_qos_policy :
+    aci_custom_qos_policy.this["${each.value.tenant_name}/${each.value.custom_qos_policy}"].id
+  )
 }
 
-# EVIDENCE: plan-verified only -- no apply has ever been run for the
-# physical/protocol L3Out scope. The APIC accepts a pathep- DN naming a
-# switch that does not exist and leaves the relation state: unformed
-# (measured 2026-09-14), so an apply is expected to SUCCEED -- but expected
-# is not verified. Promote to live-verified only after a real apply +
-# destroy with check_apic_faults.py showing no new faults.
+# ---------------------------------------------------------------------------
+# L3Out Logical Interface Profile sub-policies (2026-09-16).
+#
+# ARP is deliberately absent: l3extLIfP carries a relation_l3ext_rs_arp_if_pol
+# attribute, but the installed provider has NO resource that can CREATE an
+# arpIfPol (confirmed against `terraform providers schema -json`: zero
+# resources match /arp/). Supporting the relation without the policy would
+# mean accepting a name nothing can validate or produce.
+#
+# NetFlow is absent for the opposite reason: aci_netflow_monitor_policy DOES
+# exist, but aci_logical_interface_profile has no attribute for the
+# l3extRsLIfPToNetflowMonitorPol relation, so binding one needs
+# aci_rest_managed. Tracked as its own increment.
+# ---------------------------------------------------------------------------
+
+resource "aci_neighbor_discovery_interface_policy" "this" {
+  for_each = local.nd_interface_policies
+
+  parent_dn                      = aci_tenant.this[each.value.tenant_name].id
+  name                           = each.value.name
+  description                    = lookup(each.value, "description", null)
+  hop_limit                      = lookup(each.value, "hop_limit", null)
+  mtu                            = lookup(each.value, "mtu", null)
+  retransmit_timer               = lookup(each.value, "retransmit_timer", null)
+  reachable_time                 = lookup(each.value, "reachable_time", null)
+  neighbor_solicitation_interval = lookup(each.value, "neighbor_solicitation_interval", null)
+  neighbor_solicitation_retries  = lookup(each.value, "neighbor_solicitation_retries", null)
+  nud_retry_base                 = lookup(each.value, "nud_retry_base", null)
+  nud_retry_interval             = lookup(each.value, "nud_retry_interval", null)
+  nud_retry_max_attempts         = lookup(each.value, "nud_retry_max_attempts", null)
+  router_advertisement_interval  = lookup(each.value, "router_advertisement_interval", null)
+  router_advertisement_lifetime  = lookup(each.value, "router_advertisement_lifetime", null)
+  controller_state               = lookup(each.value, "controller_state", null)
+}
+
+resource "aci_data_plane_policing_policy" "this" {
+  for_each = local.dpp_policies
+
+  parent_dn   = aci_tenant.this[each.value.tenant_name].id
+  name        = each.value.name
+  description = lookup(each.value, "description", null)
+  admin_state = lookup(each.value, "admin_state", null)
+  type        = lookup(each.value, "type", null)
+  mode        = lookup(each.value, "mode", null)
+
+  # Rate/burst are the whole point of a policer; the rest is shaping detail.
+  # Units are separate attributes in this provider, not value suffixes.
+  rate                 = lookup(each.value, "rate", null)
+  rate_unit            = lookup(each.value, "rate_unit", null)
+  burst                = lookup(each.value, "burst", null)
+  burst_unit           = lookup(each.value, "burst_unit", null)
+  peak_rate            = lookup(each.value, "peak_rate", null)
+  peak_rate_unit       = lookup(each.value, "peak_rate_unit", null)
+  excessive_burst      = lookup(each.value, "excessive_burst", null)
+  excessive_burst_unit = lookup(each.value, "excessive_burst_unit", null)
+
+  conform_action    = lookup(each.value, "conform_action", null)
+  conform_mark_cos  = lookup(each.value, "conform_mark_cos", null)
+  conform_mark_dscp = lookup(each.value, "conform_mark_dscp", null)
+  exceed_action     = lookup(each.value, "exceed_action", null)
+  exceed_mark_cos   = lookup(each.value, "exceed_mark_cos", null)
+  exceed_mark_dscp  = lookup(each.value, "exceed_mark_dscp", null)
+  violate_action    = lookup(each.value, "violate_action", null)
+  violate_mark_cos  = lookup(each.value, "violate_mark_cos", null)
+  violate_mark_dscp = lookup(each.value, "violate_mark_dscp", null)
+  sharing_mode      = lookup(each.value, "sharing_mode", null)
+}
+
+# NOTE: PIM and IGMP take `tenant_dn`, not `parent_dn` like the three others --
+# a real inconsistency in the provider, not a transcription slip here.
+resource "aci_pim_interface_policy" "this" {
+  for_each = local.pim_interface_policies
+
+  tenant_dn                  = aci_tenant.this[each.value.tenant_name].id
+  name                       = each.value.name
+  description                = lookup(each.value, "description", null)
+  control_state              = lookup(each.value, "control_state", null)
+  designated_router_delay    = lookup(each.value, "designated_router_delay", null)
+  designated_router_priority = lookup(each.value, "designated_router_priority", null)
+  hello_interval             = lookup(each.value, "hello_interval", null)
+  join_prune_interval        = lookup(each.value, "join_prune_interval", null)
+
+  # auth_key is deliberately NOT sourced from the YAML -- it is a shared
+  # secret, and this module's rule is that secrets arrive as sensitive
+  # Terraform variables, never through Nautobot or committed YAML (the same
+  # rule that keeps OSPF MD5 keys out of create_ospf_interface_policy).
+  auth_type = lookup(each.value, "auth_type", null)
+}
+
+resource "aci_igmp_interface_policy" "this" {
+  for_each = local.igmp_interface_policies
+
+  tenant_dn                 = aci_tenant.this[each.value.tenant_name].id
+  name                      = each.value.name
+  description               = lookup(each.value, "description", null)
+  control                   = lookup(each.value, "control", null)
+  group_timeout             = lookup(each.value, "group_timeout", null)
+  last_member_count         = lookup(each.value, "last_member_count", null)
+  last_member_response_time = lookup(each.value, "last_member_response_time", null)
+  querier_timeout           = lookup(each.value, "querier_timeout", null)
+  query_interval            = lookup(each.value, "query_interval", null)
+  response_interval         = lookup(each.value, "response_interval", null)
+  robustness_variable       = lookup(each.value, "robustness_variable", null)
+  startup_query_count       = lookup(each.value, "startup_query_count", null)
+  startup_query_interval    = lookup(each.value, "startup_query_interval", null)
+  version                   = lookup(each.value, "version", null)
+}
+
+resource "aci_custom_qos_policy" "this" {
+  for_each = local.custom_qos_policies
+
+  parent_dn   = aci_tenant.this[each.value.tenant_name].id
+  name        = each.value.name
+  description = lookup(each.value, "description", null)
+
+  # Both are lists of objects passed straight through -- dot1p_classifiers
+  # entries carry from/to/priority/target/target_cos, dscp_to_priority_maps
+  # the same shape over DSCP ranges.
+  dot1p_classifiers     = lookup(each.value, "dot1p_classifiers", null)
+  dscp_to_priority_maps = lookup(each.value, "dscp_to_priority_maps", null)
+}
+
+# EVIDENCE: live-verified 2026-09-15 (apply, no destroy). The expectation
+# recorded here previously -- that the APIC accepts a pathep- DN naming a
+# switch that does not exist -- is now measured rather than reasoned: the
+# 93-resource `sales` apply created 2 x l3extRsPathL3OutAtt, both sitting at
+# state: unformed, and check_apic_faults.py reported ZERO new faults for
+# them. No destroy has been run for this scope, so it is not apply+destroy
+# proven. A session still cannot establish -- that is a dataplane limit.
 resource "aci_l3out_path_attachment" "this" {
   for_each                     = local.l3out_interfaces
   logical_interface_profile_dn = aci_logical_interface_profile.this[each.value.interface_profile_key].id
@@ -1484,9 +1878,15 @@ resource "aci_attachable_access_entity_profile" "this" {
   # Nested relation blocks (list-of-objects, not a plain Set-of-DN) --
   # relation_infra_rs_dom_p is the older, deprecated equivalent attribute;
   # relation_to_domains is the provider's current recommended replacement.
+  # An AEP can front a physical domain, an L3 domain, or both. Until
+  # 2026-09-16 only physical resolved, so an AEP could never be attached to an
+  # L3 domain -- which is what an L3Out's interface needs. A plain string stays
+  # a physical domain for backwards compatibility; {name, type} selects.
   relation_to_domains = [
     for d in lookup(each.value, "domains", []) :
-    { target_dn = aci_physical_domain.this[d].id }
+    {
+      target_dn = try(d.type, "physical") == "l3" ? aci_l3_domain_profile.this[try(d.name, d)].id : aci_physical_domain.this[try(d.name, d)].id
+    }
   ]
 }
 

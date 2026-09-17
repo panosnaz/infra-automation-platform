@@ -73,6 +73,14 @@ class CreateBridgeDomainRequest(BaseModel):
     )
     subnet_scope: str = Field(default="private", description="BD subnet scope, typically 'private' or 'shared'.")
     description: str = Field(default="", description="Optional free-text description")
+    l3outs: list[str] = Field(
+        default_factory=list,
+        description=(
+            "L3Out names this bridge domain may advertise its subnets through "
+            "(fvRsBDToOut). A subnet needs BOTH subnet_scope='public' AND an "
+            "L3Out association to be advertised -- neither alone does anything."
+        ),
+    )
 
     @field_validator("name")
     @classmethod
@@ -134,7 +142,12 @@ class CreateSecurityDomainRequest(BaseModel):
     (`aci_aaa_policies`)."""
 
     name: str = Field(description="Security Domain name.")
-    location: str = Field(default="ACI-Lab", description="Nautobot Location representing the ACI fabric/site.")
+    location: str | None = Field(
+        default=None,
+        description=(
+            "Nautobot Location holding this fabric's intent. Omit it and the single Location is used automatically -- a Location name is an environment fact and does not belong in a default (this lab's is 'Isolated Lab Site', the upstream lab's is 'ACI-Lab', and a hardcoded default can only ever be right for one of them). Supply it explicitly only when more than one Location exists."
+        ),
+    )
     description: str = Field(default="", description="Optional free-text description")
 
     @field_validator("name")
@@ -155,7 +168,12 @@ class CreateLocalUserRequest(BaseModel):
     would be needed for multiple bindings in one call)."""
 
     name: str = Field(description="Local User name.")
-    location: str = Field(default="ACI-Lab", description="Nautobot Location representing the ACI fabric/site.")
+    location: str | None = Field(
+        default=None,
+        description=(
+            "Nautobot Location holding this fabric's intent. Omit it and the single Location is used automatically -- a Location name is an environment fact and does not belong in a default (this lab's is 'Isolated Lab Site', the upstream lab's is 'ACI-Lab', and a hardcoded default can only ever be right for one of them). Supply it explicitly only when more than one Location exists."
+        ),
+    )
     email: str = Field(default="", description="Optional email address")
     first_name: str = Field(default="", description="Optional first name")
     last_name: str = Field(default="", description="Optional last name")
@@ -346,7 +364,12 @@ class CreateVlanPoolRequest(BaseModel):
     name: str = Field(description="VLAN Pool name.")
     range_from: int = Field(description="First VLAN ID in this range.", ge=1, le=4094)
     range_to: int = Field(description="Last VLAN ID in this range.", ge=1, le=4094)
-    location: str = Field(default="ACI-Lab", description="Name of the existing Nautobot Location representing the ACI fabric/site (this lab has one: 'ACI-Lab').")
+    location: str | None = Field(
+        default=None,
+        description=(
+            "Nautobot Location holding this fabric's intent. Omit it and the single Location is used automatically -- a Location name is an environment fact and does not belong in a default (this lab's is 'Isolated Lab Site', the upstream lab's is 'ACI-Lab', and a hardcoded default can only ever be right for one of them). Supply it explicitly only when more than one Location exists."
+        ),
+    )
     alloc_mode: str = Field(default="static", description="Pool allocation mode. Allowed: 'static', 'dynamic'.")
     range_alloc_mode: str | None = Field(default=None, description="Range-level allocation mode override. Allowed: 'static', 'dynamic', 'inherit' (default).")
     role: str = Field(default="external", description="Range role. Allowed: 'external' (used by Physical/L3 Domains), 'internal' (used by VMM Domains).")
@@ -408,7 +431,12 @@ class CreatePhysicalDomainRequest(BaseModel):
     ADR-020 Phase B writeup)."""
 
     name: str = Field(description="Physical Domain name.")
-    location: str = Field(default="ACI-Lab", description="Name of the existing Nautobot Location representing the ACI fabric/site.")
+    location: str | None = Field(
+        default=None,
+        description=(
+            "Nautobot Location holding this fabric's intent. Omit it and the single Location is used automatically -- a Location name is an environment fact and does not belong in a default (this lab's is 'Isolated Lab Site', the upstream lab's is 'ACI-Lab', and a hardcoded default can only ever be right for one of them). Supply it explicitly only when more than one Location exists."
+        ),
+    )
     vlan_pool: str | None = Field(default=None, description="Name of an existing VLAN Pool (in this same Location) to bind this domain to. Omit to leave unbound.")
 
     @field_validator("name")
@@ -446,7 +474,14 @@ class CreateFabricDeviceRequest(BaseModel):
     serial: str = Field(default="", description="Switch serial number -- the key APIC fabric membership is registered against.")
     role: str = Field(default="leaf", description="Fabric role: 'leaf' or 'spine'.")
     pod_id: int = Field(default=1, ge=1, description="ACI pod ID; part of every topology/pod-N/... DN.")
-    location: str = "Isolated Lab Site"
+    location: str | None = Field(
+        default=None,
+        description=(
+            "Nautobot Location holding this fabric's intent. Omit it and the "
+            "single Location is used automatically. This field carried a third, "
+            "different hardcoded default until 2026-09-17."
+        ),
+    )
     model: str = "Nexus 9000v"
     description: str = ""
 
@@ -555,6 +590,580 @@ class CreateL3OutInterfaceProfileRequest(BaseModel):
     interfaces: list[dict] = Field(default_factory=list)
 
 
+class CreateNdInterfacePolicyRequest(BaseModel):
+    """Create an IPv6 Neighbour Discovery interface policy (``ndIfPol``) in a
+    tenant, ready to be bound to an L3Out Logical Interface Profile.
+
+    Every attribute is optional apart from the name: APIC supplies its own
+    default for each, and this schema deliberately does not re-declare those
+    defaults -- an omitted field means "leave it to APIC", not "set it to
+    what we think APIC uses".
+    """
+
+    tenant: str = Field(description="Name of the existing Tenant that owns this policy.")
+    name: str = Field(description="ND interface policy name.")
+    hop_limit: int | None = Field(default=None, ge=0, le=255, description="IPv6 hop limit advertised in router advertisements.")
+    mtu: int | None = Field(default=None, ge=1280, le=9216, description="MTU advertised in router advertisements. IPv6 minimum is 1280.")
+    retransmit_timer: int | None = Field(default=None, ge=0, description="Neighbour-solicitation retransmit timer, milliseconds.")
+    reachable_time: int | None = Field(default=None, ge=0, description="How long a neighbour stays reachable after a reachability confirmation, milliseconds.")
+    neighbor_solicitation_interval: int | None = Field(default=None, ge=0, description="Interval between neighbour solicitations, milliseconds.")
+    neighbor_solicitation_retries: int | None = Field(default=None, ge=0, description="How many neighbour solicitations before declaring unreachable.")
+    nud_retry_base: int | None = Field(default=None, ge=0, description="Neighbour Unreachability Detection retry base.")
+    nud_retry_interval: int | None = Field(default=None, ge=0, description="Neighbour Unreachability Detection retry interval.")
+    nud_retry_max_attempts: int | None = Field(default=None, ge=0, description="Neighbour Unreachability Detection maximum retry attempts.")
+    router_advertisement_interval: int | None = Field(default=None, ge=0, description="Interval between router advertisements, seconds.")
+    router_advertisement_lifetime: int | None = Field(default=None, ge=0, description="Router lifetime advertised in router advertisements, seconds.")
+    controller_state: str | None = Field(default=None, description="ND controller state flags, for example 'managed-cfg' or 'other-cfg'.")
+    description: str = Field(default="", description="Optional free-text description.")
+
+    @field_validator("name")
+    @classmethod
+    def _validate_name(cls, v: str) -> str:
+        return _validate_aci_name(v)
+
+
+class CreateDppPolicyRequest(BaseModel):
+    """Create a Data Plane Policing policy (``qosDppPol``) in a tenant.
+
+    One policy object serves both directions -- ACI has no separate ingress
+    and egress policer type. Direction is decided by WHICH relation an
+    interface profile binds it to (`ingress_dpp_policy` vs
+    `egress_dpp_policy`), so the same policy can legitimately be used for
+    both.
+
+    `rate` and `burst` carry their units in SEPARATE fields in this provider
+    (`rate_unit`/`burst_unit`), not as a suffix on the value.
+    """
+
+    tenant: str = Field(description="Name of the existing Tenant that owns this policy.")
+    name: str = Field(description="Data plane policing policy name.")
+    rate: int | None = Field(default=None, ge=0, description="Committed information rate, in rate_unit.")
+    rate_unit: str | None = Field(default=None, description="Unit for rate, for example 'kilo', 'mega', 'giga', or 'pps' when mode is packet.")
+    burst: int | None = Field(default=None, ge=0, description="Committed burst size, in burst_unit.")
+    burst_unit: str | None = Field(default=None, description="Unit for burst, for example 'kilo', 'mega', 'giga'.")
+    peak_rate: int | None = Field(default=None, ge=0, description="Peak information rate, used by two-rate (2R3C) policers.")
+    peak_rate_unit: str | None = Field(default=None, description="Unit for peak_rate.")
+    excessive_burst: int | None = Field(default=None, ge=0, description="Excessive burst size, used by two-rate (2R3C) policers.")
+    excessive_burst_unit: str | None = Field(default=None, description="Unit for excessive_burst.")
+    admin_state: str | None = Field(default=None, description="'enabled' or 'disabled'.")
+    type: str | None = Field(default=None, description="Policer type: '1R2C' (single rate, two colour) or '2R3C' (two rate, three colour).")
+    mode: str | None = Field(default=None, description="Policing mode: 'bit' (bandwidth) or 'packet' (packets per second).")
+    sharing_mode: str | None = Field(default=None, description="How the policer is shared across interfaces, for example 'dedicated' or 'shared'.")
+    conform_action: str | None = Field(default=None, description="Action for conforming traffic: 'transmit', 'drop', or 'mark'.")
+    conform_mark_cos: str | None = Field(default=None, description="CoS value to mark conforming traffic with, when conform_action is 'mark'.")
+    conform_mark_dscp: str | None = Field(default=None, description="DSCP value to mark conforming traffic with, when conform_action is 'mark'.")
+    exceed_action: str | None = Field(default=None, description="Action for traffic exceeding the committed rate.")
+    exceed_mark_cos: str | None = Field(default=None, description="CoS value to mark exceeding traffic with.")
+    exceed_mark_dscp: str | None = Field(default=None, description="DSCP value to mark exceeding traffic with.")
+    violate_action: str | None = Field(default=None, description="Action for traffic violating the peak rate.")
+    violate_mark_cos: str | None = Field(default=None, description="CoS value to mark violating traffic with.")
+    violate_mark_dscp: str | None = Field(default=None, description="DSCP value to mark violating traffic with.")
+    description: str = Field(default="", description="Optional free-text description.")
+
+    @field_validator("name")
+    @classmethod
+    def _validate_name(cls, v: str) -> str:
+        return _validate_aci_name(v)
+
+    @model_validator(mode="after")
+    def _rate_and_unit_travel_together(self):
+        """A bare number is meaningless -- `rate: 100` could be 100 bps or
+        100 Gbps. APIC silently applies its own default unit, which is not
+        what a caller specifying a rate intends."""
+        for value_field, unit_field in (
+            ("rate", "rate_unit"),
+            ("burst", "burst_unit"),
+            ("peak_rate", "peak_rate_unit"),
+            ("excessive_burst", "excessive_burst_unit"),
+        ):
+            if getattr(self, value_field) is not None and not getattr(self, unit_field):
+                raise ValueError(
+                    f"{unit_field} is required when {value_field} is set -- a rate "
+                    "without a unit is ambiguous and APIC would silently apply its "
+                    "own default"
+                )
+        return self
+
+
+class CreatePimInterfacePolicyRequest(BaseModel):
+    """Create a PIM interface policy (``pimIfPol``) in a tenant.
+
+    The same policy object serves IPv4 and IPv6; which one it configures is
+    decided by the relation an interface profile binds it to
+    (`pim_interface_policy` vs `pim_v6_interface_policy`).
+
+    **No authentication key field, deliberately.** `pimIfPol` supports an
+    auth key, but a shared secret must never be persisted in Nautobot or in
+    the committed NetAsCode YAML -- the same rule that keeps OSPF MD5 keys
+    out of CreateOspfInterfacePolicyRequest. Set `auth_type` here and supply
+    the key itself as a sensitive Terraform variable.
+    """
+
+    tenant: str = Field(description="Name of the existing Tenant that owns this policy.")
+    name: str = Field(description="PIM interface policy name.")
+    designated_router_priority: int | None = Field(default=None, ge=0, description="DR priority; the highest priority on a segment becomes the designated router.")
+    designated_router_delay: int | None = Field(default=None, ge=0, description="DR election delay, seconds.")
+    hello_interval: int | None = Field(default=None, ge=0, description="PIM hello interval, milliseconds.")
+    join_prune_interval: int | None = Field(default=None, ge=0, description="Join/prune interval, seconds.")
+    control_state: str | None = Field(default=None, description="PIM control flags, for example 'border' or 'passive'.")
+    auth_type: str | None = Field(default=None, description="Neighbour authentication type, for example 'none' or 'ah-md5'. The key itself is supplied as a sensitive Terraform variable, never here.")
+    description: str = Field(default="", description="Optional free-text description.")
+
+    @field_validator("name")
+    @classmethod
+    def _validate_name(cls, v: str) -> str:
+        return _validate_aci_name(v)
+
+
+class CreateIgmpInterfacePolicyRequest(BaseModel):
+    """Create an IGMP interface policy (``igmpIfPol``) in a tenant."""
+
+    tenant: str = Field(description="Name of the existing Tenant that owns this policy.")
+    name: str = Field(description="IGMP interface policy name.")
+    version: str | None = Field(default=None, description="IGMP version, 'v2' or 'v3'.")
+    query_interval: int | None = Field(default=None, ge=0, description="General query interval, seconds.")
+    response_interval: int | None = Field(default=None, ge=0, description="Maximum query response interval, seconds.")
+    group_timeout: int | None = Field(default=None, ge=0, description="Group membership timeout, seconds.")
+    querier_timeout: int | None = Field(default=None, ge=0, description="Other-querier-present timeout, seconds.")
+    last_member_count: int | None = Field(default=None, ge=0, description="Last member query count.")
+    last_member_response_time: int | None = Field(default=None, ge=0, description="Last member query response time, seconds.")
+    robustness_variable: int | None = Field(default=None, ge=0, description="IGMP robustness variable; raise it on lossy links.")
+    startup_query_count: int | None = Field(default=None, ge=0, description="Number of queries sent at startup.")
+    startup_query_interval: int | None = Field(default=None, ge=0, description="Interval between startup queries, seconds.")
+    control: str | None = Field(default=None, description="IGMP control flags, for example 'allow-v3-asm' or 'fast-leave'.")
+    description: str = Field(default="", description="Optional free-text description.")
+
+    @field_validator("name")
+    @classmethod
+    def _validate_name(cls, v: str) -> str:
+        return _validate_aci_name(v)
+
+
+class CreateCustomQosPolicyRequest(BaseModel):
+    """Create a Custom QoS policy (``qosCustomPol``) in a tenant.
+
+    Both map lists are passed through to the provider unchanged. Each entry
+    maps an incoming range to an ACI QoS level: DSCP maps carry
+    from/to/priority/target/target_cos, dot1p maps the same over CoS values.
+    """
+
+    tenant: str = Field(description="Name of the existing Tenant that owns this policy.")
+    name: str = Field(description="Custom QoS policy name.")
+    dscp_to_priority_maps: list[dict] = Field(
+        default_factory=list,
+        description="DSCP-to-priority mappings, each with from/to/priority and optionally target/target_cos.",
+    )
+    dot1p_classifiers: list[dict] = Field(
+        default_factory=list,
+        description="Dot1p-to-priority mappings, same shape as dscp_to_priority_maps but over CoS values.",
+    )
+    description: str = Field(default="", description="Optional free-text description.")
+
+    @field_validator("name")
+    @classmethod
+    def _validate_name(cls, v: str) -> str:
+        return _validate_aci_name(v)
+
+    @model_validator(mode="after")
+    def _at_least_one_mapping(self):
+        if not self.dscp_to_priority_maps and not self.dot1p_classifiers:
+            raise ValueError(
+                "a custom QoS policy with no dscp_to_priority_maps and no "
+                "dot1p_classifiers classifies nothing -- supply at least one"
+            )
+        return self
+
+
+class BindL3OutInterfaceProfilePoliciesRequest(BaseModel):
+    """Bind policies to an EXISTING L3Out Logical Interface Profile, and/or
+    set its QoS priority.
+
+    Separate from create_l3out_interface_profile because attaching policy to
+    an already-deployed profile is a normal day-2 operation, the same reason
+    bind_epg_domain is separate from create_epg.
+
+    **Omitting a field leaves it untouched; it does not clear it.** To
+    inherit APIC's built-in default you must never have set the field --
+    passing the literal string 'default' is NOT valid and fails at apply time
+    with "Relation target dn default not found" (measured 2026-09-16).
+
+    Every policy named here must already exist in the same tenant, or be a
+    full ``uni/...`` DN for a policy this platform does not manage. The
+    generator re-checks this and fails the pipeline on a dangling reference,
+    because the provider only validates it at apply time.
+    """
+
+    tenant: str = Field(description="Name of the existing Tenant.")
+    l3out: str = Field(description="Name of the existing L3Out.")
+    node_profile: str = Field(description="Name of the existing Logical Node Profile.")
+    interface_profile: str = Field(description="Name of the existing Logical Interface Profile to bind policies to.")
+    qos_priority: str | None = Field(default=None, description="QoS class for traffic on this profile, for example 'level1'..'level6' or 'unspecified'.")
+    nd_interface_policy: str | None = Field(default=None, description="Name of an ND interface policy in this tenant.")
+    ingress_dpp_policy: str | None = Field(default=None, description="Name of a Data Plane Policing policy in this tenant, applied to ingress traffic.")
+    egress_dpp_policy: str | None = Field(default=None, description="Name of a Data Plane Policing policy in this tenant, applied to egress traffic.")
+    pim_interface_policy: str | None = Field(default=None, description="Name of a PIM interface policy in this tenant, for IPv4.")
+    pim_v6_interface_policy: str | None = Field(default=None, description="Name of a PIM interface policy in this tenant, for IPv6.")
+    igmp_interface_policy: str | None = Field(default=None, description="Name of an IGMP interface policy in this tenant.")
+    custom_qos_policy: str | None = Field(default=None, description="Name of a Custom QoS policy in this tenant.")
+
+    @model_validator(mode="after")
+    def _something_to_bind(self):
+        bindings = {
+            k: v for k, v in self.model_dump().items()
+            if k not in ("tenant", "l3out", "node_profile", "interface_profile") and v
+        }
+        if not bindings:
+            raise ValueError(
+                "nothing to bind -- supply at least one policy or qos_priority. "
+                "Note that omitting a field leaves it unchanged rather than "
+                "clearing it."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _reject_the_default_literal(self):
+        """`default` looks like it should select APIC's built-in policy and
+        does not: the provider resolves the name inside the owning tenant and
+        fails the apply with "Relation target dn default not found". The
+        correct way to get the default is to omit the field."""
+        offenders = sorted(
+            field for field in (
+                "nd_interface_policy", "ingress_dpp_policy", "egress_dpp_policy",
+                "pim_interface_policy", "pim_v6_interface_policy",
+                "igmp_interface_policy", "custom_qos_policy",
+            )
+            if getattr(self, field) == "default"
+        )
+        if offenders:
+            raise ValueError(
+                f"{', '.join(offenders)} set to the literal 'default', which APIC "
+                "rejects at apply time ('Relation target dn default not found'). "
+                "To inherit the built-in default, omit the field entirely."
+            )
+        return self
+
+
+class MatchPrefixSpec(BaseModel):
+    """One prefix inside a route-map match rule (``rtctrlMatchRtDest``)."""
+
+    ip: str = Field(description="Prefix to match, e.g. '172.16.200.200/32' or '10.0.3.0/24'.")
+    aggregate: bool = Field(
+        default=False,
+        description=(
+            "APIC's Aggregate checkbox. Matches the prefix AND anything more "
+            "specific within it. Leave off to match the exact prefix only."
+        ),
+    )
+    greater_than_mask: int = Field(
+        default=0, ge=0, le=128,
+        description="Prefix-list 'ge' bound. 0 means unset, matching the exact prefix length.",
+    )
+    less_than_mask: int = Field(
+        default=0, ge=0, le=128,
+        description="Prefix-list 'le' bound. 0 means unset.",
+    )
+    description: str = Field(default="", description="Optional free-text description.")
+
+    @model_validator(mode="after")
+    def _mask_bounds_are_ordered(self):
+        if self.greater_than_mask and self.less_than_mask and self.greater_than_mask > self.less_than_mask:
+            raise ValueError(
+                f"greater_than_mask ({self.greater_than_mask}) is above less_than_mask "
+                f"({self.less_than_mask}) for {self.ip} -- that range can never match"
+            )
+        return self
+
+
+class SetExternalEpgSubnetScopeRequest(BaseModel):
+    """Replace the route-control/security scope flags on an EXISTING external
+    EPG subnet.
+
+    Exists because scope is the switch between the two ways ACI can control
+    what an L3Out advertises: per-subnet ``export-rtctrl`` flags, or a route
+    map. Moving from one to the other means rewriting an existing subnet's
+    scope, not creating anything.
+
+    The scope list REPLACES what is there -- it is not merged. An empty list
+    is refused: ACI rejects a subnet with no scope at all.
+    """
+
+    tenant: str = Field(description="Name of the existing Tenant.")
+    l3out: str = Field(description="Name of the existing L3Out.")
+    external_epg: str = Field(description="Name of the existing external EPG.")
+    ip: str = Field(description="The existing subnet to modify, e.g. '172.16.200.200/32'.")
+    scope: list[str] = Field(
+        description=(
+            "Replacement scope flags. Valid values: import-security "
+            "(External Subnets for the External EPG), export-rtctrl, "
+            "import-rtctrl, shared-rtctrl, shared-security."
+        )
+    )
+
+    _VALID = {"import-security", "export-rtctrl", "import-rtctrl",
+              "shared-rtctrl", "shared-security"}
+
+    @model_validator(mode="after")
+    def _scope_is_present_and_valid(self):
+        if not self.scope:
+            raise ValueError(
+                "scope cannot be empty -- ACI rejects an external EPG subnet with "
+                "no scope flags. To remove a subnet entirely, delete it rather "
+                "than clearing its scope."
+            )
+        unknown = sorted(set(self.scope) - self._VALID)
+        if unknown:
+            raise ValueError(
+                f"unknown scope value(s): {', '.join(unknown)}. Valid: "
+                f"{', '.join(sorted(self._VALID))}"
+            )
+        return self
+
+
+class BindExternalEpgContractRequest(BaseModel):
+    """Provide or consume a Contract on an L3Out's external EPG.
+
+    Separate from bind_epg_contract because an external EPG (``l3extInstP``)
+    is a different object from an application EPG and lives inside the
+    L3Out's own intent, not on a VLAN.
+    """
+
+    tenant: str = Field(description="Name of the existing Tenant.")
+    l3out: str = Field(description="Name of the existing L3Out.")
+    external_epg: str = Field(description="Name of the existing external EPG.")
+    provided_contracts: list[str] = Field(
+        default_factory=list, description="Contract names this external EPG provides."
+    )
+    consumed_contracts: list[str] = Field(
+        default_factory=list, description="Contract names this external EPG consumes."
+    )
+
+    @model_validator(mode="after")
+    def _something_to_bind(self):
+        if not self.provided_contracts and not self.consumed_contracts:
+            raise ValueError(
+                "supply at least one provided or consumed contract -- binding "
+                "neither does nothing"
+            )
+        return self
+
+
+class AddExternalEpgSubnetRequest(BaseModel):
+    """Add a subnet to an EXISTING external EPG.
+
+    Distinct from set_external_epg_subnet_scope, which edits one already
+    present. Scope decides what the subnet is FOR: ``import-security``
+    classifies traffic into this EPG for contracts, the ``rtctrl`` flags
+    control routing.
+    """
+
+    tenant: str = Field(description="Name of the existing Tenant.")
+    l3out: str = Field(description="Name of the existing L3Out.")
+    external_epg: str = Field(description="Name of the existing external EPG.")
+    ip: str = Field(description="Subnet to add, e.g. '172.16.199.199/32'.")
+    scope: list[str] = Field(
+        default_factory=lambda: ["import-security"],
+        description=(
+            "Scope flags. Default ['import-security'] = External Subnets for "
+            "the External EPG, the classification used by contracts."
+        ),
+    )
+    aggregate: list[str] = Field(default_factory=list, description="Optional aggregate flags, e.g. ['shared-rtctrl'].")
+
+    _VALID = {"import-security", "export-rtctrl", "import-rtctrl",
+              "shared-rtctrl", "shared-security"}
+
+    @model_validator(mode="after")
+    def _scope_is_valid(self):
+        if not self.scope:
+            raise ValueError("scope cannot be empty -- ACI rejects a subnet with no scope flags")
+        unknown = sorted(set(self.scope) - self._VALID)
+        if unknown:
+            raise ValueError(f"unknown scope value(s): {', '.join(unknown)}")
+        return self
+
+
+class AddMatchRulePrefixRequest(BaseModel):
+    """Add a prefix to an EXISTING route-map match rule.
+
+    Route maps are edited far more often than created -- adding a prefix to
+    a deny rule is the normal way to extend a filter.
+    """
+
+    tenant: str = Field(description="Name of the existing Tenant.")
+    match_rule: str = Field(description="Name of the existing match rule.")
+    ip: str = Field(description="Prefix to add, e.g. '172.16.199.199/32'.")
+    aggregate: bool = Field(default=False, description="APIC's Aggregate checkbox.")
+    greater_than_mask: int = Field(default=0, ge=0, le=128, description="Prefix-list 'ge' bound; 0 = unset.")
+    less_than_mask: int = Field(default=0, ge=0, le=128, description="Prefix-list 'le' bound; 0 = unset.")
+    description: str = Field(default="", description="Optional free-text description.")
+
+
+class CreateL3DomainRequest(BaseModel):
+    """Create an external routed (L3) domain, optionally bound to a VLAN pool.
+
+    An L3Out's encap VLAN must come from the pool bound to its L3 domain. A
+    domain with no pool leaves every L3Out encap outside any pool, which is
+    invalid on real hardware even though this simulator accepts it.
+    """
+
+    name: str = Field(description="L3 domain name, e.g. 'ExtL3Dom'.")
+    location: str | None = Field(
+        default=None,
+        description=(
+            "Nautobot Location holding this fabric's intent. Omit it and the single Location is used automatically -- a Location name is an environment fact and does not belong in a default (this lab's is 'Isolated Lab Site', the upstream lab's is 'ACI-Lab', and a hardcoded default can only ever be right for one of them). Supply it explicitly only when more than one Location exists."
+        ),
+    )
+    vlan_pool: str | None = Field(default=None, description="Name of an existing VLAN pool covering the L3Out encap VLANs.")
+
+    @field_validator("name")
+    @classmethod
+    def _validate_name(cls, v: str) -> str:
+        return _validate_aci_name(v)
+
+
+class CreateMatchRuleRequest(BaseModel):
+    """Create a route-map match rule (``rtctrlSubjP``) in a tenant.
+
+    Tenant-scoped, not L3Out-scoped, so one rule can be referenced by several
+    route maps. A route-map context then names it.
+    """
+
+    tenant: str = Field(description="Name of the existing Tenant that owns this match rule.")
+    name: str = Field(description="Match rule name, e.g. 'match-permit-prefix-out'.")
+    prefixes: list[MatchPrefixSpec] = Field(description="Prefixes this rule matches.")
+    description: str = Field(default="", description="Optional free-text description.")
+
+    @field_validator("name")
+    @classmethod
+    def _validate_name(cls, v: str) -> str:
+        return _validate_aci_name(v)
+
+    @model_validator(mode="after")
+    def _at_least_one_prefix(self):
+        if not self.prefixes:
+            raise ValueError(
+                "a match rule with no prefixes matches nothing. In a route map, "
+                "whose last word is an implicit deny, that silently drops every "
+                "route instead of failing"
+            )
+        return self
+
+
+class RouteControlContextSpec(BaseModel):
+    """One ordered permit/deny entry inside a route map (``rtctrlCtxP``)."""
+
+    name: str = Field(description="Context name, e.g. 'permit-explicit'.")
+    order: int = Field(default=0, ge=0, le=9, description="Evaluation order, lowest first. ACI allows 0-9.")
+    action: str = Field(default="permit", description="'permit' or 'deny'.")
+    match_rule: str | None = Field(
+        default=None,
+        description=(
+            "Name of a match rule in the same tenant. Omit for a context that "
+            "matches everything -- which as a final 'deny' is how you make the "
+            "implicit deny explicit."
+        ),
+    )
+    set_rule: str | None = Field(default=None, description="Optional action/set rule profile name to apply to matched routes.")
+    description: str = Field(default="", description="Optional free-text description.")
+
+    @field_validator("name")
+    @classmethod
+    def _validate_name(cls, v: str) -> str:
+        return _validate_aci_name(v)
+
+    @field_validator("action")
+    @classmethod
+    def _validate_action(cls, v: str) -> str:
+        if v.lower() not in ("permit", "deny"):
+            raise ValueError(f"action must be 'permit' or 'deny', got '{v}'")
+        return v.lower()
+
+
+class CreateRouteControlProfileRequest(BaseModel):
+    """Create a route map (``rtctrlProfile``) under an existing L3Out, with
+    its ordered permit/deny contexts.
+
+    **An ACI route map ends in an implicit deny.** Anything no context
+    permits is dropped. That is what makes a route map a complete replacement
+    for per-subnet "Export Route Control Subnet" flags: permit what should be
+    advertised and everything else stops, without listing it.
+
+    **A custom-named profile does nothing until something references it.**
+    Only the reserved names `default-export` and `default-import` apply to an
+    L3Out automatically. For any other name, bind it to an external EPG with
+    bind_external_epg_route_control_profile, or the map is inert.
+    """
+
+    tenant: str = Field(description="Name of the existing Tenant.")
+    l3out: str = Field(description="Name of the existing L3Out this route map belongs to.")
+    name: str = Field(description="Route map name, e.g. 'Uni-Route-Profile-OUT', or the reserved 'default-export'.")
+    contexts: list[RouteControlContextSpec] = Field(description="Ordered permit/deny entries.")
+    type: str = Field(
+        default="global",
+        description=(
+            "'global' = Match Routing Policy Only (the map alone decides). "
+            "'combinable' = Match Prefix AND Routing Policy (the map is ANDed "
+            "with the external EPG's subnet flags)."
+        ),
+    )
+    description: str = Field(default="", description="Optional free-text description.")
+
+    @field_validator("name", "l3out")
+    @classmethod
+    def _validate_name(cls, v: str) -> str:
+        return _validate_aci_name(v)
+
+    @field_validator("type")
+    @classmethod
+    def _validate_type(cls, v: str) -> str:
+        if v not in ("global", "combinable"):
+            raise ValueError(f"type must be 'global' or 'combinable', got '{v}'")
+        return v
+
+    @model_validator(mode="after")
+    def _contexts_are_present_ordered_and_unique(self):
+        if not self.contexts:
+            raise ValueError(
+                "a route map with no contexts permits nothing, and ACI's implicit "
+                "deny then drops every route -- supply at least one context"
+            )
+        names = [c.name for c in self.contexts]
+        duplicates = sorted({n for n in names if names.count(n) > 1})
+        if duplicates:
+            raise ValueError(f"duplicate context name(s): {', '.join(duplicates)}")
+        orders = [c.order for c in self.contexts]
+        repeated = sorted({o for o in orders if orders.count(o) > 1})
+        if repeated:
+            raise ValueError(
+                f"context order value(s) {repeated} used more than once -- evaluation "
+                "order would be undefined, and in a permit/deny list order is the "
+                "whole meaning"
+            )
+        return self
+
+
+class BindExternalEpgRouteControlProfileRequest(BaseModel):
+    """Bind an existing route map to an external EPG for one direction
+    (``l3extRsInstPToProfile``).
+
+    Needed because a custom-named route map is inert on its own -- only
+    `default-export`/`default-import` apply to an L3Out without a reference.
+    """
+
+    tenant: str = Field(description="Name of the existing Tenant.")
+    l3out: str = Field(description="Name of the existing L3Out.")
+    external_epg: str = Field(description="Name of the existing external EPG to bind the route map to.")
+    route_control_profile: str = Field(description="Name of a route map declared in the same L3Out.")
+    direction: str = Field(default="export", description="'export' (advertised out of the fabric) or 'import'.")
+
+    @field_validator("direction")
+    @classmethod
+    def _validate_direction(cls, v: str) -> str:
+        if v not in ("export", "import"):
+            raise ValueError(f"direction must be 'export' or 'import', got '{v}'")
+        return v
+
+
 class CreateL3OutInterfaceRequest(BaseModel):
     tenant: str
     l3out: str
@@ -611,13 +1220,42 @@ class CreateOspfInterfacePolicyRequest(BaseModel):
     description: str = ""
 
 
+class AepDomainSpec(BaseModel):
+    """One domain fronted by an AAEP. `type` decides which APIC object the
+    relation resolves against -- a physical domain and an L3 domain can share
+    a name, so it cannot be inferred."""
+
+    name: str = Field(description="Domain name.")
+    type: str = Field(default="physical", description="'physical' or 'l3'.")
+
+    @field_validator("type")
+    @classmethod
+    def _validate_type(cls, v: str) -> str:
+        if v not in ("physical", "l3"):
+            raise ValueError(f"domain type must be 'physical' or 'l3', got '{v}'")
+        return v
+
+
 class CreateAepRequest(BaseModel):
     """ADR-020 Phase B coverage: an Attachable Access Entity Profile (AEP),
     bound to zero or more existing Physical Domains."""
 
     name: str = Field(description="AEP name.")
-    location: str = Field(default="ACI-Lab", description="Name of the existing Nautobot Location representing the ACI fabric/site.")
-    domains: list[str] = Field(default_factory=list, description="Names of existing Physical Domains (in this same Location) to bind this AEP to. Domains are merged with any already bound on repeated calls, not replaced.")
+    location: str | None = Field(
+        default=None,
+        description=(
+            "Nautobot Location holding this fabric's intent. Omit it and the single Location is used automatically -- a Location name is an environment fact and does not belong in a default (this lab's is 'Isolated Lab Site', the upstream lab's is 'ACI-Lab', and a hardcoded default can only ever be right for one of them). Supply it explicitly only when more than one Location exists."
+        ),
+    )
+    domains: list[str | AepDomainSpec] = Field(
+        default_factory=list,
+        description=(
+            "Domains this AAEP fronts. A bare string is a PHYSICAL domain "
+            "(kept for backwards compatibility); use {'name': ..., 'type': "
+            "'l3'} for an external routed domain, which is what an L3Out's "
+            "interface attaches through."
+        ),
+    )
 
     @field_validator("name")
     @classmethod
@@ -631,7 +1269,12 @@ class CreateLeafInterfacePolicyGroupRequest(BaseModel):
     (same simulator limitation as CreatePhysicalDomainRequest)."""
 
     name: str = Field(description="Leaf Interface Policy Group name.")
-    location: str = Field(default="ACI-Lab", description="Name of the existing Nautobot Location representing the ACI fabric/site.")
+    location: str | None = Field(
+        default=None,
+        description=(
+            "Nautobot Location holding this fabric's intent. Omit it and the single Location is used automatically -- a Location name is an environment fact and does not belong in a default (this lab's is 'Isolated Lab Site', the upstream lab's is 'ACI-Lab', and a hardcoded default can only ever be right for one of them). Supply it explicitly only when more than one Location exists."
+        ),
+    )
     aep: str | None = Field(default=None, description="Name of an existing AEP (in this same Location) to bind this policy group to. Omit to leave unbound.")
 
     @field_validator("name")
@@ -652,10 +1295,15 @@ class CreateVmmDomainRequest(BaseModel):
     own name; it is not a secret."""
 
     name: str = Field(description="VMM Domain name.")
-    controller_name: str = Field(description="VMM Controller name (the ACI-side object name, not the vCenter hostname).")
-    host_or_ip: str = Field(description="vCenter hostname or IP address.")
-    root_cont_name: str = Field(description="vCenter Datacenter name (ACI's 'top level container name').")
-    location: str = Field(default="ACI-Lab", description="Name of the existing Nautobot Location representing the ACI fabric/site.")
+    controller_name: str | None = Field(default=None, description="VMM Controller name (the ACI-side object name, not the vCenter hostname). Omit -- along with host_or_ip and root_cont_name -- to create a domain with NO controller, which never contacts vCenter at all.")
+    host_or_ip: str | None = Field(default=None, description="vCenter hostname or IP address. Required only when creating a controller.")
+    root_cont_name: str | None = Field(default=None, description="vCenter Datacenter name (ACI's 'top level container name'). Required only when creating a controller.")
+    location: str | None = Field(
+        default=None,
+        description=(
+            "Nautobot Location holding this fabric's intent. Omit it and the single Location is used automatically -- a Location name is an environment fact and does not belong in a default (this lab's is 'Isolated Lab Site', the upstream lab's is 'ACI-Lab', and a hardcoded default can only ever be right for one of them). Supply it explicitly only when more than one Location exists."
+        ),
+    )
     vendor: str = Field(default="VMware", description="VMM provider vendor. This lab only exercises 'VMware'.")
     vlan_pool: str | None = Field(default=None, description="Name of an existing VLAN Pool (in this same Location) to bind this domain to. Omit to leave unbound.")
     credential_name: str | None = Field(default=None, description="Name to give the ACI Credential object for this domain. Omit to leave the domain without a credential relation (no vCenter login will be attempted).")
@@ -665,6 +1313,41 @@ class CreateVmmDomainRequest(BaseModel):
     @classmethod
     def _validate_name(cls, v: str) -> str:
         return _validate_aci_name(v)
+
+    @model_validator(mode="after")
+    def _controller_is_all_or_nothing(self):
+        """A VMM Domain may legitimately exist with no Controller.
+
+        The Controller is the only object in this chain that actually
+        reaches out to vCenter -- APIC connects, authenticates, and builds a
+        Distributed Virtual Switch there. A domain on its own is inert: it
+        gives EPGs and L4-L7 devices something to bind to without touching
+        the virtualisation environment at all. That is the right shape when
+        modelling a VMM-backed service device on a fabric whose vCenter is
+        unreachable, or when you deliberately do not want a DVS created yet.
+
+        A PARTIAL controller is always a mistake, though -- ACI needs the
+        name, host and datacenter together -- so require all three or none.
+        """
+        controller_fields = {
+            "controller_name": self.controller_name,
+            "host_or_ip": self.host_or_ip,
+            "root_cont_name": self.root_cont_name,
+        }
+        supplied = {k: v for k, v in controller_fields.items() if v}
+        if supplied and len(supplied) != len(controller_fields):
+            missing = sorted(set(controller_fields) - set(supplied))
+            raise ValueError(
+                "a VMM Controller needs controller_name, host_or_ip and root_cont_name "
+                f"together -- missing {missing}. Omit all three to create a domain with "
+                "no controller (nothing will contact vCenter)."
+            )
+        if self.credential_name and not supplied:
+            raise ValueError(
+                "credential_name is meaningless without a controller -- the credential "
+                "exists to authenticate the controller's vCenter connection"
+            )
+        return self
 
 
 # Ported from copilot/aci-platform-comparison (2026-09-08) -- genuinely new,
@@ -736,6 +1419,198 @@ class CreateL4L7DeviceRequest(BaseModel):
                 "provider makes relation_vns_rs_al_dev_to_phys_dom_p mandatory and "
                 "fails at plan time without it"
             )
+        return self
+
+
+class ConcreteInterfaceSpec(BaseModel):
+    """One port on the service appliance (``vnsCIf``), and the logical
+    interface it backs.
+
+    A concrete interface is identified in exactly one of two ways, never
+    both, and which one is correct follows from the parent device's type:
+
+    * VIRTUAL -- ``vnic_name``, the vCenter-discovered adapter name (e.g.
+      "Network adapter 2"). Resolves through the VMM controller's inventory,
+      so it needs no leaf port and works on a fabric with no switches.
+    * PHYSICAL -- ``node_id``/``module``/``port``, which build a
+      ``topology/pod-N/paths-M/pathep-[ethX/Y]`` DN.
+    """
+
+    name: str = Field(description="Concrete interface name, unique within the concrete device.")
+    logical_interface: str = Field(
+        description=(
+            "Name of an existing logical interface (vnsLIf) on the parent L4-L7 "
+            "device that this concrete interface backs. Binding the two is what "
+            "clears APIC's 'LIf has no relation to CIf' fault -- a concrete "
+            "device that is not wired to a logical interface leaves the device "
+            "invalid just the same."
+        )
+    )
+    vnic_name: str | None = Field(
+        default=None,
+        description=(
+            "vCenter vNIC adapter name, e.g. 'Network adapter 2'. VIRTUAL "
+            "devices only. Must match the adapter as vCenter reports it, because "
+            "APIC resolves it against the VMM controller's inventory."
+        ),
+    )
+    node_id: int | None = Field(default=None, description="Leaf node ID the appliance port is cabled to. PHYSICAL devices only.")
+    pod_id: int = Field(default=1, description="APIC pod ID for the path DN. PHYSICAL devices only.")
+    module: int = Field(default=1, description="Line-card/module number in the path DN. PHYSICAL devices only.")
+    port: int | None = Field(default=None, description="Port number in the path DN. PHYSICAL devices only.")
+    encap: str | None = Field(
+        default=None,
+        description=(
+            "Optional VLAN encapsulation, e.g. 'vlan-101'. Normally omitted: for "
+            "an unmanaged device APIC allocates it from the domain's VLAN pool, "
+            "and pinning a VLAN outside that pool makes the interface invalid."
+        ),
+    )
+
+    @field_validator("name", "logical_interface")
+    @classmethod
+    def _validate_name(cls, v: str) -> str:
+        return _validate_aci_name(v)
+
+    @model_validator(mode="after")
+    def _exactly_one_identification_method(self):
+        has_vnic = self.vnic_name is not None
+        has_path = self.node_id is not None or self.port is not None
+        if has_vnic and has_path:
+            raise ValueError(
+                f"concrete interface '{self.name}': set either vnic_name (VIRTUAL) "
+                "or node_id/port (PHYSICAL), not both -- they are two different "
+                "ways of identifying the same port and APIC accepts only one"
+            )
+        if not has_vnic and not has_path:
+            raise ValueError(
+                f"concrete interface '{self.name}': needs either vnic_name (for a "
+                "VIRTUAL device) or node_id and port (for a PHYSICAL one). Without "
+                "one of them APIC flags the concrete device invalid with "
+                "'Virtual Object like vnic name is missing in CIf'"
+            )
+        if has_path and (self.node_id is None or self.port is None):
+            raise ValueError(
+                f"concrete interface '{self.name}': a physical path needs BOTH "
+                "node_id and port"
+            )
+        return self
+
+
+class CreateConcreteDeviceRequest(BaseModel):
+    """Create a concrete device (``vnsCDev``) behind an existing logical L4-L7
+    device, and wire its interfaces to that device's logical interfaces.
+
+    **Why this exists.** A logical device with no concrete device behind it is
+    not deployable. APIC accepts it, then marks it invalid --
+    ``vnsConfIssue-missing-cdev`` -- and every fault on the service graph above
+    it cascades from that. Measured live on 2026-09-15: a VIRTUAL logical
+    device alone raised 10 faults, all rooted there.
+
+    **A VIRTUAL concrete device requires a VMM controller.** The same
+    measurement showed that adding a concrete device to a controller-less VMM
+    domain does not reduce the fault count -- it holds at 10 and simply trades
+    the faults for ``F1778`` (cannot form the relation to the controller DN)
+    and "Virtual Object like vnic name is missing in CIf". A virtual
+    appliance's ports are identified by vCenter-discovered vNIC names, so with
+    no vCenter there is nothing for them to resolve against. This schema
+    therefore requires the controller rather than letting a caller build the
+    strictly worse configuration.
+    """
+
+    tenant: str = Field(description="Name of the existing Tenant that owns the L4-L7 device.")
+    device: str = Field(description="Name of the existing logical L4-L7 device (vnsLDevVip) this concrete device sits behind.")
+    name: str = Field(description="Concrete device name (vnsCDev).")
+    interfaces: list[ConcreteInterfaceSpec] = Field(
+        description="Concrete interfaces on this appliance, each bound to a logical interface of the parent device."
+    )
+    device_type: str = Field(
+        default="VIRTUAL",
+        description="Must match the parent logical device: VIRTUAL or PHYSICAL. Decides how interfaces are identified.",
+    )
+    vm_name: str | None = Field(
+        default=None,
+        description=(
+            "vCenter VM name of the appliance, e.g. 'ASAv-1'. Required for VIRTUAL. "
+            "Must name a VM that actually exists in the controller's inventory -- "
+            "APIC resolves it, it is not free text."
+        ),
+    )
+    vmm_domain: str | None = Field(default=None, description="Existing VMM Domain name. Required for VIRTUAL.")
+    vmm_controller: str | None = Field(
+        default=None,
+        description=(
+            "Controller name inside that VMM Domain. Required for VIRTUAL -- see "
+            "this schema's note on why a controller-less domain is refused."
+        ),
+    )
+    vendor: str = Field(default="VMware", description="VMM vendor, used to build the controller DN.")
+    description: str = Field(default="", description="Optional free-text description.")
+
+    @field_validator("name", "device")
+    @classmethod
+    def _validate_name(cls, v: str) -> str:
+        return _validate_aci_name(v)
+
+    @model_validator(mode="after")
+    def _interfaces_are_present_and_unique(self):
+        if not self.interfaces:
+            raise ValueError(
+                "at least one concrete interface is required -- a concrete device "
+                "with no interfaces leaves the logical interfaces unbound and the "
+                "device invalid"
+            )
+        names = [i.name for i in self.interfaces]
+        duplicates = sorted({n for n in names if names.count(n) > 1})
+        if duplicates:
+            raise ValueError(f"duplicate concrete interface name(s): {', '.join(duplicates)}")
+        return self
+
+    @model_validator(mode="after")
+    def _identification_matches_device_type(self):
+        """The parent device's type decides how its ports are identified, so a
+        mismatch is caught here rather than accepted and silently marked
+        invalid by APIC."""
+        device_type = self.device_type.upper()
+        if device_type == "VIRTUAL":
+            missing = [
+                field
+                for field, value in (
+                    ("vm_name", self.vm_name),
+                    ("vmm_domain", self.vmm_domain),
+                    ("vmm_controller", self.vmm_controller),
+                )
+                if not value
+            ]
+            if missing:
+                raise ValueError(
+                    f"{', '.join(missing)} required when device_type is VIRTUAL. A "
+                    "virtual concrete device is resolved through vCenter inventory; "
+                    "without a controller APIC cannot resolve the VM or its vNICs "
+                    "and flags the device invalid (measured: F1778 + F0765)"
+                )
+            wrong = [i.name for i in self.interfaces if i.vnic_name is None]
+            if wrong:
+                raise ValueError(
+                    f"VIRTUAL concrete device: interface(s) {', '.join(wrong)} need "
+                    "vnic_name, not a leaf path"
+                )
+        elif device_type == "PHYSICAL":
+            for field, value in (("vm_name", self.vm_name), ("vmm_controller", self.vmm_controller)):
+                if value:
+                    raise ValueError(
+                        f"{field} is a VIRTUAL-only field and is meaningless on a "
+                        "PHYSICAL concrete device, which is identified by its "
+                        "interfaces' leaf paths"
+                    )
+            wrong = [i.name for i in self.interfaces if i.node_id is None]
+            if wrong:
+                raise ValueError(
+                    f"PHYSICAL concrete device: interface(s) {', '.join(wrong)} need "
+                    "node_id and port, not a vnic_name"
+                )
+        else:
+            raise ValueError(f"device_type must be VIRTUAL or PHYSICAL, got '{self.device_type}'")
         return self
 
 

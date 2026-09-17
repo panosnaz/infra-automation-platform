@@ -93,6 +93,32 @@ def fetch_faults(url: str, username: str, password: str, insecure: bool = True) 
     return faults
 
 
+# Objects this platform creates OUTSIDE any tenant, and the DN fragment that
+# identifies one by name. Scoping faults to `tn-<name>/` alone was the
+# original design, and it has a blind spot: the generator also emits VMM
+# domains, VLAN pools, physical/L3 domains, AEPs and the whole access-policy
+# hierarchy, none of which live under a tenant at all. The 2026-09-15 PBR lab
+# apply raised 7 faults on exactly those objects and the check reported none
+# of them -- they happened to all be `cleared`, so nothing was missed that
+# time, but a real one would have passed silently.
+#
+# Each entry maps a NetAsCode key path to the `uni/...` DN fragment APIC uses,
+# with `{name}` substituted from the YAML. Matching by exact name keeps the
+# same discipline as the tenant anchor: we claim a fault only for an object we
+# actually declared, never for a same-class object someone else created.
+_GLOBAL_SCOPES: tuple[tuple[tuple[str, ...], str], ...] = (
+    (("fabric_policies", "vlan_pools"), "vlanns-[{name}]"),
+    (("fabric_policies", "vmm_domains"), "dom-{name}/"),
+    (("fabric_policies", "pod_policy_groups"), "podpgrp-{name}"),
+    (("access_policies", "physical_domains"), "phys-{name}"),
+    (("access_policies", "l3_domains"), "l3dom-{name}"),
+    (("access_policies", "aeps"), "attentp-{name}"),
+    (("access_policies", "leaf_interface_policy_groups"), "accportgrp-{name}"),
+    (("access_policies", "access_port_profiles"), "accportprof-{name}"),
+    (("access_policies", "leaf_profiles"), "nprof-{name}"),
+)
+
+
 def managed_tenants(netascode_yaml: str) -> list[str]:
     """Tenant names this pipeline is responsible for."""
     with open(netascode_yaml, encoding="utf-8") as handle:
@@ -100,25 +126,54 @@ def managed_tenants(netascode_yaml: str) -> list[str]:
     return [t["name"] for t in (data.get("apic", {}).get("tenants") or []) if t.get("name")]
 
 
-def is_managed(fault_dn: str, tenants: list[str]) -> bool:
-    """True when the fault's DN sits under one of our tenants.
+def managed_global_objects(netascode_yaml: str) -> list[str]:
+    """DN fragments for every non-tenant object this deployment declares.
 
-    Matched on the exact `tn-<name>/` segment rather than a bare substring, so
-    tenant `sales` never claims a fault belonging to `sales-archive`.
+    Returns the concrete `uni/...` fragments (e.g. `dom-vCenter_VMM/`) to look
+    for, so a fault on a VMM domain or a VLAN pool we created is attributed to
+    this deployment rather than dismissed as unrelated fabric noise.
     """
-    return any(f"tn-{tenant}/" in fault_dn or fault_dn.endswith(f"tn-{tenant}") for tenant in tenants)
+    with open(netascode_yaml, encoding="utf-8") as handle:
+        apic = (yaml.safe_load(handle) or {}).get("apic") or {}
+
+    fragments: list[str] = []
+    for key_path, template in _GLOBAL_SCOPES:
+        node: object = apic
+        for key in key_path:
+            node = (node or {}).get(key) if isinstance(node, dict) else None
+        for item in node or []:
+            name = item.get("name") if isinstance(item, dict) else None
+            if name:
+                fragments.append(template.format(name=name))
+    return fragments
+
+
+def is_managed(fault_dn: str, tenants: list[str], global_objects: list[str] | None = None) -> bool:
+    """True when the fault's DN belongs to something this deployment declared.
+
+    Tenant scope is matched on the exact `tn-<name>/` segment rather than a
+    bare substring, so tenant `sales` never claims a fault belonging to
+    `sales-archive`. Non-tenant objects are matched on their own DN fragment
+    (see `_GLOBAL_SCOPES`).
+    """
+    if any(f"tn-{tenant}/" in fault_dn or fault_dn.endswith(f"tn-{tenant}") for tenant in tenants):
+        return True
+    return any(fragment in fault_dn for fragment in global_objects or [])
 
 
 def new_managed_faults(
-    before: dict[str, dict], after: dict[str, dict], tenants: list[str]
+    before: dict[str, dict],
+    after: dict[str, dict],
+    tenants: list[str],
+    global_objects: list[str] | None = None,
 ) -> dict[str, dict]:
-    """Faults present after but not before, scoped to managed tenants."""
+    """Faults present after but not before, scoped to what we manage."""
     return {
         dn: info
         for dn, info in after.items()
         if dn not in before
         and info.get("severity") in _FAILING_SEVERITIES
-        and is_managed(dn, tenants)
+        and is_managed(dn, tenants, global_objects)
     }
 
 
@@ -175,18 +230,20 @@ def main() -> int:
         return 1
 
     tenants = managed_tenants(args.netascode_yaml)
-    introduced = new_managed_faults(before, faults, tenants)
+    global_objects = managed_global_objects(args.netascode_yaml)
+    introduced = new_managed_faults(before, faults, tenants, global_objects)
+    scope = f"managed tenant(s) {tenants} + {len(global_objects)} non-tenant object(s)"
 
     if not introduced:
         print(
-            f"OK: no new configuration faults under managed tenant(s) {tenants} "
+            f"OK: no new configuration faults under {scope} "
             f"({len(before)} before, {len(faults)} now)"
         )
         return 0
 
     print(
         f"FAIL: this deployment introduced {len(introduced)} new fault(s) under "
-        f"managed tenant(s) {tenants}:",
+        f"{scope}:",
         file=sys.stderr,
     )
     for dn, info in sorted(introduced.items()):

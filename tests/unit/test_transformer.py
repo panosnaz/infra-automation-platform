@@ -13,7 +13,11 @@ from __future__ import annotations
 
 import pytest
 
-from generator.transformer import FabricInventoryError, build_netascode_yaml
+from generator.transformer import (
+    FabricInventoryError,
+    PolicyReferenceError,
+    build_netascode_yaml,
+)
 
 
 def _device(name: str, node_id: int | None, role: str = "leaf", pod_id: int | None = None,
@@ -1350,3 +1354,486 @@ def test_l4l7_concrete_interface_on_a_known_node_is_accepted():
 
     assert services["devices"][0]["concrete_devices"][0]["interfaces"][0]["node_id"] == 101
     assert services["devices"][0]["logical_interfaces"][0]["concrete_interfaces"] == ["fw1/eth1"]
+
+
+def test_declared_but_unset_custom_field_does_not_crash_the_generator():
+    """A DECLARED-but-unset Nautobot Custom Field is returned as an explicit
+    None, not as a missing key -- so `.get(key, {})` never applies its
+    default and `None.get(...)` raises. This crashed the generator the moment
+    aci_ospf_interface_policies was declared in Nautobot (2026-09-15). Every
+    JSON custom field the transformer reads must tolerate an explicit None.
+    """
+    tenants = [{
+        "name": "ACI:sales", "description": "", "vrfs": [],
+        "_custom_field_data": {
+            "aci_ospf_interface_policies": None,
+            "aci_contracts": None,
+            "aci_l3outs": None,
+            "aci_vrf_route_leaks": None,
+            "aci_l4l7_services": None,
+        },
+    }]
+
+    result = build_netascode_yaml(tenants=tenants, prefixes=[])
+
+    tenant = result["apic"]["tenants"][0]
+    for key in ("ospf_interface_policies", "contracts", "filters", "l3outs", "vrf_route_leaks", "services"):
+        assert key not in tenant, f"{key} should be omitted when its Custom Field is unset"
+
+
+# ---------------------------------------------------------------------------
+# Concrete devices (2026-09-15).
+#
+# main.tf has read `vnic_name` since the concrete-device work landed, but
+# nothing upstream could produce it -- a grep for it across the repo returned
+# exactly one hit, in main.tf itself. These tests pin the generator end of
+# that path now that create_concrete_device exists to write it.
+# ---------------------------------------------------------------------------
+
+def _tenant_with_concrete_device(**device_overrides):
+    device = {
+        "name": "FW",
+        "device_type": "VIRTUAL",
+        "vmm_domain": "vCenter_VMM",
+        "concrete_devices": [{
+            "name": "ASAv_cdev",
+            "vm_name": "ASAv-1",
+            "vmm_controller_dn": "uni/vmmp-VMware/dom-vCenter_VMM/ctrlr-vCenter",
+            "interfaces": [
+                {"name": "cif1", "vnic_name": "Network adapter 2"},
+                {"name": "cif2", "vnic_name": "Network adapter 3"},
+            ],
+        }],
+        "logical_interfaces": [
+            {"name": "db_int", "concrete_interfaces": ["ASAv_cdev/cif1"]},
+            {"name": "backup_int", "concrete_interfaces": ["ASAv_cdev/cif2"]},
+        ],
+    }
+    device.update(device_overrides)
+    return [{
+        "name": "ACI:sales", "description": "", "vrfs": [],
+        "_custom_field_data": {"aci_l4l7_services": {"devices": [device]}},
+    }]
+
+
+def test_virtual_concrete_device_survives_the_generator_intact():
+    result = build_netascode_yaml(tenants=_tenant_with_concrete_device(), prefixes=[])
+
+    device = result["apic"]["tenants"][0]["services"]["devices"][0]
+    cdev = device["concrete_devices"][0]
+    assert cdev["vm_name"] == "ASAv-1"
+    assert cdev["vmm_controller_dn"] == "uni/vmmp-VMware/dom-vCenter_VMM/ctrlr-vCenter"
+    assert [i["vnic_name"] for i in cdev["interfaces"]] == ["Network adapter 2", "Network adapter 3"]
+    assert device["logical_interfaces"][0]["concrete_interfaces"] == ["ASAv_cdev/cif1"]
+
+
+def test_concrete_devices_key_absent_when_none_are_declared():
+    """The negative half. A device with no concrete devices must not emit an
+    empty `concrete_devices` key -- main.tf's lookup would then iterate an
+    empty list rather than skipping, and the absence is the signal."""
+    tenants = [{
+        "name": "ACI:sales", "description": "", "vrfs": [],
+        "_custom_field_data": {"aci_l4l7_services": {"devices": [
+            {"name": "FW", "device_type": "VIRTUAL", "logical_interfaces": [{"name": "db_int"}]}
+        ]}},
+    }]
+
+    result = build_netascode_yaml(tenants=tenants, prefixes=[])
+
+    device = result["apic"]["tenants"][0]["services"]["devices"][0]
+    assert "concrete_devices" not in device
+    assert "concrete_interfaces" not in device["logical_interfaces"][0]
+
+
+def test_physical_concrete_device_node_is_validated_against_the_fabric_roster():
+    """A concrete interface path names a leaf. That reference goes through the
+    same fatal roster validation as every other pathep- DN, so a typo fails
+    the generator instead of silently producing an unformed relation."""
+    tenants = _tenant_with_concrete_device(
+        device_type="PHYSICAL",
+        concrete_devices=[{
+            "name": "fw1",
+            "interfaces": [{"name": "eth1", "node_id": 999, "pod_id": 1, "module": 1, "port": 30}],
+        }],
+        logical_interfaces=[{"name": "consumer", "concrete_interfaces": ["fw1/eth1"]}],
+    )
+    with pytest.raises(FabricInventoryError, match="999"):
+        build_netascode_yaml(tenants=tenants, prefixes=[],
+                             devices=[_device("leaf-a", 101, "leaf")])
+
+
+# ---------------------------------------------------------------------------
+# L3Out Logical Interface Profile sub-policies (2026-09-16).
+#
+# The reference validation here exists because the Terraform provider only
+# resolves these relations at APPLY time -- a plan renders whatever string it
+# is handed and reports success. Measured: all seven relations failed at once
+# with "Relation target dn <name> not found" after a clean plan.
+# ---------------------------------------------------------------------------
+
+_POLICY_CF = {
+    "nd_interface_policies": [{"name": "ND_Pol", "hop_limit": 64}],
+    "dpp_policies": [{"name": "In_100M", "rate": 100, "rate_unit": "mega"},
+                     {"name": "Out_50M", "rate": 50, "rate_unit": "mega"}],
+    "pim_interface_policies": [{"name": "PIM_Pol"}, {"name": "PIM6_Pol"}],
+    "igmp_interface_policies": [{"name": "IGMP_Pol", "version": "v3"}],
+    "custom_qos_policies": [{"name": "CQos"}],
+}
+
+
+def _tenant_with_policies(profile_overrides=None, policies=_POLICY_CF):
+    profile = {"name": "IP1"}
+    if profile_overrides:
+        profile.update(profile_overrides)
+    return [{
+        "name": "ACI:sales", "description": "", "vrfs": [],
+        "_custom_field_data": {
+            "aci_interface_policies": policies,
+            "aci_l3outs": {"l3outs": [{
+                "name": "Edge", "vrf": "v",
+                "node_profiles": [{"name": "NP1", "interface_profiles": [profile]}],
+            }]},
+        },
+    }]
+
+
+def test_interface_policies_emitted_when_set():
+    result = build_netascode_yaml(tenants=_tenant_with_policies(), prefixes=[])
+
+    tenant = result["apic"]["tenants"][0]
+    assert [p["name"] for p in tenant["nd_interface_policies"]] == ["ND_Pol"]
+    assert [p["name"] for p in tenant["dpp_policies"]] == ["In_100M", "Out_50M"]
+    assert [p["name"] for p in tenant["pim_interface_policies"]] == ["PIM_Pol", "PIM6_Pol"]
+    assert tenant["igmp_interface_policies"][0]["version"] == "v3"
+    assert tenant["custom_qos_policies"][0]["name"] == "CQos"
+
+
+def test_interface_policy_keys_absent_when_unset():
+    """The negative half. An empty key would make Terraform iterate an empty
+    map instead of skipping the resource entirely."""
+    tenants = [{"name": "ACI:sales", "description": "", "vrfs": [],
+                "_custom_field_data": {"aci_interface_policies": None}}]
+
+    result = build_netascode_yaml(tenants=tenants, prefixes=[])
+
+    tenant = result["apic"]["tenants"][0]
+    for key in ("nd_interface_policies", "dpp_policies", "pim_interface_policies",
+                "igmp_interface_policies", "custom_qos_policies"):
+        assert key not in tenant
+
+
+def test_all_seven_policy_references_resolve():
+    result = build_netascode_yaml(tenants=_tenant_with_policies({
+        "qos_priority": "level3",
+        "nd_interface_policy": "ND_Pol",
+        "ingress_dpp_policy": "In_100M",
+        "egress_dpp_policy": "Out_50M",
+        "pim_interface_policy": "PIM_Pol",
+        "pim_v6_interface_policy": "PIM6_Pol",
+        "igmp_interface_policy": "IGMP_Pol",
+        "custom_qos_policy": "CQos",
+    }), prefixes=[])
+
+    profile = result["apic"]["tenants"][0]["l3outs"][0]["node_profiles"][0]["interface_profiles"][0]
+    assert profile["qos_priority"] == "level3"
+    assert profile["nd_interface_policy"] == "ND_Pol"
+
+
+@pytest.mark.parametrize(
+    "ref_key,kind",
+    [("nd_interface_policy", "nd_interface_policies"),
+     ("ingress_dpp_policy", "dpp_policies"),
+     ("egress_dpp_policy", "dpp_policies"),
+     ("pim_interface_policy", "pim_interface_policies"),
+     ("pim_v6_interface_policy", "pim_interface_policies"),
+     ("igmp_interface_policy", "igmp_interface_policies"),
+     ("custom_qos_policy", "custom_qos_policies")],
+)
+def test_a_dangling_policy_reference_is_fatal(ref_key, kind):
+    with pytest.raises(PolicyReferenceError) as exc:
+        build_netascode_yaml(tenants=_tenant_with_policies({ref_key: "Nope"}), prefixes=[])
+
+    message = str(exc.value)
+    assert "Nope" in message and ref_key in message and kind in message
+    assert "ACI:sales" in message or "sales" in message
+
+
+def test_the_error_names_what_is_actually_declared():
+    """A dangling reference is usually a typo, so the message lists the real
+    names rather than only saying the reference is wrong."""
+    with pytest.raises(PolicyReferenceError, match="In_100M, Out_50M"):
+        build_netascode_yaml(
+            tenants=_tenant_with_policies({"ingress_dpp_policy": "In_100Mb"}), prefixes=[]
+        )
+
+
+def test_the_error_explains_that_default_is_not_valid():
+    """`default` is the single most likely wrong guess, so the message says so
+    explicitly rather than just reporting it as missing."""
+    with pytest.raises(PolicyReferenceError, match="'default' is NOT valid"):
+        build_netascode_yaml(
+            tenants=_tenant_with_policies({"nd_interface_policy": "default"}), prefixes=[]
+        )
+
+
+def test_a_literal_dn_reference_is_allowed_through():
+    """The documented escape hatch: a full uni/... DN points at a policy this
+    platform does not manage, so there is nothing local to validate it
+    against and main.tf passes it straight to APIC."""
+    result = build_netascode_yaml(tenants=_tenant_with_policies({
+        "nd_interface_policy": "uni/tn-common/ndifpol-default"
+    }), prefixes=[])
+
+    profile = result["apic"]["tenants"][0]["l3outs"][0]["node_profiles"][0]["interface_profiles"][0]
+    assert profile["nd_interface_policy"] == "uni/tn-common/ndifpol-default"
+
+
+def test_a_profile_with_no_policy_references_is_fine():
+    build_netascode_yaml(tenants=_tenant_with_policies(), prefixes=[])
+
+
+def test_policy_references_are_scoped_per_tenant():
+    """A policy declared in one tenant must not satisfy a reference from
+    another -- the DN main.tf builds is tenant-scoped."""
+    tenants = _tenant_with_policies({"nd_interface_policy": "ND_Pol"})
+    tenants.append({
+        "name": "ACI:other", "description": "", "vrfs": [],
+        "_custom_field_data": {
+            "aci_interface_policies": None,
+            "aci_l3outs": {"l3outs": [{
+                "name": "OtherEdge", "vrf": "v",
+                "node_profiles": [{"name": "NP", "interface_profiles": [
+                    {"name": "IP", "nd_interface_policy": "ND_Pol"}
+                ]}],
+            }]},
+        },
+    })
+
+    with pytest.raises(PolicyReferenceError, match="other"):
+        build_netascode_yaml(tenants=tenants, prefixes=[])
+
+
+# ---------------------------------------------------------------------------
+# Route control + BD-to-L3Out (2026-09-16).
+#
+# A route-map context pointing at a match rule that does not exist matches
+# nothing, and an ACI route map ends in an implicit deny -- so the result is
+# advertising NO routes, with no error and no fault. Worth failing generation
+# over.
+# ---------------------------------------------------------------------------
+
+def _rc_tenant(contexts=None, match_rules=("match-permit-prefix-out",), epg_bindings=None,
+               bd_l3outs=None):
+    tenant = {
+        "name": "ACI:sales", "description": "", "vrfs": [],
+        "_custom_field_data": {
+            "aci_route_control": {
+                "match_rules": [{"name": n, "prefixes": [{"ip": "172.16.200.200/32"}]}
+                                for n in match_rules]
+            },
+            "aci_l3outs": {"l3outs": [{
+                "name": "OSPF_L3Out", "vrf": "v",
+                "route_control_profiles": [{
+                    "name": "Uni-Route-Profile-OUT", "type": "global",
+                    "contexts": contexts if contexts is not None else [
+                        {"name": "permit-explicit", "order": 0, "action": "permit",
+                         "match_rule": "match-permit-prefix-out"}],
+                }],
+                "external_epgs": [{"name": "Cat_ExtNet",
+                                   "route_control_profiles": epg_bindings or []}],
+            }]},
+        },
+    }
+    return [tenant]
+
+
+def test_match_rules_emitted_when_set():
+    result = build_netascode_yaml(tenants=_rc_tenant(), prefixes=[])
+
+    tenant = result["apic"]["tenants"][0]
+    assert [r["name"] for r in tenant["match_rules"]] == ["match-permit-prefix-out"]
+    profile = tenant["l3outs"][0]["route_control_profiles"][0]
+    assert profile["type"] == "global"
+
+
+def test_match_rules_key_absent_when_unset():
+    """The negative half."""
+    tenants = [{"name": "ACI:sales", "description": "", "vrfs": [],
+                "_custom_field_data": {"aci_route_control": None}}]
+
+    result = build_netascode_yaml(tenants=tenants, prefixes=[])
+
+    assert "match_rules" not in result["apic"]["tenants"][0]
+
+
+def test_a_context_naming_a_missing_match_rule_is_fatal():
+    with pytest.raises(PolicyReferenceError) as exc:
+        build_netascode_yaml(
+            tenants=_rc_tenant(contexts=[{"name": "c", "order": 0, "action": "permit",
+                                          "match_rule": "typo-rule"}]),
+            prefixes=[],
+        )
+
+    message = str(exc.value)
+    assert "typo-rule" in message
+    assert "implicit deny" in message, "the message must explain WHY this is fatal"
+
+
+def test_a_context_with_no_match_rule_is_allowed():
+    """Matches everything -- a legitimate final catch-all deny."""
+    build_netascode_yaml(
+        tenants=_rc_tenant(contexts=[{"name": "catch-all", "order": 9, "action": "deny"}]),
+        prefixes=[],
+    )
+
+
+def test_an_epg_binding_a_missing_route_map_is_fatal():
+    with pytest.raises(PolicyReferenceError, match="Nope"):
+        build_netascode_yaml(
+            tenants=_rc_tenant(epg_bindings=[{"name": "Nope", "direction": "export"}]),
+            prefixes=[],
+        )
+
+
+def test_an_epg_binding_a_declared_route_map_is_allowed():
+    build_netascode_yaml(
+        tenants=_rc_tenant(epg_bindings=[{"name": "Uni-Route-Profile-OUT", "direction": "export"}]),
+        prefixes=[],
+    )
+
+
+def test_bd_public_scope_and_l3out_association_travel_together():
+    """`public` was hardcoded False until 2026-09-16, so no BD subnet this
+    platform created could ever be advertised out of an L3Out. Both halves are
+    asserted together because neither does anything alone."""
+    tenants = [{"name": "ACI:sales", "description": "", "vrfs": [],
+                "_custom_field_data": {"aci_l3outs": {"l3outs": [{"name": "OSPF_L3Out", "vrf": "v"}]}}}]
+    prefixes = [{"prefix": "10.0.3.0/24",
+                 "description": "ACI Bridge Domain: Transit_BD:sales",
+                 "tenant": {"name": "ACI:sales"},
+                 "vrfs": [{"name": "Presales_VRF"}],
+                 "_custom_field_data": {"aci_gateway_ip": "10.0.3.254/24",
+                                        "aci_bd_subnet_scope": "public",
+                                        "aci_bd_l3outs": ["OSPF_L3Out"]}}]
+
+    result = build_netascode_yaml(tenants=tenants, prefixes=prefixes)
+
+    bd = result["apic"]["tenants"][0]["bridge_domains"][0]
+    assert bd["subnets"][0]["public"] is True
+    assert bd["subnets"][0]["private"] is False
+    assert bd["l3outs"] == ["OSPF_L3Out"]
+
+
+def test_bd_defaults_to_private_when_no_scope_asked_for():
+    """Every BD that existed before this change must keep its old shape."""
+    tenants = [{"name": "ACI:sales", "description": "", "vrfs": [], "_custom_field_data": {}}]
+    prefixes = [{"prefix": "10.0.2.0/24",
+                 "description": "ACI Bridge Domain: DB_BD:sales",
+                 "tenant": {"name": "ACI:sales"},
+                 "vrfs": [{"name": "Presales_VRF"}],
+                 "_custom_field_data": {"aci_gateway_ip": "10.0.2.254/24"}}]
+
+    result = build_netascode_yaml(tenants=tenants, prefixes=prefixes)
+
+    subnet = result["apic"]["tenants"][0]["bridge_domains"][0]["subnets"][0]
+    assert subnet["public"] is False and subnet["private"] is True
+
+
+def test_bd_associated_with_an_undeclared_l3out_is_fatal():
+    tenants = [{"name": "ACI:sales", "description": "", "vrfs": [], "_custom_field_data": {}}]
+    prefixes = [{"prefix": "10.0.3.0/24",
+                 "description": "ACI Bridge Domain: Transit_BD:sales",
+                 "tenant": {"name": "ACI:sales"},
+                 "vrfs": [{"name": "Presales_VRF"}],
+                 "_custom_field_data": {"aci_gateway_ip": "10.0.3.254/24",
+                                        "aci_bd_l3outs": ["Nope"]}}]
+
+    with pytest.raises(PolicyReferenceError, match="Nope"):
+        build_netascode_yaml(tenants=tenants, prefixes=prefixes)
+
+
+# ---------------------------------------------------------------------------
+# Multi-subnet bridge domains (2026-09-16).
+#
+# Nautobot models a BD as a Prefix, so two prefixes naming the same BD are two
+# SUBNETS of one bridge domain. Appending them blindly produced duplicate BD
+# names, which Terraform rejects with "Duplicate object key".
+# ---------------------------------------------------------------------------
+
+def _bd_prefix(net, gw, **cf):
+    return {"prefix": net, "description": "ACI Bridge Domain: DB_BD:sales",
+            "tenant": {"name": "ACI:sales"}, "vrfs": [{"name": "Presales_VRF"}],
+            "_custom_field_data": {"aci_gateway_ip": gw, **cf}}
+
+
+def test_two_prefixes_naming_one_bd_become_one_bd_with_two_subnets():
+    tenants = [{"name": "ACI:sales", "description": "", "vrfs": [],
+                "_custom_field_data": {"aci_l3outs": {"l3outs": [{"name": "OSPF_L3Out", "vrf": "v"}]}}}]
+    prefixes = [_bd_prefix("10.0.2.0/24", "10.0.2.254/24"),
+                _bd_prefix("10.0.3.0/24", "10.0.3.254/24",
+                           aci_bd_subnet_scope="public", aci_bd_l3outs=["OSPF_L3Out"])]
+
+    bds = build_netascode_yaml(tenants=tenants, prefixes=prefixes)["apic"]["tenants"][0]["bridge_domains"]
+
+    assert len(bds) == 1, "two prefixes for one BD must not produce two bridge domains"
+    assert [s["ip"] for s in bds[0]["subnets"]] == ["10.0.2.254/24", "10.0.3.254/24"]
+    assert bds[0]["l3outs"] == ["OSPF_L3Out"]
+
+
+def test_merged_bd_keeps_per_subnet_scope():
+    """The two subnets of one BD may differ -- one private, one advertised."""
+    tenants = [{"name": "ACI:sales", "description": "", "vrfs": [],
+                "_custom_field_data": {"aci_l3outs": {"l3outs": [{"name": "OSPF_L3Out", "vrf": "v"}]}}}]
+    prefixes = [_bd_prefix("10.0.2.0/24", "10.0.2.254/24"),
+                _bd_prefix("10.0.3.0/24", "10.0.3.254/24",
+                           aci_bd_subnet_scope="public", aci_bd_l3outs=["OSPF_L3Out"])]
+
+    subnets = build_netascode_yaml(tenants=tenants, prefixes=prefixes)["apic"]["tenants"][0]["bridge_domains"][0]["subnets"]
+
+    assert subnets[0]["private"] is True and subnets[0]["public"] is False
+    assert subnets[1]["public"] is True and subnets[1]["private"] is False
+
+
+def test_bd_level_attributes_do_not_depend_on_prefix_order():
+    """BD-level attributes belong to the bridge domain, not a subnet. The
+    first prefix that sets one wins; a later one must not silently overwrite
+    it, or output would depend on Nautobot's row order."""
+    tenants = [{"name": "ACI:sales", "description": "", "vrfs": [], "_custom_field_data": {}}]
+    prefixes = [_bd_prefix("10.0.2.0/24", "10.0.2.254/24", aci_bd_mac="00:11:22:33:44:55"),
+                _bd_prefix("10.0.3.0/24", "10.0.3.254/24", aci_bd_mac="00:99:99:99:99:99")]
+
+    bd = build_netascode_yaml(tenants=tenants, prefixes=prefixes)["apic"]["tenants"][0]["bridge_domains"][0]
+
+    assert bd["mac"] == "00:11:22:33:44:55"
+
+
+def test_distinct_bd_names_still_produce_distinct_bridge_domains():
+    """The merge must key on BD name, not collapse everything."""
+    tenants = [{"name": "ACI:sales", "description": "", "vrfs": [], "_custom_field_data": {}}]
+    prefixes = [
+        {"prefix": "10.0.2.0/24", "description": "ACI Bridge Domain: DB_BD:sales",
+         "tenant": {"name": "ACI:sales"}, "vrfs": [], "_custom_field_data": {"aci_gateway_ip": "10.0.2.254/24"}},
+        {"prefix": "10.0.9.0/24", "description": "ACI Bridge Domain: Backup_BD:sales",
+         "tenant": {"name": "ACI:sales"}, "vrfs": [], "_custom_field_data": {"aci_gateway_ip": "10.0.9.254/24"}},
+    ]
+
+    bds = build_netascode_yaml(tenants=tenants, prefixes=prefixes)["apic"]["tenants"][0]["bridge_domains"]
+
+    assert sorted(b["name"] for b in bds) == ["Backup_BD", "DB_BD"]
+
+
+def test_l3_domains_emitted_from_the_location_field():
+    locations = [{"name": "ACI-Lab", "_custom_field_data": {"aci_fabric_policies": {
+        "l3_domains": [{"name": "ExtL3Dom", "vlan_pool": "ExtL3_Pool"}]}}}]
+
+    result = build_netascode_yaml(tenants=[], prefixes=[], locations=locations)
+
+    assert result["apic"]["access_policies"]["l3_domains"][0]["vlan_pool"] == "ExtL3_Pool"
+
+
+def test_l3_domains_key_absent_when_unset():
+    locations = [{"name": "ACI-Lab", "_custom_field_data": {"aci_fabric_policies": {}}}]
+
+    result = build_netascode_yaml(tenants=[], prefixes=[], locations=locations)
+
+    assert "l3_domains" not in (result["apic"].get("access_policies") or {})

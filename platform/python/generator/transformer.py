@@ -38,6 +38,19 @@ _SYSTEM_TENANTS: frozenset[str] = frozenset({"common", "infra", "mgmt"})
 _BD_DESCRIPTION_RE = re.compile(r"^ACI Bridge Domain:\s*(?P<bd>[^:]+):(?P<tenant>.+)$")
 
 
+class PolicyReferenceError(ValueError):
+    """Raised when an L3Out Logical Interface Profile references a policy
+    that is not declared in the same tenant.
+
+    Fatal for the same reason FabricInventoryError is. The provider resolves
+    these relations to a DN and validates them at APPLY time, not plan time
+    -- a `terraform plan` renders whatever string it is given and reports
+    success, then the apply dies with "Relation target dn <name> not found"
+    (measured 2026-09-16, when all seven relations failed at once). Catching
+    it here names the tenant and the offending reference instead.
+    """
+
+
 class FabricInventoryError(ValueError):
     """Raised when generated intent references a fabric node that does not
     exist in Nautobot's DCIM inventory.
@@ -139,9 +152,30 @@ def build_netascode_yaml(
         if l3outs:
             entry["l3outs"] = l3outs
 
-        ospf_policies = list((tenant.get("_custom_field_data") or {}).get("aci_ospf_interface_policies", {}).get("policies") or [])
+        # `.get(key, {})` only applies the default when the key is ABSENT. A
+        # DECLARED-but-unset Nautobot Custom Field comes back as an explicit
+        # None, so the default never fires and None.get() raises. Every other
+        # field here already uses the `or {}` form; this line did not, and
+        # crashed the generator the moment aci_ospf_interface_policies was
+        # declared in Nautobot (2026-09-15).
+        ospf_cf = (tenant.get("_custom_field_data") or {}).get("aci_ospf_interface_policies") or {}
+        ospf_policies = list(ospf_cf.get("policies") or [])
         if ospf_policies:
             entry["ospf_interface_policies"] = ospf_policies
+
+        # L3Out Logical Interface Profile sub-policies (2026-09-16). One
+        # Custom Field holds all five lists rather than five fields, because
+        # they are always configured together and a single field means one
+        # declaration to keep in sync (the undeclared-field failure mode --
+        # finding F-01 -- scales with the number of fields).
+        entry.update(_build_interface_policies(tenant.get("_custom_field_data") or {}))
+
+        # Route control (2026-09-16). Match rules are tenant-scoped; the route
+        # maps themselves live inside each L3Out and therefore arrive through
+        # aci_l3outs as pass-through, needing no builder of their own.
+        match_rules = _build_match_rules(tenant.get("_custom_field_data") or {})
+        if match_rules:
+            entry["match_rules"] = match_rules
 
         vrf_route_leaks = _build_vrf_route_leaks(tenant.get("_custom_field_data") or {})
         if vrf_route_leaks:
@@ -167,6 +201,12 @@ def build_netascode_yaml(
 
     # Fabric inventory (2026-09-14). Emitted before validation so a failure
     # message can name what inventory actually exists.
+    # Policy references are validated unconditionally: unlike node references
+    # they need no external inventory to check against, so there is no reason
+    # to make it opt-in.
+    _validate_interface_policy_references(result)
+    _validate_route_control_references(result)
+
     inventory = _build_fabric_inventory(devices or [])
     if inventory:
         result["apic"]["fabric_inventory"] = inventory
@@ -212,7 +252,8 @@ def _build_vrfs(vrfs: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def _build_bridge_domains(prefixes: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    result = []
+    result: list[dict[str, Any]] = []
+    by_name: dict[str, dict[str, Any]] = {}
     for prefix in prefixes:
         network: str = prefix["prefix"]
         description: str = prefix.get("description") or ""
@@ -240,12 +281,22 @@ def _build_bridge_domains(prefixes: list[dict[str, Any]]) -> list[dict[str, Any]
 
         entry: dict[str, Any] = {"name": bd_name, "unicast_routing": True}
         if " -- no-subnet" not in description:
+            # `public` was hardcoded False until 2026-09-16, which meant no BD
+            # subnet this platform created could EVER be advertised out of an
+            # L3Out -- the transit-routing lab needed exactly that. Driven by
+            # the same description convention as the shared scope, and by the
+            # aci_bd_subnet_scope Custom Field where one is set.
+            scope = (prefix.get("_custom_field_data") or {}).get("aci_bd_subnet_scope") or ""
+            is_public = "public" in scope or " -- subnet-scope:public" in description
+            is_shared = "shared" in scope or " -- subnet-scope:shared" in description
             entry["subnets"] = [
                 {
                     "ip": gateway_ip,
-                    "public": False,
-                    "private": " -- subnet-scope:shared" not in description,
-                    "shared": " -- subnet-scope:shared" in description,
+                    "public": is_public,
+                    # ACI needs at least one scope flag; private is the default
+                    # only when nothing else was asked for.
+                    "private": not is_public and not is_shared,
+                    "shared": is_shared,
                 }
             ]
         if vrf_name:
@@ -257,6 +308,10 @@ def _build_bridge_domains(prefixes: list[dict[str, Any]]) -> list[dict[str, Any]
         # too -- see the module docstring). Same "only emit if set" rule as
         # VRF attributes above.
         cf = prefix.get("_custom_field_data") or {}
+        # fvRsBDToOut. A public subnet with no L3Out association is still
+        # never advertised, so these two are only useful together.
+        if v := cf.get("aci_bd_l3outs"):
+            entry["l3outs"] = list(v) if isinstance(v, list) else [v]
         if v := cf.get("aci_bd_mac"):
             entry["mac"] = v
         if (v := cf.get("aci_bd_arp_flooding")) is not None:
@@ -274,7 +329,32 @@ def _build_bridge_domains(prefixes: list[dict[str, Any]]) -> list[dict[str, Any]
         if (v := cf.get("aci_bd_pim")) is not None:
             entry["pim"] = bool(v)
 
-        result.append(entry)
+        # A bridge domain may carry SEVERAL subnets. Nautobot models a BD as a
+        # Prefix, so two prefixes naming the same BD are two subnets of ONE
+        # bridge domain -- not two bridge domains. Appending blindly produced
+        # duplicate BD names, which Terraform rejects outright with
+        # "Duplicate object key" in local.bridge_domains (the ACI:Sales
+        # DB_BD incident, 2026-09-04). Merging here is what makes a
+        # multi-subnet BD expressible at all.
+        existing = by_name.get(bd_name)
+        if existing is None:
+            by_name[bd_name] = entry
+            result.append(entry)
+            continue
+
+        existing.setdefault("subnets", []).extend(entry.get("subnets", []))
+        # Union the L3Out associations; a subnet advertised through a
+        # different L3Out than its sibling is legitimate.
+        if entry.get("l3outs"):
+            merged = existing.setdefault("l3outs", [])
+            merged.extend(o for o in entry["l3outs"] if o not in merged)
+        # Every other BD-level attribute belongs to the bridge domain, not to
+        # one of its subnets, so the first prefix that sets one wins and later
+        # prefixes only fill gaps. Silently overwriting would make the output
+        # depend on Nautobot's row order.
+        for key, value in entry.items():
+            if key not in ("name", "subnets", "l3outs"):
+                existing.setdefault(key, value)
     return result
 
 
@@ -407,6 +487,166 @@ def _build_l3outs(tenant_cf: dict[str, Any]) -> list[dict[str, Any]]:
     return l3outs
 
 
+# The five policy kinds an l3extLIfP can reference, and the interface-profile
+# key that points at each. Ordered as APIC's own GUI lists them.
+INTERFACE_POLICY_KINDS: dict[str, tuple[str, ...]] = {
+    "nd_interface_policies": ("nd_interface_policy",),
+    "dpp_policies": ("ingress_dpp_policy", "egress_dpp_policy"),
+    "pim_interface_policies": ("pim_interface_policy", "pim_v6_interface_policy"),
+    "igmp_interface_policies": ("igmp_interface_policy",),
+    "custom_qos_policies": ("custom_qos_policy",),
+}
+
+
+def _build_interface_policies(tenant_cf: dict[str, Any]) -> dict[str, Any]:
+    """Build the tenant-scoped L3Out interface policy lists from the
+    ``aci_interface_policies`` JSON Custom Field.
+
+    Pass-through, same convention as `_build_contracts_and_filters()`: no
+    local validation of attribute value strings, which belong to the
+    provider's own enums. Only the list shape is normalised, and a key is
+    emitted only when it has entries -- an empty key would make Terraform
+    iterate an empty map instead of skipping.
+    """
+    data = tenant_cf.get("aci_interface_policies") or {}
+    out: dict[str, Any] = {}
+    for kind in INTERFACE_POLICY_KINDS:
+        values = list(data.get(kind) or [])
+        if values:
+            out[kind] = values
+    return out
+
+
+def _validate_interface_policy_references(data: dict[str, Any]) -> None:
+    """Every policy an interface profile names must be declared in the same
+    tenant -- or be a literal DN, which is the documented escape hatch for
+    pointing at a policy this platform does not manage.
+
+    The reference is by name and the provider turns it into a DN, so a typo
+    is invisible until apply time. See PolicyReferenceError.
+    """
+    problems: list[str] = []
+
+    for tenant in data.get("apic", {}).get("tenants", []):
+        tenant_name = tenant.get("name", "?")
+        declared = {
+            kind: {p.get("name") for p in tenant.get(kind, []) if p.get("name")}
+            for kind in INTERFACE_POLICY_KINDS
+        }
+
+        for l3out in tenant.get("l3outs", []):
+            for node_profile in l3out.get("node_profiles", []):
+                for profile in node_profile.get("interface_profiles", []):
+                    for kind, ref_keys in INTERFACE_POLICY_KINDS.items():
+                        for ref_key in ref_keys:
+                            ref = profile.get(ref_key)
+                            # A literal DN is passed straight to APIC by
+                            # main.tf and cannot be checked against anything
+                            # this generator knows about.
+                            if not ref or str(ref).startswith("uni/"):
+                                continue
+                            if ref not in declared[kind]:
+                                known = ", ".join(sorted(declared[kind])) or "none"
+                                problems.append(
+                                    f"tenant '{tenant_name}' L3Out '{l3out.get('name')}' "
+                                    f"interface profile '{profile.get('name')}': "
+                                    f"{ref_key}='{ref}' is not declared in this tenant's "
+                                    f"{kind} (declared: {known})"
+                                )
+
+    if problems:
+        raise PolicyReferenceError(
+            "L3Out interface profile references a policy that does not exist:\n  - "
+            + "\n  - ".join(problems)
+            + "\n\nDeclare the policy in the same tenant, or use a full 'uni/...' DN "
+            "to point at one this platform does not manage. To inherit APIC's "
+            "built-in default, omit the field entirely -- the literal string "
+            "'default' is NOT valid and fails at apply time."
+        )
+
+
+def _build_match_rules(tenant_cf: dict[str, Any]) -> list[dict[str, Any]]:
+    """Build tenant-scoped route-map match rules from the
+    ``aci_route_control`` JSON Custom Field.
+
+    Only the match RULES are tenant-scoped. A route map (``rtctrlProfile``)
+    hangs off an L3Out, so it travels inside ``aci_l3outs`` and needs no
+    builder here -- `_build_l3outs()` already passes unknown keys through.
+    """
+    data = tenant_cf.get("aci_route_control") or {}
+    return list(data.get("match_rules") or [])
+
+
+def _validate_route_control_references(data: dict[str, Any]) -> None:
+    """Every match rule a route-map context names must exist in the same
+    tenant, and every route map an external EPG binds must exist in the same
+    L3Out.
+
+    Both are name references that APIC resolves late. A context pointing at a
+    match rule that does not exist produces a route map entry matching
+    nothing, which in a map whose last word is an implicit deny means
+    *silently dropping every route* -- no error, no fault, just no
+    advertisement. That is worth failing the pipeline over.
+    """
+    problems: list[str] = []
+
+    for tenant in data.get("apic", {}).get("tenants", []):
+        tenant_name = tenant.get("name", "?")
+        declared_rules = {r.get("name") for r in tenant.get("match_rules", []) if r.get("name")}
+
+        for l3out in tenant.get("l3outs", []):
+            l3out_name = l3out.get("name", "?")
+            profiles = l3out.get("route_control_profiles", []) or []
+            declared_profiles = {p.get("name") for p in profiles if p.get("name")}
+
+            for profile in profiles:
+                for ctx in profile.get("contexts", []) or []:
+                    rule = ctx.get("match_rule")
+                    if not rule:
+                        continue
+                    if rule not in declared_rules:
+                        known = ", ".join(sorted(declared_rules)) or "none"
+                        problems.append(
+                            f"tenant '{tenant_name}' L3Out '{l3out_name}' route map "
+                            f"'{profile.get('name')}' context '{ctx.get('name')}': "
+                            f"match_rule='{rule}' is not declared in this tenant's "
+                            f"match_rules (declared: {known})"
+                        )
+
+            for epg in l3out.get("external_epgs", []):
+                for binding in epg.get("route_control_profiles", []) or []:
+                    name = binding.get("name")
+                    if name and name not in declared_profiles:
+                        known = ", ".join(sorted(declared_profiles)) or "none"
+                        problems.append(
+                            f"tenant '{tenant_name}' L3Out '{l3out_name}' external EPG "
+                            f"'{epg.get('name')}' binds route map '{name}', which is not "
+                            f"declared in this L3Out (declared: {known})"
+                        )
+
+    for tenant in data.get("apic", {}).get("tenants", []):
+        tenant_name = tenant.get("name", "?")
+        declared_l3outs = {o.get("name") for o in tenant.get("l3outs", []) if o.get("name")}
+        for bd in tenant.get("bridge_domains", []):
+            for ref in bd.get("l3outs", []) or []:
+                if ref not in declared_l3outs:
+                    known = ", ".join(sorted(declared_l3outs)) or "none"
+                    problems.append(
+                        f"tenant '{tenant_name}' bridge domain '{bd.get('name')}' is "
+                        f"associated with L3Out '{ref}', which is not declared in this "
+                        f"tenant (declared: {known})"
+                    )
+
+    if problems:
+        raise PolicyReferenceError(
+            "route control references something that does not exist:\n  - "
+            + "\n  - ".join(problems)
+            + "\n\nA context whose match rule is missing matches nothing, and an "
+            "ACI route map ends in an implicit deny -- so the result is silently "
+            "advertising no routes at all, with no error and no fault."
+        )
+
+
 def _build_vrf_route_leaks(tenant_cf: dict[str, Any]) -> list[dict[str, Any]]:
     """Build tenant ``vrf_route_leaks`` from the ``aci_vrf_route_leaks``
     JSON Custom Field.
@@ -516,6 +756,7 @@ def _build_fabric_and_access_policies(
     """
     vlan_pools: list[dict[str, Any]] = []
     physical_domains: list[dict[str, Any]] = []
+    l3_domains: list[dict[str, Any]] = []
     aeps: list[dict[str, Any]] = []
     leaf_interface_policy_groups: list[dict[str, Any]] = []
     vmm_domains: list[dict[str, Any]] = []
@@ -534,6 +775,10 @@ def _build_fabric_and_access_policies(
         data = cf.get("aci_fabric_policies") or {}
         vlan_pools.extend(data.get("vlan_pools") or [])
         physical_domains.extend(data.get("physical_domains") or [])
+        # L3 (external routed) domains. Distinct from physical domains: an
+        # L3Out's interface attaches through one of these, and its VLAN pool
+        # is what makes the L3Out's encap VLAN legal.
+        l3_domains.extend(data.get("l3_domains") or [])
         aeps.extend(data.get("aeps") or [])
         leaf_interface_policy_groups.extend(data.get("leaf_interface_policy_groups") or [])
         vmm_domains.extend(data.get("vmm_domains") or [])
@@ -586,6 +831,8 @@ def _build_fabric_and_access_policies(
     access_policies: dict[str, Any] = {}
     if physical_domains:
         access_policies["physical_domains"] = physical_domains
+    if l3_domains:
+        access_policies["l3_domains"] = l3_domains
     if aeps:
         access_policies["aeps"] = aeps
     if leaf_interface_policy_groups:

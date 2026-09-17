@@ -17,6 +17,28 @@ apic:
         private: false
         shared: true
       vrf: Presales_VRF
+    - name: DB_BD
+      unicast_routing: true
+      subnets:
+      - ip: 10.0.2.254/24
+        public: false
+        private: true
+        shared: false
+      - ip: 10.0.3.254/24
+        public: true
+        private: false
+        shared: false
+      vrf: Presales_VRF
+      l3outs:
+      - OSPF_L3Out
+    - name: Backup_BD
+      unicast_routing: true
+      subnets:
+      - ip: 10.0.9.254/24
+        public: false
+        private: true
+        shared: false
+      vrf: Presales_VRF
     - name: SharedServices_BD
       unicast_routing: true
       vrf: SharedServices_VRF
@@ -61,6 +83,26 @@ apic:
           module: 1
           pod_id: 1
           node_id: 102
+      - name: DB_EPG
+        bridge_domain: DB_BD
+        description: DB tier EPG -- PBR consumer
+        consumed_contracts:
+        - FW_Ct
+        domains:
+        - name: vCenter_VMM
+          domain_type: vmm
+          deployment_immediacy: immediate
+          resolution_immediacy: immediate
+      - name: Backup_EPG
+        bridge_domain: Backup_BD
+        description: Backup tier EPG -- PBR provider
+        provided_contracts:
+        - FW_Ct
+        domains:
+        - name: vCenter_VMM
+          domain_type: vmm
+          deployment_immediacy: immediate
+          resolution_immediacy: immediate
     filters:
     - name: WebServices_Filter
       entries:
@@ -87,6 +129,50 @@ apic:
         ip_protocol: icmp
         apply_to_fragments: false
       description: HTTPS + ICMP echo, created via MCP create_filter
+    - name: Web_Fltr
+      entries:
+      - name: http
+        stateful: false
+        ether_type: ip
+        description: ''
+        ip_protocol: tcp
+        dest_to_port: '80'
+        dest_from_port: '80'
+        apply_to_fragments: false
+      - name: https
+        stateful: false
+        ether_type: ip
+        description: ''
+        ip_protocol: tcp
+        dest_to_port: '443'
+        dest_from_port: '443'
+        apply_to_fragments: false
+      description: HTTP/HTTPS only -- selective PBR redirect
+    - name: FileServices_Fltr
+      entries:
+      - name: icmp
+        stateful: false
+        ether_type: ip
+        description: ''
+        ip_protocol: icmp
+        apply_to_fragments: false
+      - name: ssh
+        stateful: false
+        ether_type: ip
+        description: ''
+        ip_protocol: tcp
+        dest_to_port: '22'
+        dest_from_port: '22'
+        apply_to_fragments: false
+      - name: ftp
+        stateful: false
+        ether_type: ip
+        description: ''
+        ip_protocol: tcp
+        dest_to_port: '21'
+        dest_from_port: '20'
+        apply_to_fragments: false
+      description: ICMP, SSH and FTP per the lab document
     contracts:
     - name: WebServices_Ct
       scope: tenant
@@ -101,6 +187,21 @@ apic:
         reverse_filter_ports: true
         apply_both_directions: true
       description: Shared services route leaking contract
+    - name: FW_Ct
+      scope: context
+      subjects:
+      - name: FW_Ct-subj
+        filters:
+        - Web_Fltr
+        service_graph: FW_SGT
+      description: Redirect only HTTP/HTTPS DB and Backup via ASAv
+    - name: FileServices_Ct
+      scope: context
+      subjects:
+      - name: FileServices_Ct-subj
+        filters:
+        - FileServices_Fltr
+      description: Transit routing between the Catalyst and Nexus external EPGs
     l3outs:
     - vrf: Presales_VRF
       name: BGP_L3Out
@@ -119,6 +220,11 @@ apic:
         - ip: 172.16.1.0/30
           scope:
           - export-rtctrl
+        - ip: 172.16.199.199/32
+          scope:
+          - import-security
+        provided_contracts:
+        - FileServices_Ct
       node_profiles:
       - name: L101
         nodes:
@@ -158,7 +264,7 @@ apic:
         subnets:
         - ip: 172.16.200.200/32
           scope:
-          - export-rtctrl
+          - import-security
         - ip: 172.16.100.100/32
           scope:
           - import-security
@@ -169,6 +275,11 @@ apic:
           - shared-rtctrl
           - shared-security
           - import-security
+        consumed_contracts:
+        - FileServices_Ct
+        route_control_profiles:
+        - name: Uni-Route-Profile-OUT
+          direction: export
       node_profiles:
       - name: OSPF_NP
         nodes:
@@ -195,6 +306,98 @@ apic:
         policy: OSPF_bcast_pol
         area_type: regular
         interface_key: OSPF_NP/OSPF_IP
+      route_control_profiles:
+      - name: Uni-Route-Profile-OUT
+        type: global
+        contexts:
+        - name: permit-explicit
+          order: 0
+          action: permit
+          set_rule: null
+          match_rule: match-permit-prefix-out
+          description: ''
+        - name: explicit-deny-out
+          order: 1
+          action: deny
+          set_rule: null
+          match_rule: deny-prefix-out
+          description: ''
+        description: Export control for OSPF_L3Out; implicit deny drops 172.16.199.199/32
+    match_rules:
+    - name: match-permit-prefix-out
+      prefixes:
+      - ip: 172.16.200.200/32
+        aggregate: false
+        description: ''
+        less_than_mask: 0
+        greater_than_mask: 0
+      description: Nexus loopback advertised to the Catalyst over OSPF
+    - name: deny-prefix-out
+      prefixes:
+      - ip: 10.0.3.0/24
+        aggregate: false
+        description: ''
+        less_than_mask: 0
+        greater_than_mask: 0
+      - ip: 172.16.199.199/32
+        aggregate: false
+        description: Nexus loopback that must NOT reach the Catalyst
+        less_than_mask: 0
+        greater_than_mask: 0
+      description: BD pervasive gateway subnet, must not reach OSPF
+    services:
+      devices:
+      - name: FW
+        managed: false
+        trunking: false
+        vmm_domain: vCenter_VMM
+        description: ASAv logical firewall (Steps 21-25)
+        device_type: VIRTUAL
+        service_type: FW
+        context_aware: single-Context
+        function_type: GoTo
+        promiscuous_mode: false
+        logical_interfaces:
+        - name: db_int
+        - name: backup_int
+      service_graphs:
+      - name: FW_SGT
+        device: FW
+        consumer:
+          l3_destination: false
+          redirect_policy: DB_PBR
+          logical_interface: db_int
+        contract: FW_Ct
+        provider:
+          l3_destination: false
+          redirect_policy: Backup_PBR
+          logical_interface: backup_int
+        node_name: N1
+        description: Single-node FW service graph with PBR
+        template_type: FW_ROUTED
+      redirect_policies:
+      - name: DB_PBR
+        anycast: false
+        pod_aware: false
+        description: Redirect DB to Backup to ASAv
+        destinations:
+        - ip: 10.0.2.253
+          mac: 00:50:56:00:00:AA
+          description: ASAv Gi0/0
+        destination_type: L3
+        threshold_enable: false
+        resilient_hashing: false
+      - name: Backup_PBR
+        anycast: false
+        pod_aware: false
+        description: Redirect Backup to DB to ASAv
+        destinations:
+        - ip: 10.0.9.253
+          mac: 00:50:56:00:00:BB
+          description: ASAv Gi0/1
+        destination_type: L3
+        threshold_enable: false
+        resilient_hashing: false
   fabric_policies:
     vlan_pools:
     - name: Sales_PhyPool
@@ -203,6 +406,23 @@ apic:
         from: 10
         role: external
       alloc_mode: static
+    - name: vCenter_VMM_Pool
+      ranges:
+      - to: 199
+        from: 100
+        role: external
+        alloc_mode: dynamic
+      alloc_mode: dynamic
+    - name: ExtL3_Pool
+      ranges:
+      - to: 60
+        from: 51
+        role: external
+      alloc_mode: static
+    vmm_domains:
+    - name: vCenter_VMM
+      vendor: VMware
+      vlan_pool: vCenter_VMM_Pool
     pod_policy_groups:
     - name: Pod_PG
       bgp_route_reflector_policy: default
@@ -210,13 +430,22 @@ apic:
     physical_domains:
     - name: Sales_PhyDom
       vlan_pool: Sales_PhyPool
+    l3_domains:
+    - name: ExtL3Dom
+      vlan_pool: ExtL3_Pool
     aeps:
     - name: HOST_AAEP
       domains:
       - Sales_PhyDom
+    - name: EXTERNAL_SWITCH_AAEP
+      domains:
+      - name: ExtL3Dom
+        type: l3
     leaf_interface_policy_groups:
     - aep: HOST_AAEP
       name: Host_Access_IPG
+    - aep: EXTERNAL_SWITCH_AAEP
+      name: ExtL3_IPG
     access_port_profiles:
     - name: Leaf101_IntProf
       selectors:
@@ -228,6 +457,15 @@ apic:
           from_card: 1
           from_port: 10
         policy_group: Host_Access_IPG
+        selector_type: range
+      - name: Ext_Nexus
+        blocks:
+        - name: blk1
+          to_card: 1
+          to_port: 4
+          from_card: 1
+          from_port: 4
+        policy_group: ExtL3_IPG
         selector_type: range
     - name: Leaf102_IntProf
       selectors:
@@ -261,3 +499,33 @@ apic:
         selector_type: range
       access_port_profiles:
       - Leaf102_IntProf
+  fabric_inventory:
+    nodes:
+    - name: leaf-a
+      node_id: 101
+      pod_id: 1
+      role: leaf
+      serial: FDO23100852
+      model: Nexus 9000v
+      interfaces:
+      - name: eth1/4
+        enabled: true
+      - name: eth1/5
+        enabled: true
+    - name: leaf-b
+      node_id: 102
+      pod_id: 1
+      role: leaf
+      serial: FDO23041G37
+      model: Nexus 9000v
+      interfaces:
+      - name: eth1/1
+        enabled: true
+      - name: eth1/5
+        enabled: true
+    - name: spine-1
+      node_id: 1001
+      pod_id: 1
+      role: spine
+      serial: FDO2306FG77
+      model: Nexus 9000v

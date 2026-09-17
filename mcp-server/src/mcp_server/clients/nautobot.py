@@ -3,9 +3,25 @@ directly, so client construction/error-mapping stays in one place.
 """
 from __future__ import annotations
 
+import copy
+
 import pynautobot
 
 from mcp_server.errors import NautobotError
+
+
+def _bd_custom_fields(gateway_ip: str | None, l3outs: list[str] | None) -> dict:
+    """Custom fields for a Bridge Domain's backing Prefix.
+
+    Only emits keys that were actually asked for -- writing an explicit null
+    would reach the generator as a set value.
+    """
+    fields: dict = {}
+    if gateway_ip:
+        fields["aci_gateway_ip"] = gateway_ip
+    if l3outs:
+        fields["aci_bd_l3outs"] = list(l3outs)
+    return fields
 
 
 class NautobotClient:
@@ -166,7 +182,7 @@ class NautobotClient:
         return dict(vrf)
 
     def create_bridge_domain(
-        self, tenant: str, vrf: str, name: str, gateway_ip: str | None = None, subnet_scope: str = "private", description: str = ""
+        self, tenant: str, vrf: str, name: str, gateway_ip: str | None = None, subnet_scope: str = "private", description: str = "", l3outs: list[str] | None = None
     ) -> dict:
         """Create a Bridge Domain (ADR-020 Phase A item 1 coverage). BD
         identity is derived from a Prefix's description
@@ -207,11 +223,11 @@ class NautobotClient:
                     namespace=namespace_obj.id,
                     status=status_obj.id,
                     description=bd_description,
-                    custom_fields={"aci_gateway_ip": gateway_ip} if gateway_ip else {},
+                    custom_fields=_bd_custom_fields(gateway_ip, l3outs),
                 )
                 self.api.ipam.vrf_prefix_assignments.create(vrf=vrf_obj.id, prefix=prefix.id)
             else:
-                prefix.update({"description": bd_description, "custom_fields": {"aci_gateway_ip": gateway_ip} if gateway_ip else {}})
+                prefix.update({"description": bd_description, "custom_fields": _bd_custom_fields(gateway_ip, l3outs)})
         except pynautobot.RequestError as exc:
             raise NautobotError(f"Nautobot rejected bridge domain '{name}': {exc}") from exc
         except NautobotError:
@@ -413,7 +429,16 @@ class NautobotClient:
             }
             if description:
                 contract_entry["description"] = description
-            contracts.append(contract_entry)
+            # Replace rather than append. Appending a second entry with the
+            # same name makes Terraform fail outright with "Duplicate object
+            # key" in local.contracts -- measured 2026-09-16 when
+            # FileServices_Ct was created twice.
+            for i, c in enumerate(contracts):
+                if c.get("name") == name:
+                    contracts[i] = contract_entry
+                    break
+            else:
+                contracts.append(contract_entry)
 
             tenant_obj.update({"custom_fields": {"aci_contracts": {"filters": filters, "contracts": contracts}}})
         except pynautobot.RequestError as exc:
@@ -621,7 +646,14 @@ class NautobotClient:
     def create_l3out_node_profile(self, tenant: str, l3out: str, name: str, nodes: list[dict]) -> dict:
         tenant_obj = self._get_tenant_or_raise(tenant)
         fields = dict(tenant_obj.custom_fields or {})
-        entries = list((fields.get("aci_l3outs") or {}).get("l3outs") or [])
+        # deepcopy, NOT list(): pynautobot diffs the record against its own
+        # cached state to decide what to PATCH. list() is a SHALLOW copy, so
+        # mutating an l3out dict inside it mutates the record's cached copy
+        # too -- the diff then sees no change and silently sends nothing,
+        # while the tool still reports success. Measured 2026-09-16: a
+        # create_l3out_node_profile call over the real MCP protocol returned
+        # OK and wrote no node_profiles key at all.
+        entries = copy.deepcopy(list((fields.get("aci_l3outs") or {}).get("l3outs") or []))
         target = next(item for item in entries if item.get("name") == l3out)
         profiles = list(target.get("node_profiles") or [])
         profile = next((item for item in profiles if item.get("name") == name), None)
@@ -637,7 +669,14 @@ class NautobotClient:
     def create_l3out_interface_profile(self, tenant: str, l3out: str, node_profile: str, name: str, interfaces: list[dict]) -> dict:
         tenant_obj = self._get_tenant_or_raise(tenant)
         fields = dict(tenant_obj.custom_fields or {})
-        entries = list((fields.get("aci_l3outs") or {}).get("l3outs") or [])
+        # deepcopy, NOT list(): pynautobot diffs the record against its own
+        # cached state to decide what to PATCH. list() is a SHALLOW copy, so
+        # mutating an l3out dict inside it mutates the record's cached copy
+        # too -- the diff then sees no change and silently sends nothing,
+        # while the tool still reports success. Measured 2026-09-16: a
+        # create_l3out_node_profile call over the real MCP protocol returned
+        # OK and wrote no node_profiles key at all.
+        entries = copy.deepcopy(list((fields.get("aci_l3outs") or {}).get("l3outs") or []))
         target = next(item for item in entries if item.get("name") == l3out)
         profile = next(item for item in target.get("node_profiles", []) if item.get("name") == node_profile)
         interface_profiles = list(profile.get("interface_profiles") or [])
@@ -654,7 +693,14 @@ class NautobotClient:
     def create_l3out_interface(self, tenant: str, l3out: str, node_profile: str, interface_profile: str, **interface) -> dict:
         tenant_obj = self._get_tenant_or_raise(tenant)
         fields = dict(tenant_obj.custom_fields or {})
-        entries = list((fields.get("aci_l3outs") or {}).get("l3outs") or [])
+        # deepcopy, NOT list(): pynautobot diffs the record against its own
+        # cached state to decide what to PATCH. list() is a SHALLOW copy, so
+        # mutating an l3out dict inside it mutates the record's cached copy
+        # too -- the diff then sees no change and silently sends nothing,
+        # while the tool still reports success. Measured 2026-09-16: a
+        # create_l3out_node_profile call over the real MCP protocol returned
+        # OK and wrote no node_profiles key at all.
+        entries = copy.deepcopy(list((fields.get("aci_l3outs") or {}).get("l3outs") or []))
         target = next(item for item in entries if item.get("name") == l3out)
         profile = next(item for item in target.get("node_profiles", []) if item.get("name") == node_profile)
         interface_profile_obj = next(item for item in profile.get("interface_profiles", []) if item.get("name") == interface_profile)
@@ -671,7 +717,14 @@ class NautobotClient:
         peer["interface_key"] = interface_key
         tenant_obj = self._get_tenant_or_raise(tenant)
         fields = dict(tenant_obj.custom_fields or {})
-        entries = list((fields.get("aci_l3outs") or {}).get("l3outs") or [])
+        # deepcopy, NOT list(): pynautobot diffs the record against its own
+        # cached state to decide what to PATCH. list() is a SHALLOW copy, so
+        # mutating an l3out dict inside it mutates the record's cached copy
+        # too -- the diff then sees no change and silently sends nothing,
+        # while the tool still reports success. Measured 2026-09-16: a
+        # create_l3out_node_profile call over the real MCP protocol returned
+        # OK and wrote no node_profiles key at all.
+        entries = copy.deepcopy(list((fields.get("aci_l3outs") or {}).get("l3outs") or []))
         target = next(item for item in entries if item.get("name") == l3out)
         profile = next(item for item in target.get("node_profiles", []) if item.get("name") == node_profile)
         interface_profile_obj = next(item for item in profile.get("interface_profiles", []) if item.get("name") == interface_profile)
@@ -762,15 +815,64 @@ class NautobotClient:
     # create_l3out above, just keyed by Location instead of Tenant.
     # ------------------------------------------------------------------
 
-    def _get_location_or_raise(self, name: str):
-        location = self.api.dcim.locations.get(name=name)
-        if location is None:
-            raise NautobotError(f"Location '{name}' not found in Nautobot")
-        return location
+    # The Custom Field every ACI fabric-wide policy lives in. Used to pick the
+    # right Location when several exist.
+    _ACI_FABRIC_FIELD = "aci_fabric_policies"
+
+    def _get_location_or_raise(self, name: str | None = None):
+        """Resolve the Nautobot Location holding this fabric's intent.
+
+        `name` given: behaves exactly as before, so any explicit caller is
+        unaffected.
+
+        `name` omitted: resolved at call time rather than from a hardcoded
+        default. A Location name is a fact about the environment, not about
+        the code -- this lab's is 'Isolated Lab Site' and the upstream lab's
+        is 'ACI-Lab', so a literal default was always wrong for one of the
+        two, and eight tools were unusable here as a result (2026-09-17).
+
+        Resolution prefers a Location that already carries ACI intent, so
+        adding a Location for an unrelated project (a Catalyst Center site,
+        say) does not make ACI tools ambiguous. Genuine ambiguity is an
+        error naming the candidates, never a guess.
+        """
+        if name is not None:
+            location = self.api.dcim.locations.get(name=name)
+            if location is None:
+                raise NautobotError(f"Location '{name}' not found in Nautobot")
+            return location
+
+        try:
+            locations = list(self.api.dcim.locations.all())
+        except Exception as exc:  # noqa: BLE001
+            raise NautobotError(f"Nautobot unreachable or auth failed: {exc}") from exc
+
+        if not locations:
+            raise NautobotError(
+                "No Nautobot Location exists. Create one to hold the fabric's "
+                "ACI intent, or pass location= explicitly."
+            )
+
+        with_aci = [
+            loc for loc in locations
+            if (dict(loc.custom_fields or {}).get(self._ACI_FABRIC_FIELD) or {})
+        ]
+        candidates = with_aci or locations
+
+        if len(candidates) == 1:
+            return candidates[0]
+
+        names = ", ".join(sorted(str(loc.name) for loc in candidates))
+        qualifier = "carry ACI fabric policies" if with_aci else "exist"
+        raise NautobotError(
+            f"{len(candidates)} Locations {qualifier} ({names}) -- pass location= "
+            "to say which one this belongs to. Refusing to guess, because "
+            "writing fabric intent to the wrong site is silent and hard to spot."
+        )
 
     def create_vlan_pool(
         self,
-        location: str,
+        location: str | None,
         name: str,
         alloc_mode: str,
         range_from: int,
@@ -800,7 +902,13 @@ class NautobotClient:
                     pool["description"] = description
                 vlan_pools.append(pool)
             else:
-                pool.setdefault("ranges", []).append(new_range)
+                # Same range twice is a no-op in APIC but a "Duplicate object
+                # key" in local.vlan_pool_ranges, which is keyed by
+                # pool/from -- measured 2026-09-16 (ExtL3_Pool 51-60 three
+                # times across three calls).
+                ranges = pool.setdefault("ranges", [])
+                if not any(r.get("from") == range_from and r.get("to") == range_to for r in ranges):
+                    ranges.append(new_range)
 
             location_obj.update({"custom_fields": {"aci_fabric_policies": {**existing, "vlan_pools": vlan_pools}}})
         except pynautobot.RequestError as exc:
@@ -809,9 +917,9 @@ class NautobotClient:
             raise
         except Exception as exc:  # noqa: BLE001
             raise NautobotError(f"Nautobot unreachable or auth failed: {exc}") from exc
-        return {"location": location, "vlan_pool": name, "vlan_pools": vlan_pools}
+        return {"location": location_obj.name, "vlan_pool": name, "vlan_pools": vlan_pools}
 
-    def create_physical_domain(self, location: str, name: str, vlan_pool: str | None = None) -> dict:
+    def create_physical_domain(self, location: str | None, name: str, vlan_pool: str | None = None) -> dict:
         """Create a Physical Domain (ADR-020 Phase B coverage), optionally
         bound to an existing VLAN Pool. Creating the same name twice
         appends a second entry -- callers should check the existing
@@ -835,9 +943,9 @@ class NautobotClient:
             raise
         except Exception as exc:  # noqa: BLE001
             raise NautobotError(f"Nautobot unreachable or auth failed: {exc}") from exc
-        return {"location": location, "physical_domain": name, "physical_domains": physical_domains}
+        return {"location": location_obj.name, "physical_domain": name, "physical_domains": physical_domains}
 
-    def create_aep(self, location: str, name: str, domains: list[str] | None = None) -> dict:
+    def create_aep(self, location: str | None, name: str, domains: list[str] | None = None) -> dict:
         """Create/extend an Attachable Access Entity Profile (ADR-020 Phase
         B coverage). Domains are merged (not replaced) if the AEP already
         exists for this Location."""
@@ -851,7 +959,17 @@ class NautobotClient:
             if aep is None:
                 aeps.append({"name": name, "domains": list(domains)})
             else:
-                merged = list(dict.fromkeys([*aep.get("domains", []), *domains]))
+                # dict.fromkeys dedupes, but a domain may now be a dict
+                # ({name, type}) which is unhashable. Key on the rendered
+                # identity instead so a physical and an L3 domain sharing a
+                # name stay distinct.
+                def _key(d):
+                    return (d["name"], d.get("type", "physical")) if isinstance(d, dict) else (d, "physical")
+
+                seen: dict = {}
+                for d in [*aep.get("domains", []), *domains]:
+                    seen.setdefault(_key(d), d)
+                merged = list(seen.values())
                 aep["domains"] = merged
 
             location_obj.update({"custom_fields": {"aci_fabric_policies": {**existing, "aeps": aeps}}})
@@ -861,10 +979,10 @@ class NautobotClient:
             raise
         except Exception as exc:  # noqa: BLE001
             raise NautobotError(f"Nautobot unreachable or auth failed: {exc}") from exc
-        return {"location": location, "aep": name, "aeps": aeps}
+        return {"location": location_obj.name, "aep": name, "aeps": aeps}
 
     def create_pod_policy_group(
-        self, location: str, name: str, bgp_route_reflector_policy: str | None = None
+        self, location: str | None, name: str, bgp_route_reflector_policy: str | None = None
     ) -> dict:
         """Create/update a Pod Policy Group (ADR-020 Phase E coverage) in the
         Location's `aci_fabric_policies` Custom Field. Re-creating the same
@@ -890,9 +1008,9 @@ class NautobotClient:
             raise
         except Exception as exc:  # noqa: BLE001
             raise NautobotError(f"Nautobot unreachable or auth failed: {exc}") from exc
-        return {"location": location, "pod_policy_group": name, "pod_policy_groups": groups}
+        return {"location": location_obj.name, "pod_policy_group": name, "pod_policy_groups": groups}
 
-    def create_leaf_interface_policy_group(self, location: str, name: str, aep: str | None = None) -> dict:
+    def create_leaf_interface_policy_group(self, location: str | None, name: str, aep: str | None = None) -> dict:
         """Create a Leaf Interface Policy Group (ADR-020 Phase B coverage),
         optionally bound to an existing AEP."""
         try:
@@ -903,6 +1021,16 @@ class NautobotClient:
             entry: dict = {"name": name}
             if aep:
                 entry["aep"] = aep
+            # Refuse a duplicate rather than appending one. Appending produced
+            # three ExtL3_IPG entries across three calls (2026-09-16), and a
+            # duplicate name makes Terraform fail outright with "Duplicate
+            # object key" in local.leaf_interface_policy_groups -- the same
+            # failure the ACI:Sales DB_BD debris caused in Phase D.
+            if any(g.get("name") == name for g in groups):
+                raise NautobotError(
+                    f"Leaf Interface Policy Group '{name}' already exists on "
+                    f"Location '{location}'"
+                )
             groups.append(entry)
 
             location_obj.update(
@@ -914,15 +1042,15 @@ class NautobotClient:
             raise
         except Exception as exc:  # noqa: BLE001
             raise NautobotError(f"Nautobot unreachable or auth failed: {exc}") from exc
-        return {"location": location, "leaf_interface_policy_group": name, "leaf_interface_policy_groups": groups}
+        return {"location": location_obj.name, "leaf_interface_policy_group": name, "leaf_interface_policy_groups": groups}
 
     # Ported from copilot/aci-platform-comparison (2026-09-08). Not ported:
     # create_aaep (superseded by create_aep above), bind_epg_to_physical_
     # domain/bind_epg_to_vmm_domain (superseded by bind_epg_domain below).
-    def _append_location_fabric_policy(self, location: str, key: str, entry: dict) -> dict:
+    def _append_location_fabric_policy(self, location: str | None, key: str, entry: dict) -> dict:
         location_obj = self._get_location_or_raise(location)
         custom_fields = dict(location_obj.custom_fields or {})
-        policies = dict(custom_fields.get("aci_fabric_policies") or {})
+        policies = copy.deepcopy(dict(custom_fields.get("aci_fabric_policies") or {}))
         values = list(policies.get(key) or [])
         if any(item.get("name") == entry.get("name") for item in values):
             raise NautobotError(f"{key} object '{entry.get('name')}' already exists on Location '{location}'")
@@ -930,21 +1058,21 @@ class NautobotClient:
         policies[key] = values
         custom_fields["aci_fabric_policies"] = policies
         location_obj.update({"custom_fields": custom_fields})
-        return {"location": location, key: entry}
+        return {"location": location_obj.name, key: entry}
 
-    def create_leaf_interface_profile(self, location: str, name: str, node_id: int, pod_id: int = 1, description: str = "") -> dict:
+    def create_leaf_interface_profile(self, location: str | None, name: str, node_id: int, pod_id: int = 1, description: str = "") -> dict:
         entry = {"name": name, "node_id": node_id, "pod_id": pod_id}
         if description: entry["description"] = description
         return self._append_location_fabric_policy(location, "leaf_interface_profiles", entry)
 
-    def create_interface_selector(self, location: str, name: str, leaf_interface_profile: str, policy_group: str, module: int, port: int) -> dict:
+    def create_interface_selector(self, location: str | None, name: str, leaf_interface_profile: str, policy_group: str, module: int, port: int) -> dict:
         entry = {"name": name, "leaf_interface_profile": leaf_interface_profile, "policy_group": policy_group, "module": module, "port": port}
         return self._append_location_fabric_policy(location, "interface_selectors", entry)
 
-    def _merge_location_named_entry(self, location: str, key: str, name: str, update: dict) -> dict:
+    def _merge_location_named_entry(self, location: str | None, key: str, name: str, update: dict) -> dict:
         location_obj = self._get_location_or_raise(location)
         custom_fields = dict(location_obj.custom_fields or {})
-        policies = dict(custom_fields.get("aci_fabric_policies") or {})
+        policies = copy.deepcopy(dict(custom_fields.get("aci_fabric_policies") or {}))
         values = list(policies.get(key) or [])
         target = next((item for item in values if item.get("name") == name), None)
         if target is None:
@@ -954,16 +1082,22 @@ class NautobotClient:
         policies[key] = values
         custom_fields["aci_fabric_policies"] = policies
         location_obj.update({"custom_fields": custom_fields})
-        return {"location": location, key: target}
+        return {"location": location_obj.name, key: target}
 
-    def create_access_port_profile(self, location: str, name: str, description: str = "") -> dict:
+    def create_access_port_profile(self, location: str | None, name: str, description: str = "") -> dict:
         update = {"description": description} if description else {}
         return self._merge_location_named_entry(location, "access_port_profiles", name, update)
 
-    def create_access_port_selector(self, location: str, access_port_profile: str, name: str, policy_group: str, selector_type: str = "range") -> dict:
+    def create_access_port_selector(self, location: str | None, access_port_profile: str, name: str, policy_group: str, selector_type: str = "range") -> dict:
         location_obj = self._get_location_or_raise(location)
         fields = dict(location_obj.custom_fields or {})
-        policies = dict(fields.get("aci_fabric_policies") or {})
+        # deepcopy for the same reason as create_l3out_node_profile: pynautobot
+        # diffs the record against its own cached state, and a shallow copy
+        # means editing a nested profile/selector edits that cache too, so the
+        # diff sees nothing and the write silently does nothing while the tool
+        # reports success. Measured 2026-09-16: create_access_port_selector
+        # returned OK and no Ext_Nexus selector appeared.
+        policies = copy.deepcopy(dict(fields.get("aci_fabric_policies") or {}))
         profiles = list(policies.get("access_port_profiles") or [])
         profile = next((p for p in profiles if p.get("name") == access_port_profile), None)
         if profile is None:
@@ -978,12 +1112,18 @@ class NautobotClient:
         policies["access_port_profiles"] = profiles
         fields["aci_fabric_policies"] = policies
         location_obj.update({"custom_fields": fields})
-        return {"location": location, "access_port_profile": access_port_profile, "selector": name}
+        return {"location": location_obj.name, "access_port_profile": access_port_profile, "selector": name}
 
-    def create_access_port_block(self, location: str, access_port_profile: str, selector: str, name: str, from_card: int, from_port: int, to_card: int | None = None, to_port: int | None = None) -> dict:
+    def create_access_port_block(self, location: str | None, access_port_profile: str, selector: str, name: str, from_card: int, from_port: int, to_card: int | None = None, to_port: int | None = None) -> dict:
         location_obj = self._get_location_or_raise(location)
         fields = dict(location_obj.custom_fields or {})
-        policies = dict(fields.get("aci_fabric_policies") or {})
+        # deepcopy for the same reason as create_l3out_node_profile: pynautobot
+        # diffs the record against its own cached state, and a shallow copy
+        # means editing a nested profile/selector edits that cache too, so the
+        # diff sees nothing and the write silently does nothing while the tool
+        # reports success. Measured 2026-09-16: create_access_port_selector
+        # returned OK and no Ext_Nexus selector appeared.
+        policies = copy.deepcopy(dict(fields.get("aci_fabric_policies") or {}))
         profiles = list(policies.get("access_port_profiles") or [])
         profile = next((p for p in profiles if p.get("name") == access_port_profile), None)
         if profile is None: raise NautobotError(f"Access Port Profile '{access_port_profile}' not found on Location '{location}'")
@@ -996,17 +1136,23 @@ class NautobotClient:
         policies["access_port_profiles"] = profiles
         fields["aci_fabric_policies"] = policies
         location_obj.update({"custom_fields": fields})
-        return {"location": location, "access_port_profile": access_port_profile, "selector": selector, "block": block}
+        return {"location": location_obj.name, "access_port_profile": access_port_profile, "selector": selector, "block": block}
 
-    def create_leaf_profile(self, location: str, name: str, access_port_profiles: list[str], description: str = "") -> dict:
+    def create_leaf_profile(self, location: str | None, name: str, access_port_profiles: list[str], description: str = "") -> dict:
         update = {"access_port_profiles": list(access_port_profiles)}
         if description: update["description"] = description
         return self._merge_location_named_entry(location, "leaf_profiles", name, update)
 
-    def create_leaf_selector(self, location: str, leaf_profile: str, name: str, selector_type: str = "range") -> dict:
+    def create_leaf_selector(self, location: str | None, leaf_profile: str, name: str, selector_type: str = "range") -> dict:
         location_obj = self._get_location_or_raise(location)
         fields = dict(location_obj.custom_fields or {})
-        policies = dict(fields.get("aci_fabric_policies") or {})
+        # deepcopy for the same reason as create_l3out_node_profile: pynautobot
+        # diffs the record against its own cached state, and a shallow copy
+        # means editing a nested profile/selector edits that cache too, so the
+        # diff sees nothing and the write silently does nothing while the tool
+        # reports success. Measured 2026-09-16: create_access_port_selector
+        # returned OK and no Ext_Nexus selector appeared.
+        policies = copy.deepcopy(dict(fields.get("aci_fabric_policies") or {}))
         profiles = list(policies.get("leaf_profiles") or [])
         profile = next((p for p in profiles if p.get("name") == leaf_profile), None)
         if profile is None: raise NautobotError(f"Leaf Profile '{leaf_profile}' not found on Location '{location}'")
@@ -1018,12 +1164,18 @@ class NautobotClient:
         policies["leaf_profiles"] = profiles
         fields["aci_fabric_policies"] = policies
         location_obj.update({"custom_fields": fields})
-        return {"location": location, "leaf_profile": leaf_profile, "selector": name}
+        return {"location": location_obj.name, "leaf_profile": leaf_profile, "selector": name}
 
-    def create_leaf_node_block(self, location: str, leaf_profile: str, selector: str, name: str, from_node: int, to_node: int | None = None) -> dict:
+    def create_leaf_node_block(self, location: str | None, leaf_profile: str, selector: str, name: str, from_node: int, to_node: int | None = None) -> dict:
         location_obj = self._get_location_or_raise(location)
         fields = dict(location_obj.custom_fields or {})
-        policies = dict(fields.get("aci_fabric_policies") or {})
+        # deepcopy for the same reason as create_l3out_node_profile: pynautobot
+        # diffs the record against its own cached state, and a shallow copy
+        # means editing a nested profile/selector edits that cache too, so the
+        # diff sees nothing and the write silently does nothing while the tool
+        # reports success. Measured 2026-09-16: create_access_port_selector
+        # returned OK and no Ext_Nexus selector appeared.
+        policies = copy.deepcopy(dict(fields.get("aci_fabric_policies") or {}))
         profiles = list(policies.get("leaf_profiles") or [])
         profile = next((p for p in profiles if p.get("name") == leaf_profile), None)
         if profile is None: raise NautobotError(f"Leaf Profile '{leaf_profile}' not found on Location '{location}'")
@@ -1035,7 +1187,7 @@ class NautobotClient:
         policies["leaf_profiles"] = profiles
         fields["aci_fabric_policies"] = policies
         location_obj.update({"custom_fields": fields})
-        return {"location": location, "leaf_profile": leaf_profile, "selector": selector, "block": block}
+        return {"location": location_obj.name, "leaf_profile": leaf_profile, "selector": selector, "block": block}
 
     def _update_epg_custom_fields(self, tenant: str, application_profile: str, epg: str, update: dict) -> dict:
         tenant_obj = self._get_tenant_or_raise(tenant)
@@ -1055,11 +1207,11 @@ class NautobotClient:
 
     def create_vmm_domain(
         self,
-        location: str,
+        location: str | None,
         name: str,
-        controller_name: str,
-        host_or_ip: str,
-        root_cont_name: str,
+        controller_name: str | None = None,
+        host_or_ip: str | None = None,
+        root_cont_name: str | None = None,
         vendor: str = "VMware",
         vlan_pool: str | None = None,
         credential_name: str | None = None,
@@ -1079,16 +1231,17 @@ class NautobotClient:
             existing = dict(location_obj.custom_fields or {}).get("aci_fabric_policies") or {}
             vmm_domains = list(existing.get("vmm_domains") or [])
 
-            entry: dict = {
-                "name": name,
-                "vendor": vendor,
-                "controller": {
+            entry: dict = {"name": name, "vendor": vendor}
+            # Only emit a controller when one was asked for. main.tf builds
+            # aci_vmm_controller solely for domains carrying this key, so a
+            # domain without it never reaches toward vCenter.
+            if controller_name:
+                entry["controller"] = {
                     "name": controller_name,
                     "host_or_ip": host_or_ip,
                     "root_cont_name": root_cont_name,
                     "dvs_version": dvs_version,
-                },
-            }
+                }
             if vlan_pool:
                 entry["vlan_pool"] = vlan_pool
             if credential_name:
@@ -1102,9 +1255,9 @@ class NautobotClient:
             raise
         except Exception as exc:  # noqa: BLE001
             raise NautobotError(f"Nautobot unreachable or auth failed: {exc}") from exc
-        return {"location": location, "vmm_domain": name, "vmm_domains": vmm_domains}
+        return {"location": location_obj.name, "vmm_domain": name, "vmm_domains": vmm_domains}
 
-    def create_security_domain(self, location: str, name: str, description: str = "") -> dict:
+    def create_security_domain(self, location: str | None, name: str, description: str = "") -> dict:
         """Create a Security Domain (ADR-020 Phase F coverage) -- a purely
         additive, fabric-wide named object in the aci_aaa_policies Custom
         Field on Location, same pattern as create_physical_domain."""
@@ -1125,11 +1278,11 @@ class NautobotClient:
             raise
         except Exception as exc:  # noqa: BLE001
             raise NautobotError(f"Nautobot unreachable or auth failed: {exc}") from exc
-        return {"location": location, "security_domain": name, "security_domains": domains}
+        return {"location": location_obj.name, "security_domain": name, "security_domains": domains}
 
     def create_local_user(
         self,
-        location: str,
+        location: str | None,
         name: str,
         email: str = "",
         first_name: str = "",
@@ -1176,7 +1329,7 @@ class NautobotClient:
             raise
         except Exception as exc:  # noqa: BLE001
             raise NautobotError(f"Nautobot unreachable or auth failed: {exc}") from exc
-        return {"location": location, "local_user": name, "local_users": local_users}
+        return {"location": location_obj.name, "local_user": name, "local_users": local_users}
 
     # Ported from copilot/aci-platform-comparison (2026-09-08) -- L4-L7/
     # PBR/Service Graph client methods, genuinely new and non-overlapping.
@@ -1247,6 +1400,553 @@ class NautobotClient:
         except Exception as exc:  # noqa: BLE001
             raise NautobotError(f"Nautobot unreachable or auth failed: {exc}") from exc
         return {"tenant": tenant, "device": name, "devices": devices}
+
+    # ---------------------------------------------------------------
+    # L3Out Logical Interface Profile sub-policies (2026-09-16).
+    #
+    # All five kinds share one JSON Custom Field, aci_interface_policies,
+    # keyed by kind. One field rather than five: they are configured
+    # together, and every extra Custom Field is another declaration that can
+    # be forgotten -- which silently discards the write (finding F-01).
+    # ---------------------------------------------------------------
+
+    def _add_interface_policy(self, tenant: str, kind: str, entry: dict) -> list[dict]:
+        """Append one policy to a tenant's aci_interface_policies[kind]."""
+        try:
+            tenant_obj = self._get_tenant_or_raise(tenant)
+            custom_fields = dict(tenant_obj.custom_fields or {})
+            policies = dict(custom_fields.get("aci_interface_policies") or {})
+            entries = list(policies.get(kind) or [])
+            if any(e.get("name") == entry["name"] for e in entries):
+                raise NautobotError(
+                    f"{kind[:-1].replace('_', ' ')} '{entry['name']}' already exists "
+                    f"in tenant '{tenant}'"
+                )
+            entries.append(entry)
+            policies[kind] = entries
+            custom_fields["aci_interface_policies"] = policies
+            tenant_obj.update({"custom_fields": custom_fields})
+        except pynautobot.RequestError as exc:
+            raise NautobotError(f"Nautobot rejected {kind} entry '{entry['name']}': {exc}") from exc
+        except NautobotError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise NautobotError(f"Nautobot unreachable or auth failed: {exc}") from exc
+        return entries
+
+    @staticmethod
+    def _compact(fields: dict) -> dict:
+        """Drop unset optional attributes so an omitted field means 'leave it
+        to APIC' rather than writing an explicit null the generator would
+        then pass to Terraform."""
+        return {k: v for k, v in fields.items() if v is not None and v != ""}
+
+    def create_nd_interface_policy(self, tenant: str, name: str, **attrs) -> dict:
+        entry = self._compact({"name": name, **attrs})
+        entries = self._add_interface_policy(tenant, "nd_interface_policies", entry)
+        return {"tenant": tenant, "policy": name, "nd_interface_policies": entries}
+
+    def create_dpp_policy(self, tenant: str, name: str, **attrs) -> dict:
+        entry = self._compact({"name": name, **attrs})
+        entries = self._add_interface_policy(tenant, "dpp_policies", entry)
+        return {"tenant": tenant, "policy": name, "dpp_policies": entries}
+
+    def create_pim_interface_policy(self, tenant: str, name: str, **attrs) -> dict:
+        entry = self._compact({"name": name, **attrs})
+        entries = self._add_interface_policy(tenant, "pim_interface_policies", entry)
+        return {"tenant": tenant, "policy": name, "pim_interface_policies": entries}
+
+    def create_igmp_interface_policy(self, tenant: str, name: str, **attrs) -> dict:
+        entry = self._compact({"name": name, **attrs})
+        entries = self._add_interface_policy(tenant, "igmp_interface_policies", entry)
+        return {"tenant": tenant, "policy": name, "igmp_interface_policies": entries}
+
+    def create_custom_qos_policy(self, tenant: str, name: str, **attrs) -> dict:
+        # The two map lists are meaningful even when empty-ish, so they are
+        # kept as given rather than run through _compact.
+        entry: dict = {"name": name}
+        for key in ("dscp_to_priority_maps", "dot1p_classifiers"):
+            if attrs.get(key):
+                entry[key] = attrs[key]
+        if attrs.get("description"):
+            entry["description"] = attrs["description"]
+        entries = self._add_interface_policy(tenant, "custom_qos_policies", entry)
+        return {"tenant": tenant, "policy": name, "custom_qos_policies": entries}
+
+    def bind_l3out_interface_profile_policies(
+        self,
+        tenant: str,
+        l3out: str,
+        node_profile: str,
+        interface_profile: str,
+        **bindings,
+    ) -> dict:
+        """Set policy references and/or QoS priority on an existing Logical
+        Interface Profile inside the tenant's aci_l3outs Custom Field.
+
+        Edits in place rather than appending, like create_concrete_device, so
+        it must refuse a profile that does not exist -- writing anyway would
+        leave intent nothing reads.
+        """
+        try:
+            tenant_obj = self._get_tenant_or_raise(tenant)
+            custom_fields = dict(tenant_obj.custom_fields or {})
+            l3out_cf = dict(custom_fields.get("aci_l3outs") or {})
+            # deepcopy for the same reason as create_l3out_node_profile above:
+            # a shallow copy leaves pynautobot unable to see the change.
+            l3outs = copy.deepcopy(list(l3out_cf.get("l3outs") or []))
+
+            out = next((o for o in l3outs if o.get("name") == l3out), None)
+            if out is None:
+                known = ", ".join(sorted(o.get("name", "") for o in l3outs)) or "none"
+                raise NautobotError(
+                    f"L3Out '{l3out}' does not exist in tenant '{tenant}' (known: {known})"
+                )
+
+            node_profiles = list(out.get("node_profiles") or [])
+            np = next((n for n in node_profiles if n.get("name") == node_profile), None)
+            if np is None:
+                known = ", ".join(sorted(n.get("name", "") for n in node_profiles)) or "none"
+                raise NautobotError(
+                    f"Node profile '{node_profile}' does not exist in L3Out '{l3out}' "
+                    f"(known: {known})"
+                )
+
+            interface_profiles = list(np.get("interface_profiles") or [])
+            ip = next((i for i in interface_profiles if i.get("name") == interface_profile), None)
+            if ip is None:
+                known = ", ".join(sorted(i.get("name", "") for i in interface_profiles)) or "none"
+                raise NautobotError(
+                    f"Interface profile '{interface_profile}' does not exist in node "
+                    f"profile '{node_profile}' (known: {known})"
+                )
+
+            applied = {k: v for k, v in bindings.items() if v}
+            ip.update(applied)
+
+            np["interface_profiles"] = interface_profiles
+            out["node_profiles"] = node_profiles
+            l3out_cf["l3outs"] = l3outs
+            custom_fields["aci_l3outs"] = l3out_cf
+            tenant_obj.update({"custom_fields": custom_fields})
+        except pynautobot.RequestError as exc:
+            raise NautobotError(
+                f"Nautobot rejected policy binding on '{interface_profile}': {exc}"
+            ) from exc
+        except NautobotError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise NautobotError(f"Nautobot unreachable or auth failed: {exc}") from exc
+        return {
+            "tenant": tenant,
+            "l3out": l3out,
+            "node_profile": node_profile,
+            "interface_profile": interface_profile,
+            "bound": applied,
+            "profile": ip,
+        }
+
+    # ---------------------------------------------------------------
+    # Route control (2026-09-16). Match rules live in their own Custom
+    # Field because they are tenant-scoped; route maps hang off an L3Out
+    # and are therefore written into aci_l3outs alongside it.
+    # ---------------------------------------------------------------
+
+    def create_match_rule(self, tenant: str, name: str, prefixes: list[dict], description: str = "") -> dict:
+        try:
+            tenant_obj = self._get_tenant_or_raise(tenant)
+            custom_fields = dict(tenant_obj.custom_fields or {})
+            data = dict(custom_fields.get("aci_route_control") or {})
+            rules = list(data.get("match_rules") or [])
+            if any(r.get("name") == name for r in rules):
+                raise NautobotError(f"Match rule '{name}' already exists in tenant '{tenant}'")
+            entry: dict = {"name": name, "prefixes": prefixes}
+            if description:
+                entry["description"] = description
+            rules.append(entry)
+            data["match_rules"] = rules
+            custom_fields["aci_route_control"] = data
+            tenant_obj.update({"custom_fields": custom_fields})
+        except pynautobot.RequestError as exc:
+            raise NautobotError(f"Nautobot rejected match rule '{name}': {exc}") from exc
+        except NautobotError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise NautobotError(f"Nautobot unreachable or auth failed: {exc}") from exc
+        return {"tenant": tenant, "match_rule": name, "match_rules": rules}
+
+    def _get_l3out_or_raise(self, tenant_obj, custom_fields: dict, l3out: str):
+        """Return (l3outs list, the named l3out dict) from a DEEPCOPIED
+        aci_l3outs, so pynautobot can see the change (see
+        create_l3out_node_profile's note)."""
+        l3out_cf = dict(custom_fields.get("aci_l3outs") or {})
+        l3outs = copy.deepcopy(list(l3out_cf.get("l3outs") or []))
+        target = next((o for o in l3outs if o.get("name") == l3out), None)
+        if target is None:
+            known = ", ".join(sorted(o.get("name", "") for o in l3outs)) or "none"
+            raise NautobotError(
+                f"L3Out '{l3out}' does not exist in tenant '{tenant_obj.name}' (known: {known})"
+            )
+        return l3out_cf, l3outs, target
+
+    def create_route_control_profile(
+        self, tenant: str, l3out: str, name: str, contexts: list[dict],
+        type: str = "global", description: str = "",
+    ) -> dict:
+        try:
+            tenant_obj = self._get_tenant_or_raise(tenant)
+            custom_fields = dict(tenant_obj.custom_fields or {})
+            l3out_cf, l3outs, target = self._get_l3out_or_raise(tenant_obj, custom_fields, l3out)
+
+            profiles = list(target.get("route_control_profiles") or [])
+            if any(pr.get("name") == name for pr in profiles):
+                raise NautobotError(
+                    f"Route map '{name}' already exists in L3Out '{l3out}' of tenant '{tenant}'"
+                )
+            entry: dict = {"name": name, "type": type, "contexts": contexts}
+            if description:
+                entry["description"] = description
+            profiles.append(entry)
+            target["route_control_profiles"] = profiles
+
+            l3out_cf["l3outs"] = l3outs
+            custom_fields["aci_l3outs"] = l3out_cf
+            tenant_obj.update({"custom_fields": custom_fields})
+        except pynautobot.RequestError as exc:
+            raise NautobotError(f"Nautobot rejected route map '{name}': {exc}") from exc
+        except NautobotError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise NautobotError(f"Nautobot unreachable or auth failed: {exc}") from exc
+        return {"tenant": tenant, "l3out": l3out, "route_control_profile": name, "route_control_profiles": profiles}
+
+    def bind_external_epg_route_control_profile(
+        self, tenant: str, l3out: str, external_epg: str,
+        route_control_profile: str, direction: str = "export",
+    ) -> dict:
+        try:
+            tenant_obj = self._get_tenant_or_raise(tenant)
+            custom_fields = dict(tenant_obj.custom_fields or {})
+            l3out_cf, l3outs, target = self._get_l3out_or_raise(tenant_obj, custom_fields, l3out)
+
+            epgs = list(target.get("external_epgs") or [])
+            epg = next((e for e in epgs if e.get("name") == external_epg), None)
+            if epg is None:
+                known = ", ".join(sorted(e.get("name", "") for e in epgs)) or "none"
+                raise NautobotError(
+                    f"External EPG '{external_epg}' does not exist in L3Out '{l3out}' (known: {known})"
+                )
+
+            bindings = list(epg.get("route_control_profiles") or [])
+            if any(bn.get("name") == route_control_profile and bn.get("direction") == direction
+                   for bn in bindings):
+                raise NautobotError(
+                    f"Route map '{route_control_profile}' is already bound to external EPG "
+                    f"'{external_epg}' for direction '{direction}'"
+                )
+            bindings.append({"name": route_control_profile, "direction": direction})
+            epg["route_control_profiles"] = bindings
+            target["external_epgs"] = epgs
+
+            l3out_cf["l3outs"] = l3outs
+            custom_fields["aci_l3outs"] = l3out_cf
+            tenant_obj.update({"custom_fields": custom_fields})
+        except pynautobot.RequestError as exc:
+            raise NautobotError(f"Nautobot rejected route map binding: {exc}") from exc
+        except NautobotError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise NautobotError(f"Nautobot unreachable or auth failed: {exc}") from exc
+        return {
+            "tenant": tenant, "l3out": l3out, "external_epg": external_epg,
+            "route_control_profile": route_control_profile, "direction": direction,
+            "bindings": bindings,
+        }
+
+    def set_external_epg_subnet_scope(
+        self, tenant: str, l3out: str, external_epg: str, ip: str, scope: list[str]
+    ) -> dict:
+        """Replace an existing external EPG subnet's scope flags in place."""
+        try:
+            tenant_obj = self._get_tenant_or_raise(tenant)
+            custom_fields = dict(tenant_obj.custom_fields or {})
+            l3out_cf, l3outs, target = self._get_l3out_or_raise(tenant_obj, custom_fields, l3out)
+
+            epgs = list(target.get("external_epgs") or [])
+            epg = next((e for e in epgs if e.get("name") == external_epg), None)
+            if epg is None:
+                known = ", ".join(sorted(e.get("name", "") for e in epgs)) or "none"
+                raise NautobotError(
+                    f"External EPG '{external_epg}' does not exist in L3Out '{l3out}' (known: {known})"
+                )
+
+            subnets = list(epg.get("subnets") or [])
+            subnet = next((sn for sn in subnets if sn.get("ip") == ip), None)
+            if subnet is None:
+                known = ", ".join(sorted(sn.get("ip", "") for sn in subnets)) or "none"
+                raise NautobotError(
+                    f"Subnet '{ip}' does not exist on external EPG '{external_epg}' (known: {known})"
+                )
+
+            previous = list(subnet.get("scope") or [])
+            subnet["scope"] = list(scope)
+            epg["subnets"] = subnets
+            target["external_epgs"] = epgs
+
+            l3out_cf["l3outs"] = l3outs
+            custom_fields["aci_l3outs"] = l3out_cf
+            tenant_obj.update({"custom_fields": custom_fields})
+        except pynautobot.RequestError as exc:
+            raise NautobotError(f"Nautobot rejected scope change on '{ip}': {exc}") from exc
+        except NautobotError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise NautobotError(f"Nautobot unreachable or auth failed: {exc}") from exc
+        return {"tenant": tenant, "l3out": l3out, "external_epg": external_epg,
+                "ip": ip, "previous_scope": previous, "scope": list(scope)}
+
+    def _get_external_epg_or_raise(self, tenant_obj, custom_fields, l3out, external_epg):
+        l3out_cf, l3outs, target = self._get_l3out_or_raise(tenant_obj, custom_fields, l3out)
+        epgs = list(target.get("external_epgs") or [])
+        epg = next((e for e in epgs if e.get("name") == external_epg), None)
+        if epg is None:
+            known = ", ".join(sorted(e.get("name", "") for e in epgs)) or "none"
+            raise NautobotError(
+                f"External EPG '{external_epg}' does not exist in L3Out '{l3out}' (known: {known})"
+            )
+        return l3out_cf, l3outs, target, epgs, epg
+
+    def bind_external_epg_contract(
+        self, tenant: str, l3out: str, external_epg: str,
+        provided_contracts: list[str] | None = None,
+        consumed_contracts: list[str] | None = None,
+    ) -> dict:
+        try:
+            tenant_obj = self._get_tenant_or_raise(tenant)
+            custom_fields = dict(tenant_obj.custom_fields or {})
+            l3out_cf, l3outs, target, epgs, epg = self._get_external_epg_or_raise(
+                tenant_obj, custom_fields, l3out, external_epg)
+
+            for key, incoming in (("provided_contracts", provided_contracts or []),
+                                  ("consumed_contracts", consumed_contracts or [])):
+                current = list(epg.get(key) or [])
+                current.extend(c for c in incoming if c not in current)
+                if current:
+                    epg[key] = current
+
+            target["external_epgs"] = epgs
+            l3out_cf["l3outs"] = l3outs
+            custom_fields["aci_l3outs"] = l3out_cf
+            tenant_obj.update({"custom_fields": custom_fields})
+        except pynautobot.RequestError as exc:
+            raise NautobotError(f"Nautobot rejected contract binding: {exc}") from exc
+        except NautobotError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise NautobotError(f"Nautobot unreachable or auth failed: {exc}") from exc
+        return {"tenant": tenant, "l3out": l3out, "external_epg": external_epg,
+                "provided_contracts": epg.get("provided_contracts", []),
+                "consumed_contracts": epg.get("consumed_contracts", [])}
+
+    def add_external_epg_subnet(
+        self, tenant: str, l3out: str, external_epg: str, ip: str,
+        scope: list[str] | None = None, aggregate: list[str] | None = None,
+    ) -> dict:
+        try:
+            tenant_obj = self._get_tenant_or_raise(tenant)
+            custom_fields = dict(tenant_obj.custom_fields or {})
+            l3out_cf, l3outs, target, epgs, epg = self._get_external_epg_or_raise(
+                tenant_obj, custom_fields, l3out, external_epg)
+
+            subnets = list(epg.get("subnets") or [])
+            if any(sn.get("ip") == ip for sn in subnets):
+                raise NautobotError(
+                    f"Subnet '{ip}' already exists on external EPG '{external_epg}' -- "
+                    "use set_external_epg_subnet_scope to change its scope"
+                )
+            entry: dict = {"ip": ip, "scope": list(scope or ["import-security"])}
+            if aggregate:
+                entry["aggregate"] = list(aggregate)
+            subnets.append(entry)
+            epg["subnets"] = subnets
+
+            target["external_epgs"] = epgs
+            l3out_cf["l3outs"] = l3outs
+            custom_fields["aci_l3outs"] = l3out_cf
+            tenant_obj.update({"custom_fields": custom_fields})
+        except pynautobot.RequestError as exc:
+            raise NautobotError(f"Nautobot rejected subnet '{ip}': {exc}") from exc
+        except NautobotError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise NautobotError(f"Nautobot unreachable or auth failed: {exc}") from exc
+        return {"tenant": tenant, "l3out": l3out, "external_epg": external_epg,
+                "ip": ip, "subnets": subnets}
+
+    def add_match_rule_prefix(self, tenant: str, match_rule: str, **prefix) -> dict:
+        try:
+            tenant_obj = self._get_tenant_or_raise(tenant)
+            custom_fields = dict(tenant_obj.custom_fields or {})
+            data = copy.deepcopy(dict(custom_fields.get("aci_route_control") or {}))
+            rules = list(data.get("match_rules") or [])
+            rule = next((r for r in rules if r.get("name") == match_rule), None)
+            if rule is None:
+                known = ", ".join(sorted(r.get("name", "") for r in rules)) or "none"
+                raise NautobotError(
+                    f"Match rule '{match_rule}' does not exist in tenant '{tenant}' (known: {known})"
+                )
+            prefixes = list(rule.get("prefixes") or [])
+            ip = prefix["ip"]
+            if any(p.get("ip") == ip for p in prefixes):
+                raise NautobotError(f"Prefix '{ip}' is already in match rule '{match_rule}'")
+            prefixes.append({k: v for k, v in prefix.items() if v not in (None, "")})
+            rule["prefixes"] = prefixes
+            data["match_rules"] = rules
+            custom_fields["aci_route_control"] = data
+            tenant_obj.update({"custom_fields": custom_fields})
+        except pynautobot.RequestError as exc:
+            raise NautobotError(f"Nautobot rejected prefix on '{match_rule}': {exc}") from exc
+        except NautobotError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise NautobotError(f"Nautobot unreachable or auth failed: {exc}") from exc
+        return {"tenant": tenant, "match_rule": match_rule, "prefixes": prefixes}
+
+    def create_l3_domain(self, location: str | None, name: str, vlan_pool: str | None = None) -> dict:
+        try:
+            location_obj = self._get_location_or_raise(location)
+            existing = dict(location_obj.custom_fields or {}).get("aci_fabric_policies") or {}
+            access = dict(existing)
+            domains = list(access.get("l3_domains") or [])
+            if any(d.get("name") == name for d in domains):
+                raise NautobotError(f"L3 domain '{name}' already exists at location '{location}'")
+            entry: dict = {"name": name}
+            if vlan_pool:
+                entry["vlan_pool"] = vlan_pool
+            domains.append(entry)
+            location_obj.update({"custom_fields": {"aci_fabric_policies": {**access, "l3_domains": domains}}})
+        except pynautobot.RequestError as exc:
+            raise NautobotError(f"Nautobot rejected L3 domain '{name}': {exc}") from exc
+        except NautobotError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise NautobotError(f"Nautobot unreachable or auth failed: {exc}") from exc
+        return {"location": location_obj.name, "l3_domain": name, "l3_domains": domains}
+
+    def create_concrete_device(
+        self,
+        tenant: str,
+        device: str,
+        name: str,
+        interfaces: list[dict],
+        device_type: str = "VIRTUAL",
+        vm_name: str | None = None,
+        vmm_domain: str | None = None,
+        vmm_controller: str | None = None,
+        vendor: str = "VMware",
+        description: str = "",
+    ) -> dict:
+        """Attach a concrete device (``vnsCDev``) to an existing logical L4-L7
+        device and bind its interfaces to that device's logical interfaces.
+
+        Unlike every other ``create_*`` here, this does not append a new
+        top-level entry -- it edits an existing device entry in place, because
+        a concrete device has no meaning apart from its parent. That means two
+        things this method has to get right: the parent device must already
+        exist (otherwise the write would silently create orphaned intent no
+        generator reads), and each interface's ``logical_interface`` must name
+        a real logical interface on that device (otherwise the LIf-to-CIf
+        binding never happens and the device stays invalid for exactly the
+        reason the concrete device was added to fix).
+        """
+        try:
+            tenant_obj = self._get_tenant_or_raise(tenant)
+            custom_fields = dict(tenant_obj.custom_fields or {})
+            services = dict(custom_fields.get("aci_l4l7_services") or {})
+            devices = list(services.get("devices") or [])
+
+            parent = next((d for d in devices if d.get("name") == device), None)
+            if parent is None:
+                known = ", ".join(sorted(d.get("name", "") for d in devices)) or "none"
+                raise NautobotError(
+                    f"L4-L7 device '{device}' does not exist in tenant '{tenant}' "
+                    f"(known devices: {known}) -- create it with create_l4l7_device first"
+                )
+
+            concrete_devices = list(parent.get("concrete_devices") or [])
+            if any(c.get("name") == name for c in concrete_devices):
+                raise NautobotError(
+                    f"Concrete device '{name}' already exists on L4-L7 device '{device}' "
+                    f"in tenant '{tenant}'"
+                )
+
+            logical_interfaces = list(parent.get("logical_interfaces") or [])
+            known_lifs = {li.get("name") for li in logical_interfaces}
+            unknown = sorted({i["logical_interface"] for i in interfaces} - known_lifs)
+            if unknown:
+                raise NautobotError(
+                    f"L4-L7 device '{device}' has no logical interface(s) "
+                    f"{', '.join(unknown)} (it has: {', '.join(sorted(known_lifs)) or 'none'}). "
+                    "The concrete interface must bind to one that exists, or APIC "
+                    "leaves the device invalid with 'LIf has no relation to CIf'."
+                )
+
+            entry: dict = {"name": name}
+            if description:
+                entry["description"] = description
+            if device_type.upper() == "VIRTUAL":
+                entry["vm_name"] = vm_name
+                # vnsRsCIfAttN resolves the VM's vNICs through this controller.
+                # Built as a literal DN because the controller is an APIC object
+                # this module does not own -- same convention main.tf already
+                # uses for the physical domain relation.
+                entry["vmm_controller_dn"] = f"uni/vmmp-{vendor}/dom-{vmm_domain}/ctrlr-{vmm_controller}"
+
+            cifs: list[dict] = []
+            for iface in interfaces:
+                cif: dict = {"name": iface["name"]}
+                if iface.get("vnic_name"):
+                    cif["vnic_name"] = iface["vnic_name"]
+                else:
+                    cif["node_id"] = iface["node_id"]
+                    cif["pod_id"] = iface.get("pod_id", 1)
+                    cif["module"] = iface.get("module", 1)
+                    cif["port"] = iface["port"]
+                if iface.get("encap"):
+                    cif["encap"] = iface["encap"]
+                cifs.append(cif)
+            entry["interfaces"] = cifs
+
+            # Wire each logical interface to the concrete interfaces backing it.
+            # Referenced as "<concrete_device>/<interface>", the form main.tf's
+            # relation_vns_rs_c_if_att_n lookup expects.
+            for iface in interfaces:
+                target = next(li for li in logical_interfaces if li["name"] == iface["logical_interface"])
+                refs = list(target.get("concrete_interfaces") or [])
+                ref = f"{name}/{iface['name']}"
+                if ref not in refs:
+                    refs.append(ref)
+                target["concrete_interfaces"] = refs
+
+            concrete_devices.append(entry)
+            parent["concrete_devices"] = concrete_devices
+            parent["logical_interfaces"] = logical_interfaces
+            services["devices"] = devices
+            custom_fields["aci_l4l7_services"] = services
+            tenant_obj.update({"custom_fields": custom_fields})
+        except pynautobot.RequestError as exc:
+            raise NautobotError(f"Nautobot rejected concrete device '{name}': {exc}") from exc
+        except NautobotError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise NautobotError(f"Nautobot unreachable or auth failed: {exc}") from exc
+        return {
+            "tenant": tenant,
+            "device": device,
+            "concrete_device": name,
+            "concrete_devices": concrete_devices,
+            "logical_interfaces": logical_interfaces,
+        }
 
     def create_service_graph(
         self,

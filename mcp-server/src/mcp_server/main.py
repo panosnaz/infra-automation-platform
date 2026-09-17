@@ -125,12 +125,28 @@ def _register_with_mcp(server: MCPServer, spec, available_clients: dict) -> None
     # it via __signature__ keeps this loop fully generic (works for any
     # future tool's schema, no per-tool wrapper function needed in this
     # file) while still giving the SDK real parameter names/types/defaults.
+    # NOTE on the default: a Pydantic field declared with `default_factory`
+    # (e.g. `list[dict] = Field(default_factory=list)`) has `.default` set to
+    # PydanticUndefined, NOT to the factory's value. Passing that straight
+    # through made the SDK advertise the field as REQUIRED, so an AI client
+    # that omitted it got "Field required" and the tool was uncallable
+    # without it. Eleven fields across nine tools were affected, including
+    # create_epg and create_aep -- both of which had been live-verified,
+    # because every unit test calls the handler directly and never goes
+    # through this generated signature. Found 2026-09-16 by driving a new
+    # tool over the real MCP protocol.
+    #
+    # get_default(call_default_factory=True) resolves the factory.
     params = [
         inspect.Parameter(
             field_name,
             inspect.Parameter.POSITIONAL_OR_KEYWORD,
             annotation=field_info.annotation,
-            default=inspect.Parameter.empty if field_info.is_required() else field_info.default,
+            default=(
+                inspect.Parameter.empty
+                if field_info.is_required()
+                else field_info.get_default(call_default_factory=True)
+            ),
         )
         for field_name, field_info in spec.schema.model_fields.items()
     ]

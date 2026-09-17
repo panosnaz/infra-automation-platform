@@ -397,6 +397,8 @@ The path to a genuinely fault-free L4-L7 chain on this lab is the **VMware** rou
 
 ## Virtual (VMM-backed) L4-L7 chain — plan-verified, apply blocked (2026-09-15)
 
+> **Superseded the same day — read the PBR lab section below before acting on this one.** The two blockers listed here (vCenter password, reachability) turned out not to be blockers at all: a VMM domain can be created with **no controller**, which removes the vCenter dependency entirely. The chain then applies. The conclusion that it is "the only route to a fault-free L4-L7 chain" is also wrong — it bottoms out at 10 faults.
+
 The physical L4-L7 chain bottoms out at 6 faults on this fabric because a concrete device must attach to a leaf port that does not exist. The **virtual** chain has no such dependency: a VMM-backed concrete device identifies its ports by vCenter **vNIC adapter name** (`vnic_name`), not by a `pathep-` DN. It is therefore the only route to a fault-free L4-L7 chain on a switch-less fabric.
 
 `platform/terraform/aci/tests/fixtures/l4l7-vmm-virtual.yaml` transcribes the design from `docs/ACI_PBR_Lab_APIC_SourceOfTruth_EXPANDED.xlsx` (tabs `vmm_domain`, `vlan_pool`, `l4l7_device`, `l4l7_concrete_device`, `l4l7_concrete_interfaces`, `l4l7_cluster_interfaces`, `l4l7_graph_node`).
@@ -415,6 +417,398 @@ Two corrections the plan surfaced in the workbook data:
 
 **Do not apply with a placeholder password.** APIC would repeatedly attempt to authenticate to the real vCenter as `administrator@dc.local` and risks locking that account out. Applying also makes APIC create a Distributed Virtual Switch in vCenter — a real change to the virtualisation environment, reversible by deleting the domain but not confined to the APIC.
 
+## PBR lab built end-to-end; the virtual L4-L7 floor measured (2026-09-15)
+
+The lab in `docs/Configure PBR LAB.docx` was built through the MCP tools and pushed to the APIC, under a standing constraint to delete nothing that pre-existed. This is the first time the L4-L7/PBR/Service Graph scope has been driven all the way from MCP tool calls through Nautobot and the generator to a real apply, rather than from hand-written fixture YAML.
+
+**Result: `93 to add, 0 to change, 0 to destroy` → `93 added, 0 changed, 0 destroyed`, then a fault delta of `FAIL: 10 new faults`.**
+
+### A controller-less VMM domain removes the vCenter dependency
+
+The section above concluded the virtual chain was blocked on a vCenter password and unproven reachability to `192.168.10.62`. Both were real, and neither was a blocker. ACI's `vmmDomP` does not require a `vmmCtrlrP` child — a domain with no controller is valid and never contacts vCenter at all.
+
+`CreateVmmDomainRequest` now makes `controller_name`/`host_or_ip`/`root_cont_name` optional, as an all-or-nothing group (a partial set is rejected: a controller missing its host or datacenter is a controller that can never connect). `credential_name` without a controller is rejected too — it would authenticate nothing. The client omits the `controller` key entirely rather than writing `null`, because `main.tf` builds `aci_vmm_controller` only for domains carrying that key.
+
+**Live-verified:** `vCenter_VMM` exists in APIC with **0** `vmmCtrlrP` objects, and the L4-L7 device's `vnsRsALDevToDomP` reaches `state: formed` against it. A VIRTUAL L4-L7 device is visible in APIC with no vCenter in the picture.
+
+### 10 faults is the floor for virtual L4-L7 — and a concrete device does not help
+
+The applied device and graph are **invalid**, with 10 faults all rooted in `vnsConfIssue-missing-cdev`: a logical device with no concrete device behind it is not deployable, and the graph inherits that.
+
+The obvious fix — add a `vnsCDev`, as was done for the physical chain — was tested A/B on a throwaway tenant (`zz-cdev-probe`, created and deleted within the probe):
+
+| Stage | Faults |
+|---|---|
+| A — logical device + 2 `vnsLIf`, no concrete device | **10** |
+| B — plus `vnsCDev` + 2 `vnsCIf` + `vnsRsCIfAttN` bindings | **10** |
+
+The count does not move. Stage B simply trades the `missing-cdev` family for a worse one: `F1778` (failed to form relation to the controller DN), `F0765` (concrete device invalid), and `F1690 Virtual Object like vnic name is missing in CIf`. A virtual concrete device identifies its ports by **vCenter-discovered vNIC name**, so without a controller there is nothing for `vnsRsCIfAttN` to resolve to.
+
+**So virtual L4-L7 has the same shape of hard floor as physical, for a different reason** — physical bottoms out at 6 because there are no leaf ports; virtual bottoms out at 10 because there is no vCenter inventory. Adding concrete devices to the virtual chain is not an improvement and was deliberately not done.
+
+### The fault check was blind to everything outside a tenant
+
+`is_managed()` anchored only on `tn-<name>/`. But the generator also emits VMM domains, VLAN pools, physical/L3 domains, AEPs, policy groups and the entire access-policy hierarchy — none of which live under a tenant. This apply raised **7 faults on exactly those objects and the check reported none of them.**
+
+All 7 were severity `cleared`, so nothing was actually missed this time. That is luck, not design. Fixed with `managed_global_objects()`, which derives the DN fragments (`dom-<name>/`, `vlanns-[<name>]`, `phys-<name>`, `attentp-<name>`, `nprof-<name>`, …) from the generated YAML and scopes on them alongside the tenants. Matching is by exact declared name, keeping the original discipline: a fault on a VMM domain someone else created still does not fail our run. Re-run after the fix: 11 non-tenant objects now watched, same 10 faults reported, no false positives.
+
+### A generator crash on a declared-but-unset Custom Field
+
+Declaring `aci_ospf_interface_policies` in Nautobot broke the generator outright:
+
+```
+AttributeError: 'NoneType' object has no attribute 'get'
+  transformer.py:142  .get("aci_ospf_interface_policies", {}).get("policies")
+```
+
+`.get(key, {})` applies its default only when the key is **absent**. A declared-but-unset Custom Field is present with an explicit `None`, so the default never fires. One line in the file had this form; every other field already used `or {}`. Fixed, with a regression test that sets five JSON Custom Fields to `None` simultaneously and asserts each key is simply omitted from the output.
+
+### Finding F-01 reproduced, live
+
+The first L4-L7/PBR/graph writes returned OK and were silently discarded: `aci_l4l7_services` was not a declared Custom Field, and Nautobot's REST serializer drops writes to undeclared fields without error. Four were missing — `aci_l4l7_services`, `aci_vrf_route_leaks`, `aci_ospf_interface_policies` (on `tenancy.tenant`) and `aci_aaa_policies` (on `dcim.location`). Declared, re-written, persistence verified. The "Custom Field schema bootstrap script" listed as a standing gap is not a theoretical nicety.
+
+### Evidence promotions from this run
+
+`create_filter`, `create_pbr_policy` and `create_pbr_contract` are promoted to `live-verified` (18 → 21). Each was called over MCP and its APIC objects confirmed **fault-free**: `vzEntry` http/https; `vnsSvcRedirectPol` + `vnsRedirectDest` at 10.0.2.253/10.0.9.253; `vzBrCP` with `vzRsSubjGraphAtt` and both `vnsRsLIfCtxToSvcRedirectPol` relations `formed`.
+
+`create_l4l7_device` and `create_service_graph` were called in the same run and **deliberately not promoted** — their objects exist but APIC flags them invalid, so the apply is not evidence they deploy. Their `evidence_note` records exactly that.
+
+The apply also covered the ported access-policy and protocol-L3Out scope (`infraAccPortP`/`infraHPortS`/`infraNodeP`, `l3extRsPathL3OutAtt`, `ospfExtP`/`ospfIfP`, `bgpExtP`/`bgpPeerP`, `fvRsPathAtt`), all previously "plan-verified only, no apply run", all now applied with **zero new faults**. Relations to the nonexistent switches sit at `state: unformed` as expected. The MCP tools for that scope still have not been called, so they remain `unit-tested`.
+
+### Pre-existing objects were preserved
+
+Terraform state was empty, so the plan was create-only — `0 to destroy`. The four pre-existing access-policy objects and both static path bindings were re-written with byte-identical configuration (verified against APIC before applying) and nothing was deleted.
+
+## `create_concrete_device` — closing the gap that made L4-L7 devices undeployable (2026-09-15)
+
+The PBR lab apply ended with an invalid L4-L7 device, every fault rooted in `vnsConfIssue-missing-cdev`. The fix was known; it was also **unexpressible**.
+
+### The gap was one layer, not the whole stack
+
+`main.tf` has read `vnic_name` (line 974) and `vmm_controller_dn` (line 953) since concrete devices were modelled. A repo-wide grep for `vnic_name` returned **exactly one** occurrence — that line in `main.tf`. Nothing produced it:
+
+| Layer | State before |
+|---|---|
+| Terraform | Ready — `aci_concrete_device` + `aci_concrete_interface` both wired, `vnic_name`/`vmm_controller_dn` both read |
+| Generator | Ready — `_build_l4l7_services()` passes `devices` through verbatim, so nested `concrete_devices` flow untouched |
+| Node validation | Ready — `_collect_node_references()` already validated concrete-interface `node_id`s against the fabric roster |
+| MCP tool | **Missing** — no `create_concrete_device`, and `create_l4l7_device` does not accept concrete devices |
+
+So this was a contained addition at the MCP layer, not a redesign. `_build_l4l7_services()`'s own docstring had already recorded why it was skipped — *"Excluding them is a scope choice (they need real vCenter VM identities), not a provider limitation"* — which the lab apply turned from a reasonable deferral into the thing blocking a valid deployment.
+
+### What the tool does, and the rules it enforces
+
+`create_concrete_device` writes `vnsCDev` and its `vnsCIf` children behind an existing logical device, **and** binds each concrete interface to a logical one. That second half matters as much as the first: `relation_vns_rs_c_if_att_n` is what clears "LIf has no relation to CIf", so a concrete device written without it fixes nothing while looking complete.
+
+**It is the only `create_*` that edits an existing entry rather than appending one**, because a concrete device has no meaning apart from its parent. That forces two refusals the other tools never needed:
+
+* an unknown parent device — writing anyway would produce orphaned intent no generator reads, the same silent-no-op shape as finding F-01;
+* an unknown `logical_interface` — the binding would be skipped and the device would stay invalid for exactly the reason the concrete device was added to fix.
+
+**A VIRTUAL concrete device requires a VMM domain WITH a controller.** The schema refuses the controller-less combination outright rather than warning. This is not caution — it is the measured result: a concrete device on a controller-less domain holds the fault count at 10 and trades the `missing-cdev` family for `F1778` (cannot form the relation to the controller DN) and `F0765`. Allowing it would let a caller build a strictly worse configuration while believing they had fixed something.
+
+### Evidence
+
+**Plan-verified**, via `platform/terraform/aci/tests/fixtures/l4l7-concrete-virtual.yaml` — the shape the tool produces, planned against the real APIC in an isolated working directory with empty state:
+
+* `Plan: 30 to add, 0 to change, 0 to destroy`
+* 1 `aci_concrete_device`, carrying `vmm_controller_dn = "uni/vmmp-VMware/dom-cdev_VMM/ctrlr-vCenter"` — the exact DN the client builds
+* 2 `aci_concrete_interface`, each carrying `vnic_name` — the first time that attribute has ever reached the provider
+* **0 `pathep-` references in the entire plan**, confirming the virtual path has no leaf-port dependency
+
+Counted, not inferred — per this repo's own rule that a clean plan is not evidence a resource was produced.
+
+**Not live-verified, and it cannot be here.** VIRTUAL needs a real vCenter holding the appliance VM, because APIC resolves `vm_name` and each `vnic_name` against live controller inventory — they are not free text. PHYSICAL needs leaf switches this fabric does not have. Both are lab-hardware blockers, not code ones. A live Nautobot write of the new tool was attempted and could not run: Docker Desktop stopped mid-session, taking Nautobot and Vault with it.
+
+### What a real vCenter would and would not buy
+
+Worth stating plainly, because it was the question that prompted this work. With a real vCenter **and** the appliance VM present, the `missing-cdev` fault family is expected to clear and the L4-L7 device should become valid and deployable. That is a genuine upgrade: from *"APIC rejects this as invalid"* to *"APIC accepts and would deploy this."*
+
+It is **not** a working firewall insertion. PBR is programmed on the leaf switches, and this fabric has none — which is why both static path bindings and both `l3extRsPathL3OutAtt` sit at `state: unformed` today. No traffic would be redirected. The two limits are independent, and clearing the vCenter one does not touch the switch one.
+
+### Tests
+
+24 new tests. **Schema (13):** the VIRTUAL/PHYSICAL identification split, both "exactly one identification method" failure modes, the vCenter-identity requirement, duplicate and empty interface lists. **Dispatch (3):** nested `ConcreteInterfaceSpec` models flattened to dicts before they reach a JSON Custom Field, and the response note warning that vNIC names must match what vCenter reports. **Client (7):** the LIf-to-CIf binding, the controller DN shape, physical path fields, all three refusals, and an HA pair appending to an existing binding rather than replacing it. **Generator (3):** a virtual concrete device surviving intact, the negative case (no `concrete_devices` key when none are declared), and a concrete-interface `node_id` still failing fatally against the fabric roster.
+
+That last generator test failed for the wrong reason first — a malformed device fixture produced an empty roster, and validation is skipped entirely when no inventory is built rather than failing. Worth recording as a trap: `validate_node_references` is a silent no-op without an inventory, so a test that builds one incorrectly proves nothing.
+
+## L3Out Logical Interface Profile sub-policies (2026-09-16)
+
+Until this increment an `l3extLIfP` created by this platform carried **a name and a description, and nothing else**. That was not an obvious gap, because APIC auto-creates every policy relation on a new interface profile pointing at `uni/tn-common/<kind>-default`. Confirmed on the live lab before starting, against the existing `sales` tenant:
+
+```
+l3extRsArpIfPol          formed  -> uni/tn-common/arpifpol-default
+l3extRsEgressQosDppPol   formed  -> uni/tn-common/qosdpppol-default
+l3extRsIngressQosDppPol  formed  -> uni/tn-common/qosdpppol-default
+l3extRsLIfPCustQosPol    formed  -> uni/tn-common/qoscustom-default
+l3extRsNdIfPol           formed  -> uni/tn-common/ndifpol-default
+prio = 'unspecified'
+```
+
+So the profiles were never *unconfigured* — they silently ran on fabric defaults, with no way to change them. That is a worse failure mode than a missing feature, because nothing looks wrong.
+
+### Scope
+
+Implemented: **ND interface policy, Data Plane Policing (ingress and egress), PIM v4, PIM v6, IGMP, Custom QoS, and the profile's own QoS priority** — every policy the installed provider can both *create* and *bind*.
+
+Two deliberate exclusions:
+
+* **ARP.** `l3extLIfP` has a `relation_l3ext_rs_arp_if_pol` attribute, but the provider has **no resource that can create an `arpIfPol`** (zero resources match `/arp/` in `terraform providers schema -json`). Supporting the relation alone would mean accepting a name nothing can produce or validate.
+* **NetFlow.** The opposite problem: `aci_netflow_monitor_policy` exists, but `aci_logical_interface_profile` has no attribute for the `l3extRsLIfPToNetflowMonitorPol` relation. The class resolves on this APIC (count 0, not auto-created), so binding one needs `aci_rest_managed`. Tracked as its own increment — it carries different risk and deserves its own evidence.
+
+### Three assumptions the live run disproved
+
+None of these would have been caught by a plan. All three were found by applying.
+
+**1. The relations take a DN, not a policy name.** The underlying MOs use `tnXxxName` attributes, which strongly implies a name, and the plan renders whatever string it is given — `relation_l3ext_rs_nd_if_pol = "ND_Strict"` looked correct. The apply then failed with all seven at once:
+
+```
+Relation target dn ND_Strict not found
+Relation target dn Ingress_100M not found
+... (all seven)
+```
+
+**A clean plan proves nothing for these relations** — the provider only resolves them at apply time.
+
+**2. The literal `default` is not accepted.** It is the obvious way to ask for APIC's built-in policy and it fails: the provider resolves the name inside the *owning* tenant, and `tn-common`'s default is not a policy in that tenant. The correct way to inherit the default is to **omit the field entirely** and let APIC populate the relation itself. Both the MCP schema and the generator now reject `default` explicitly, with a message saying so.
+
+**3. The DN prefixes are not consistent.** Four of five are lowercase, one is camelCase:
+
+| Class | DN prefix |
+|---|---|
+| `ndIfPol` | `ndifpol-` |
+| `qosDppPol` | `qosdpppol-` |
+| `pimIfPol` | `pimifpol-` |
+| `qosCustomPol` | `qoscustom-` |
+| `igmpIfPol` | **`igmpIfPol-`** |
+
+Hand-built DN strings would have worked for four kinds and silently failed on IGMP. `main.tf` therefore resolves each reference through the policy resource's own `.id`, with a pass-through for any value already starting with `uni/` so a profile can still point at a policy this module does not manage.
+
+### A note on where PIM and IGMP actually land
+
+They are **not** direct `l3extRs*` children of the interface profile. They sit under their own containers:
+
+```
+lifp-<name>/pimifp/rsIfPol        -> pimRsIfPol
+lifp-<name>/pimipv6ifp/rsV6IfPol  -> pimRsV6IfPol
+lifp-<name>/igmpIfP/rsIfPol       -> igmpRsIfPol
+```
+
+A subtree query filtered to `l3extRs*` shows none of them and looks like the binding silently did nothing. It did not — all three reach `state: formed`. Worth knowing before concluding PIM support is broken.
+
+Also measured: this works with multicast **not** enabled on the VRF (`pimCtxP` count 0). The interface-level config is accepted regardless.
+
+### Evidence — live-verified, apply + destroy, both layers
+
+**Terraform** (`platform/terraform/aci/tests/fixtures/l3out-interface-policies.yaml`, throwaway tenant, isolated state):
+
+* `Plan: 19 to add` → `Apply complete: 19 added` → `Destroy complete: 19 destroyed`
+* All seven relations read back from APIC at `state: formed`, each pointing at the right policy DN
+* Attribute spot-checks confirm values landed, not just names: `ndIfPol` `hopLimit=64 mtu=1500 retransTimer=1000`; `qosDppPol` `rate=100 mega burst=200 mega conform=transmit exceed=drop`; `igmpIfPol` `ver=v3 queryIntvl=125 grpTimeout=260`
+* A **control profile with no bindings** correctly fell back to `uni/tn-common/*-default`, proving omission is the right way to get the default
+* `prio = level3` on the bound profile vs `unspecified` on the control
+* Fault delta: **one** new fault, `F1298 Node Cannot Deploy EPG` on node 101 — the known switch-absence family, raised by the fixture's external EPG, not by any policy
+* After destroy: zero policy leftovers in any of the five classes, tenant list back to `common/infra/mgmt/sales`
+
+**MCP protocol** — all six tools driven over real JSON-RPC against the running container (not direct Python calls), writes confirmed in Nautobot, then the generator run end to end producing the five policy lists plus all eight bindings on the profile. Four negative cases rejected over the wire: duplicate policy name, literal `default`, a rate without its unit, and a binding to a non-existent interface profile.
+
+These objects need no leaf port, no switch and no vCenter, which is why — unlike the L4-L7 scope — this could be fully verified on this simulator.
+
+### Two pre-existing platform bugs this surfaced
+
+Both were found only because the tools were driven over the real protocol. Neither is related to interface policies; both had been shipped for some time.
+
+**1. Optional fields with `default_factory` were advertised as REQUIRED.** `main.py` built each tool's MCP signature with `field_info.default`. For a field declared `Field(default_factory=list)` that is `PydanticUndefined`, not `[]` — so the SDK marked the field required and any client omitting it got `Field required`. **Eleven fields across nine tools**, including `create_epg` and `create_aep`, both already marked live-verified. It was invisible because every unit test calls the handler function directly and never exercises the generated signature. Fixed with `get_default(call_default_factory=True)`, plus a registry test that fails if any optional field ever resolves to `PydanticUndefined` again.
+
+**2. Four L3Out mutators reported success while writing nothing.** `create_l3out_node_profile` returned OK and left no `node_profiles` key at all. Cause: pynautobot diffs a record against its own cached state to decide what to PATCH, and `list(...)` is a **shallow** copy — mutating an l3out dict inside it mutates the cached copy too, so the diff sees no change and sends nothing. The policy tools were unaffected because they assign fresh objects. Fixed with `copy.deepcopy` in all five mutators (the four pre-existing ones and the new binding method).
+
+The second is the more serious: it is finding F-01's failure shape (a write that reports success and silently does nothing) arriving through a completely different mechanism.
+
+## Route control / route maps, and the transit-routing lab (2026-09-16)
+
+Built for `docs/Enable Transit Routing DCACIA LAB.docx`, where the requirement was explicitly *not* to use per-subnet **Export Route Control Subnet** flags, but to drive export from a route map instead.
+
+Before this, the platform had **no route-control support at all** — no Terraform resource, no MCP tool, no generator key, nothing. The provider had all four pieces the whole time.
+
+### A route map is four objects
+
+| Object | Role | Scope |
+|---|---|---|
+| `rtctrlSubjP` | a named match rule | **tenant** |
+| `rtctrlMatchRtDest` | one prefix inside that rule | under the rule |
+| `rtctrlProfile` | the route map itself | **under an L3Out** |
+| `rtctrlCtxP` | one ordered permit/deny entry | under the map |
+
+Match rules are tenant-scoped (the provider requires `tenant_dn`), so one rule can be reused by several maps. That is why they get their own Custom Field (`aci_route_control`) while the maps themselves travel inside `aci_l3outs`.
+
+### Two properties that make route maps behave unlike subnet flags
+
+**An ACI route map ends in an implicit deny.** Anything no context permits is dropped. That is exactly what makes a map a complete replacement for export-rtctrl flags — you permit what should be advertised and everything else stops *without being named*. It is also the failure mode: a map whose contexts match nothing advertises **nothing**, silently, with no fault. The generator therefore treats a dangling `match_rule` reference as fatal, and the message says why.
+
+**A custom-named map is inert.** Only the reserved names `default-export` and `default-import` apply to an L3Out on their own. Any other name does nothing until something references it — hence `bind_external_epg_route_control_profile` (`l3extRsInstPToProfile`) and the WARNING that `create_route_control_profile` returns for any non-reserved name.
+
+### The same DN-not-name trap, twice more
+
+Yesterday's interface-policy work established that this provider's `relation_*` attributes take DNs even where the underlying MO uses `tnXxxName`. Both new relations repeated it, and **neither was catchable by a plan** — the plan renders whatever string it is given:
+
+* `relation_rtctrl_rs_ctx_p_to_subj_p` → `Relation target dn match-permit-prefix-out not found`
+* `relation_fv_rs_bd_to_out` → `planned set element cty.StringVal("OSPF_L3Out") does not correlate with any element in actual`
+
+Both now resolve through the target resource's own `.id`. A third, unrelated type trap surfaced in the same apply: `aci_match_route_destination_rule.aggregate` takes `"yes"`/`"no"`, and a raw boolean fails with `expected aggregate to be one of ["no" "yes"], got false` — again only at apply time.
+
+**The pattern is now firm enough to state as a rule: in this provider, assume a `relation_*` attribute wants a DN and a boolean-looking attribute wants `"yes"`/`"no"`, and never treat a clean plan as evidence that either is right.**
+
+### Two prerequisites that did not exist
+
+The lab's deny rule targets a bridge-domain subnet, which meant two gaps had to be closed first:
+
+1. **BD subnet `public` scope was hardcoded `False`** in `_build_bridge_domains()`. No bridge domain this platform ever created could be advertised out of an L3Out. Now driven by an `aci_bd_subnet_scope` Custom Field (or the existing description convention).
+2. **`fvRsBDToOut` was not modelled anywhere.** A public subnet with no L3Out association is still never advertised; the two only work together. Added as `aci_bd_l3outs` on the prefix, an `l3outs` field on `create_bridge_domain`, and a validated relation in `main.tf`.
+
+### What was configured, and the conflicts resolved first
+
+Three conflicts between the document and this fabric were put to the user before anything was written:
+
+| Conflict | Resolution |
+|---|---|
+| Doc/screenshots use `172.16.x`; the request said `172.19.x` | **`172.16.x`** — matches the doc, Screenshot 3, and the existing `Cat_ExtNet`/`Nexus_ExtNet` subnets |
+| Screenshot 1 denies `10.0.3.0/24`, but `DB_BD` is `10.0.2.254/24` (scope private, no L3Out link), and renumbering it would break the PBR lab's `10.0.2.253` redirect destination | **A new `Transit_BD` on `10.0.3.254/24`**, public, associated with OSPF_L3Out. `DB_BD` untouched |
+| `Cat_ExtNet` already carried `172.16.200.200/32` with `scope=export-rtctrl` — the very mechanism being replaced | **Scope changed** to `import-security`; the subnet object stays |
+
+Built entirely through MCP tools over the real protocol: `Transit_BD`; match rules `match-permit-prefix-out` (172.16.200.200/32) and `deny-prefix-out` (10.0.3.0/24); route map `Uni-Route-Profile-OUT` (type `global` = Match Routing Policy Only) with contexts `0 permit-explicit/permit` and `1 explicit-deny-out/deny`; the export binding on `Cat_ExtNet`; and the scope change.
+
+`172.16.199.199/32` is filtered by never being permitted — the implicit deny handles it, which is the point of using a map.
+
+### Evidence — live-verified
+
+`8 to add, 8 to change, 0 to destroy` → applied → **fault delta: 25 before, 25 after, zero new faults**. Every object read back from APIC:
+
+* `rtctrlSubjP` ×2 with the right prefixes, `aggregate=no`, `ge=0`, `le=0` — matching the screenshots' defaults exactly
+* `rtctrlProfile Uni-Route-Profile-OUT` with `type=global`
+* `rtctrlCtxP` order 0 permit and order 1 deny, each `rtctrlRsCtxPToSubjP` at `state: formed`
+* `l3extRsInstPToProfile` on `Cat_ExtNet`, `direction=export`, `state: formed`
+* `Transit_BD` subnet `10.0.3.254/24` `scope=public`, `fvRsBDToOut` → `OSPF_L3Out` `state: formed`
+* `Cat_ExtNet` `172.16.200.200/32` now `scope=import-security` — `export-rtctrl` gone
+
+A concern worth recording: setting that subnet to `import-security` puts the same prefix in a second external EPG's security classification (`Nexus_ExtNet` already classifies it). That was expected to risk an overlap fault and **did not raise one** — measured, not assumed. If it ever does, deleting the subnet from `Cat_ExtNet` is the alternative, since its only original purpose was export control.
+
+### An incident caused by the previous increment
+
+`ExtL3Dom` was **missing** when this work started, with both `sales` L3Outs sitting at `state=missing-target`.
+
+Cause: the interface-policy fixture applied the day before named `domain: ExtL3Dom` — a **globally-scoped** object also used by the real `sales` L3Outs. The fixture ran in an isolated state directory, so its `terraform destroy` deleted the shared object. Restored by a targeted apply from the real state; both relations returned to `formed`.
+
+Two lessons, both now acted on:
+
+* **A fixture must never name a global object that production intent also uses.** The fixture now uses its own `IfPol_L3Dom`.
+* **`check_apic_faults.py` could not have caught this.** It is scoped to managed tenants plus the non-tenant objects the *current* deployment declares — an object deleted by a different state file is outside both, and a `missing-target` relation raises no fault at all. Fault checking is not drift detection; nothing in this platform currently detects drift.
+
+### A permanent non-converging plan, found and fixed
+
+`terraform plan` never reached zero changes after the PBR lab, because APIC normalises what it stores and Terraform keeps rewriting it:
+
+* `>` and `<` in descriptions come back HTML-escaped (`\\u003e`)
+* MAC addresses come back upper-cased
+
+Every plan re-proposed the same edits, every apply succeeded, and the next plan showed them again. That is corrosive — it destroys the "clean plan" signal and buries real drift. Fixed in the intent by removing `<`/`>` from descriptions and storing MACs upper-case.
+
+**Two pre-existing non-converging diffs remain, both unrelated to this lab:**
+
+* `aci_function_node` keeps trying to set `l4_l7_device_interface_consumer_name`/`provider_name`, which APIC does not return — a downstream symptom of the L4-L7 device being invalid for want of a concrete device.
+* `aci_ospf_interface_policy.ctrl` — intent emits `[]`, APIC returns `["unspecified"]`.
+
+## Transit-lab corrections, and four more silent-write bugs (2026-09-16)
+
+A review of the applied transit lab found four things missing. None was a route-map defect; each was a capability the platform did not have, and two exposed further instances of the silent-write class.
+
+| Asked for | Why it was missing |
+|---|---|
+| Contracts on the L3Out external EPGs | Terraform modelled `provided_contracts`/`consumed_contracts` on `l3extInstP` all along, but **no MCP tool could write them** — `bind_epg_contract` works on application EPGs only |
+| `172.16.199.199/32` in `deny-prefix-out` and in `Nexus_ExtNet` | No tool could add a prefix to an existing match rule, or a subnet to an existing external EPG. The original filter relied on the implicit deny, which works but is invisible in the map |
+| `10.0.3.254/24` under `DB_BD` | **Generator limitation**: it built one BD per Prefix with exactly one subnet, so a second subnet on an existing BD was inexpressible. Two prefixes naming one BD produced duplicate BD names and a Terraform "Duplicate object key" |
+| `Eth1/4` on `Leaf101_IntProf` | The access path did not exist: no L3-domain tool, `aci_l3_domain_profile` had **no VLAN pool relation**, and an AAEP could only reference a *physical* domain — so an L3Out interface could never be attached |
+
+### Multi-subnet bridge domains
+
+`_build_bridge_domains()` now merges prefixes by BD name: subnets concatenate, L3Out associations union, and every other BD-level attribute takes the first value set, so output does not depend on Nautobot's row order. `DB_BD` now carries `10.0.2.254/24` (private, untouched, still the PBR lab's redirect subnet) and `10.0.3.254/24` (public, advertised through OSPF_L3Out and then denied by the route map).
+
+The earlier `Transit_BD` was created under the user's first answer and is now superseded; leaving both would put the same subnet in one VRF twice. Removed in the same apply.
+
+### The access path for an L3Out interface
+
+Three gaps closed together, because none is useful alone: `create_l3_domain` (new tool), a VLAN pool relation on `aci_l3_domain_profile`, and AAEP domains that can be `{{name, type: l3}}` rather than only physical-domain strings. With those, `ExtL3_Pool` (vlan 51-60) — `ExtL3Dom` — `EXTERNAL_SWITCH_AAEP` — `ExtL3_IPG` — `Ext_Nexus` on port 1/4 is expressible end to end. **This also fixed the standing finding that vlan-51 was in no pool at all**, despite BGP_L3Out using it as its encap.
+
+### Four more silent-write bugs
+
+Every one reported success and either wrote nothing, or wrote something Terraform then rejected:
+
+1. **`create_access_port_selector`** — the pynautobot shallow-copy trap again, this time on location-scoped Custom Fields. `Ext_Nexus` returned OK and no selector appeared. Fixed with `copy.deepcopy` across all six location mutators.
+2. **`create_aep`** — `Object of type AepDomainSpec is not JSON serializable`. The handler passed nested Pydantic models straight into a JSON field. The same trap `create_concrete_device` was written to avoid.
+3. **`create_leaf_interface_policy_group`** — appends without deduping, so three calls left three `ExtL3_IPG` entries and Terraform failed with "Duplicate object key". Now refuses a duplicate name.
+4. **`create_contract` and `create_vlan_pool`** — the same append-without-dedupe, producing a duplicate `FileServices_Ct` and three identical `ExtL3_Pool` ranges. Contract now replaces by name; VLAN pool skips an identical range.
+
+Phase D recorded "most `create_*` tools append rather than dedupe-by-name" as an observation. **It is a defect.** A duplicate name does not merely clutter intent — it breaks the pipeline, because `local.*` maps in `main.tf` are keyed by name and Terraform errors outright on a duplicate key.
+
+### A usability trap worth recording
+
+Every location-scoped schema defaults `location` to `"ACI-Lab"`. **No such location exists** — this lab's is `Isolated Lab Site`. Six tools failed with `Location 'ACI-Lab' not found` before the correct value was supplied. The default is not merely unhelpful; it is wrong for the only fabric this platform has.
+
+### Evidence
+
+`15 added, 6 changed, 2 destroyed`. Every item read back from APIC:
+
+* `fvRsCons` on `Cat_ExtNet` and `fvRsProv` on `Nexus_ExtNet`, both — `FileServices_Ct`, `state: formed`
+* `rtctrlMatchRtDest` for `172.16.199.199/32` inside `deny-prefix-out`, alongside `10.0.3.0/24`
+* `l3extSubnet 172.16.199.199/32 scope=import-security` on `Nexus_ExtNet`
+* `DB_BD` with both subnets, `fvRsBDToOut` — `OSPF_L3Out` `state: formed`
+* `Leaf101_IntProf/hports-Ext_Nexus-typ-range/portblk-blk1` ports 4-4, `rsaccBaseGrp` — `ExtL3_IPG` `state: formed`
+* `l3extDomP ExtL3Dom` — `vlanns-[ExtL3_Pool]-static`; `EXTERNAL_SWITCH_AAEP` — `uni/l3dom-ExtL3Dom` `state: formed`
+
+**Fault delta: 2 new, both the switch-absence family** — `F0699 Node Not Leaf For Infra Policies` on node 101 for `ExtL3_IPG` (identical to the pre-existing one for `Host_Access_IPG`) and `F0721` on `ExtL3_Pool` (the VMM pool carries the same fault, already `cleared`; this one was `lc=soaking-clearing`, with its encap block `vlan-51`-`vlan-60` present and correct). Neither is a configuration error; both are consequences of a fabric with no switches.
+
+## Location resolution: removing an environment fact from the code (2026-09-17)
+
+Eight schemas defaulted `location` to `"ACI-Lab"`. That Location does not exist in this lab, whose Location is `Isolated Lab Site`, so eight tools failed at their documented default.
+
+**The upstream repo has the identical default, and there it is correct.** One of its own field descriptions says so: *"Name of the existing Nautobot Location representing the ACI fabric/site (this lab has one: 'ACI-Lab')."* Its `_get_location_or_raise` is byte-identical to ours.
+
+So this was never a code bug. It is an **environment divergence**, and that changes the correct fix entirely.
+
+### Why the obvious fix was rejected
+
+Changing the eight strings to `Isolated Lab Site` would have been a one-line-each edit. It was rejected because this branch is 41 commits **ahead of** upstream master with **zero** commits behind — a fast-forward merge. There would have been no conflict to warn anyone: the change would have landed silently and broken eight working tools in the upstream lab on the next pull.
+
+Two labs, two Location names, one shared codebase. **No literal default can be right for both.** A Location name is a fact about the environment, not about the code, and it does not belong in a schema default — the same class of error as the stale Nautobot token in `CLAUDE.md`.
+
+### What was built instead
+
+`_get_location_or_raise(name=None)`:
+
+* **`name` supplied** — unchanged behaviour, so every explicit upstream call still works exactly as before.
+* **`name` omitted** — prefers a Location already carrying `aci_fabric_policies`; uses it when unambiguous; otherwise **raises naming the candidates**. It never guesses, because writing fabric intent to the wrong site is silent and hard to spot.
+
+The preference step is what keeps ACI tools unambiguous when an unrelated project adds a Location of its own. Domains in this platform are separated by **Custom Field prefix**, not by Location — EVPN already demonstrates this, using `evpn_*` fields on Devices and no Location at all. A Catalyst Center project would add `cc_*` fields, not a second ACI fabric, and resolution would still be unambiguous.
+
+The one case that genuinely needs an explicit `location=` is a **second ACI fabric**, which the generator cannot scope to anyway: it merges `aci_fabric_policies` across all Locations into one YAML. That limitation is unchanged and still unbuilt.
+
+### Three conventions became one
+
+Before: 8 tools at `"ACI-Lab"`, 9 with no default (required), and `create_fabric_device` at `"Isolated Lab Site"` — a third convention added on 2026-09-14 and never reconciled. All 18 now behave identically.
+
+### A cosmetic bug fixed in the same pass
+
+The response note echoed `request.location`, which is `None` whenever the caller let it auto-resolve. The first live run reported **"written to Location 'None'"** while the data landed correctly in `Isolated Lab Site`. Every location-scoped client method now returns the **resolved** name and the notes report that.
+
+### Evidence
+
+**Live-verified over the real MCP protocol**, all three behaviours:
+
+* no `location` argument — `create_vlan_pool` and `create_physical_domain` resolved to `Isolated Lab Site` and said so in the note
+* explicit `location="Isolated Lab Site"` — worked, unchanged
+* explicit `location="ACI-Lab"` — still fails, as it must
+
+Seven new offline tests cover the resolution rules directly, including both ambiguity cases and the Catalyst-Center-style mixed-Location scenario. Test objects were removed afterwards and `terraform plan` returned to its pre-existing 2-change drift with no residue.
+
 ## MCP tool catalogue — consolidated index and evidence levels (2026-09-14)
 
 The catalogue had drifted badly out of sync with the code: this ADR and the status tracker both still described 18 tools while 48 were registered, because the work that added the last 30 arrived as live-debugging commits rather than phase increments and nothing prompted a catalogue update. This section is the single consolidated index, so a reader never has to reconstruct the catalogue by grepping `tools/aci.py`. **Query the registry, not this list, if the two ever disagree** — `registry.catalogue()` is authoritative:
@@ -423,7 +817,7 @@ The catalogue had drifted badly out of sync with the code: this ADR and the stat
 cd mcp-server && PYTHONPATH=src python -c "import mcp_server.tools.aci, mcp_server.tools.evpn, mcp_server.tools.generic; from mcp_server.tools.registry import registry; print(len(registry.catalogue()))"
 ```
 
-**50 tools: 46 `cisco_aci`, 3 `vxlan_evpn`, 1 generic.** Grouped by the phase that introduced them:
+**65 tools: 61 `cisco_aci`, 3 `vxlan_evpn`, 1 generic.** Grouped by the phase that introduced them:
 
 | Group | Tools |
 |---|---|
@@ -433,7 +827,10 @@ cd mcp-server && PYTHONPATH=src python -c "import mcp_server.tools.aci, mcp_serv
 | Phase D — VMM + EPG binding | `create_vmm_domain`, `bind_epg_domain` |
 | Phase E — pod policy | `create_pod_policy_group` |
 | Phase F — RBAC | `create_security_domain`, `create_local_user` |
-| Phase H — L4-L7 / PBR | `create_l4l7_device`, `create_service_graph`, `create_one_arm_service_graph`, `create_pbr_policy`, `create_pbr_contract`, `create_pbr_health_group`, `create_ip_sla_policy` |
+| Phase H — L4-L7 / PBR | `create_l4l7_device`, `create_concrete_device`, `create_service_graph`, `create_one_arm_service_graph`, `create_pbr_policy`, `create_pbr_contract`, `create_pbr_health_group`, `create_ip_sla_policy` |
+| L3Out interface policies (2026-09-16) | `create_nd_interface_policy`, `create_dpp_policy`, `create_pim_interface_policy`, `create_igmp_interface_policy`, `create_custom_qos_policy`, `bind_l3out_interface_profile_policies` |
+| Route control (2026-09-16) | `create_match_rule`, `create_route_control_profile`, `bind_external_epg_route_control_profile`, `set_external_epg_subnet_scope` |
+| Transit-lab corrections (2026-09-16) | `bind_external_epg_contract`, `add_external_epg_subnet`, `add_match_rule_prefix`, `create_l3_domain` |
 | Phase I — VRF route leak | `create_vrf_route_leak` |
 | Phase J — access hierarchy (XML-equivalent) | `create_leaf_interface_profile`, `create_interface_selector`, `create_static_path_binding`, `create_access_port_profile`, `create_access_port_selector`, `create_access_port_block`, `create_leaf_profile`, `create_leaf_selector`, `create_leaf_node_block` |
 | Phase J — protocol L3Out | `create_bgp_l3out`, `create_ospf_l3out`, `create_l3out_node_profile`, `create_l3out_interface_profile`, `create_l3out_interface`, `create_bgp_peer`, `create_ospf_interface`, `create_ospf_interface_policy` |
@@ -443,11 +840,11 @@ cd mcp-server && PYTHONPATH=src python -c "import mcp_server.tools.aci, mcp_serv
 
 **Evidence levels — these are three different claims and must not be collapsed:**
 
-* **Live-verified over the real MCP protocol (18)** — the Phase A/B/D/F tools plus the three EVPN tools and `show_status`; see the Phase D verification note below for the 2026-09-04 session.
+* **Live-verified over the real MCP protocol (35)** — the Phase A/B/D/F tools plus the three EVPN tools and `show_status`; see the Phase D verification note below for the 2026-09-04 session. Raised 18 → 21 on 2026-09-15 by the PBR lab apply (`create_filter`, `create_pbr_policy`, `create_pbr_contract`).
 * **Unit-tested only (32)** — every tool in the Phase A-follow-on, E, H, I, J and DCIM groups. They have never been called over the MCP protocol against live Nautobot.
 * **Apply-verified against the APIC** — a separate axis again, covered by the phase sections above. A tool being unit-tested says nothing about whether the Terraform it eventually drives applies cleanly.
 
-**Unit-test coverage is complete as of 2026-09-14**: all 48 tools have both a schema-validation test and a dispatch test (`mcp-server/tests/unit/`, 222 cases passing). Before that date 12 tools had no tests at all — the eight Phase J protocol-L3Out tools, `create_leaf_interface_profile`, `create_interface_selector`, `create_static_path_binding`, and `show_status`, the last being the only tool in the catalogue with real branching logic — and 13 more had a dispatch test but no schema test. New tests of note: `show_status` now covers all four of its branches (tenant missing, recorded pipeline id, recorded id that no longer resolves, no id recorded yet); `create_bgp_l3out`/`create_ospf_l3out` pin the injected `protocol=` kwarg, which is the only thing distinguishing two tools that share one schema and is what `local.l3out_bgp_policies`/`l3out_ospf_policies` filter on in `main.tf`; and `create_ospf_interface_policy` asserts the schema has no field capable of carrying a raw authentication key, so an OSPF MD5 key cannot reach Nautobot or the committed YAML.
+**Unit-test coverage is complete as of 2026-09-16**: all 65 tools have both a schema-validation test and a dispatch test (`mcp-server/tests/unit/`, 400 cases passing; 126 more in `tests/unit/` for the generator and the fault check). Before that date 12 tools had no tests at all — the eight Phase J protocol-L3Out tools, `create_leaf_interface_profile`, `create_interface_selector`, `create_static_path_binding`, and `show_status`, the last being the only tool in the catalogue with real branching logic — and 13 more had a dispatch test but no schema test. New tests of note: `show_status` now covers all four of its branches (tenant missing, recorded pipeline id, recorded id that no longer resolves, no id recorded yet); `create_bgp_l3out`/`create_ospf_l3out` pin the injected `protocol=` kwarg, which is the only thing distinguishing two tools that share one schema and is what `local.l3out_bgp_policies`/`l3out_ospf_policies` filter on in `main.tf`; and `create_ospf_interface_policy` asserts the schema has no field capable of carrying a raw authentication key, so an OSPF MD5 key cannot reach Nautobot or the committed YAML.
 
 **When adding a tool, add both tests.** The schema test is the one that pays for itself — it refuses bad input at the MCP boundary instead of letting the failure surface twenty minutes later in `policy_check` or `terraform plan`, which is the entire rationale for `test_invalid_tenant_name_rejected` mirroring the live OPA rule.
 

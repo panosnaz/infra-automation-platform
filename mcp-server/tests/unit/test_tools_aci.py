@@ -33,6 +33,21 @@ from mcp_server.schemas.aci import (
     CreateL3OutInterfaceProfileRequest,
     CreateL3OutInterfaceRequest,
     CreateL3OutNodeProfileRequest,
+    BindExternalEpgRouteControlProfileRequest,
+    BindL3OutInterfaceProfilePoliciesRequest,
+    AddExternalEpgSubnetRequest,
+    AddMatchRulePrefixRequest,
+    BindExternalEpgContractRequest,
+    CreateL3DomainRequest,
+    CreateMatchRuleRequest,
+    CreateRouteControlProfileRequest,
+    SetExternalEpgSubnetScopeRequest,
+    CreateConcreteDeviceRequest,
+    CreateCustomQosPolicyRequest,
+    CreateDppPolicyRequest,
+    CreateIgmpInterfacePolicyRequest,
+    CreateNdInterfacePolicyRequest,
+    CreatePimInterfacePolicyRequest,
     CreateL4L7DeviceRequest,
     CreateLeafInterfacePolicyGroupRequest,
     CreateLeafInterfaceProfileRequest,
@@ -80,6 +95,21 @@ from mcp_server.tools.aci import (
     create_l3out_interface,
     create_l3out_interface_profile,
     create_l3out_node_profile,
+    bind_external_epg_route_control_profile,
+    bind_l3out_interface_profile_policies,
+    add_external_epg_subnet,
+    add_match_rule_prefix,
+    bind_external_epg_contract,
+    create_l3_domain,
+    create_match_rule,
+    create_route_control_profile,
+    set_external_epg_subnet_scope,
+    create_concrete_device,
+    create_custom_qos_policy,
+    create_dpp_policy,
+    create_igmp_interface_policy,
+    create_nd_interface_policy,
+    create_pim_interface_policy,
     create_l4l7_device,
     create_leaf_interface_policy_group,
     create_leaf_interface_profile,
@@ -173,6 +203,69 @@ class _FakeNautobotClient:
     def create_local_user(self, **kwargs):
         self.calls.append(("create_local_user", kwargs))
         return {"location": kwargs["location"], "local_user": kwargs["name"], "local_users": []}
+
+    def bind_external_epg_contract(self, **kwargs):
+        self.calls.append(("bind_external_epg_contract", kwargs))
+        return dict(kwargs)
+
+    def add_external_epg_subnet(self, **kwargs):
+        self.calls.append(("add_external_epg_subnet", kwargs))
+        return dict(kwargs)
+
+    def add_match_rule_prefix(self, **kwargs):
+        self.calls.append(("add_match_rule_prefix", kwargs))
+        return dict(kwargs)
+
+    def create_l3_domain(self, **kwargs):
+        self.calls.append(("create_l3_domain", kwargs))
+        return dict(kwargs)
+
+    def create_match_rule(self, **kwargs):
+        self.calls.append(("create_match_rule", kwargs))
+        return {"tenant": kwargs["tenant"], "match_rule": kwargs["name"]}
+
+    def create_route_control_profile(self, **kwargs):
+        self.calls.append(("create_route_control_profile", kwargs))
+        return {"tenant": kwargs["tenant"], "route_control_profile": kwargs["name"]}
+
+    def bind_external_epg_route_control_profile(self, **kwargs):
+        self.calls.append(("bind_external_epg_route_control_profile", kwargs))
+        return dict(kwargs)
+
+    def set_external_epg_subnet_scope(self, **kwargs):
+        self.calls.append(("set_external_epg_subnet_scope", kwargs))
+        return {**kwargs, "previous_scope": ["export-rtctrl"]}
+
+    def create_nd_interface_policy(self, **kwargs):
+        self.calls.append(("create_nd_interface_policy", kwargs))
+        return {"tenant": kwargs["tenant"], "policy": kwargs["name"]}
+
+    def create_dpp_policy(self, **kwargs):
+        self.calls.append(("create_dpp_policy", kwargs))
+        return {"tenant": kwargs["tenant"], "policy": kwargs["name"]}
+
+    def create_pim_interface_policy(self, **kwargs):
+        self.calls.append(("create_pim_interface_policy", kwargs))
+        return {"tenant": kwargs["tenant"], "policy": kwargs["name"]}
+
+    def create_igmp_interface_policy(self, **kwargs):
+        self.calls.append(("create_igmp_interface_policy", kwargs))
+        return {"tenant": kwargs["tenant"], "policy": kwargs["name"]}
+
+    def create_custom_qos_policy(self, **kwargs):
+        self.calls.append(("create_custom_qos_policy", kwargs))
+        return {"tenant": kwargs["tenant"], "policy": kwargs["name"]}
+
+    def bind_l3out_interface_profile_policies(self, **kwargs):
+        self.calls.append(("bind_l3out_interface_profile_policies", kwargs))
+        bound = {k: v for k, v in kwargs.items()
+                 if k not in ("tenant", "l3out", "node_profile", "interface_profile") and v}
+        return {"tenant": kwargs["tenant"], "bound": bound, "profile": {}}
+
+    def create_concrete_device(self, **kwargs):
+        self.calls.append(("create_concrete_device", kwargs))
+        return {"tenant": kwargs["tenant"], "device": kwargs["device"],
+                "concrete_device": kwargs["name"], "concrete_devices": [], "logical_interfaces": []}
 
     def create_vmm_domain(self, **kwargs):
         self.calls.append(("create_vmm_domain", kwargs))
@@ -346,6 +439,7 @@ def test_create_bridge_domain_passes_gateway_ip_through():
                 "gateway_ip": "10.0.0.1/24",
                 "subnet_scope": "private",
                 "description": "",
+                "l3outs": [],
             },
         )
     ]
@@ -362,7 +456,7 @@ def test_create_vlan_pool_passes_range_through():
         (
             "create_vlan_pool",
             {
-                "location": "ACI-Lab",
+                "location": None,
                 "name": "pool1",
                 "alloc_mode": "static",
                 "range_from": 100,
@@ -384,7 +478,7 @@ def test_create_physical_domain_passes_vlan_pool_through():
     result = create_physical_domain(request, nautobot=fake)
 
     assert fake.calls == [
-        ("create_physical_domain", {"location": "ACI-Lab", "name": "phys-dom1", "vlan_pool": "pool1"})
+        ("create_physical_domain", {"location": None, "name": "phys-dom1", "vlan_pool": "pool1"})
     ]
     assert result["physical_domain"]["physical_domain"] == "phys-dom1"
 
@@ -396,7 +490,7 @@ def test_create_aep_passes_domains_through():
     result = create_aep(request, nautobot=fake)
 
     assert fake.calls == [
-        ("create_aep", {"location": "ACI-Lab", "name": "aep1", "domains": ["phys-dom1", "phys-dom2"]})
+        ("create_aep", {"location": None, "name": "aep1", "domains": ["phys-dom1", "phys-dom2"]})
     ]
     assert result["aep"]["aep"] == "aep1"
 
@@ -407,7 +501,7 @@ def test_create_aep_defaults_to_no_domains():
 
     create_aep(request, nautobot=fake)
 
-    assert fake.calls == [("create_aep", {"location": "ACI-Lab", "name": "aep1", "domains": []})]
+    assert fake.calls == [("create_aep", {"location": None, "name": "aep1", "domains": []})]
 
 
 def test_create_leaf_interface_policy_group_passes_aep_through():
@@ -417,7 +511,7 @@ def test_create_leaf_interface_policy_group_passes_aep_through():
     result = create_leaf_interface_policy_group(request, nautobot=fake)
 
     assert fake.calls == [
-        ("create_leaf_interface_policy_group", {"location": "ACI-Lab", "name": "leaf-pg1", "aep": "aep1"})
+        ("create_leaf_interface_policy_group", {"location": None, "name": "leaf-pg1", "aep": "aep1"})
     ]
     assert result["leaf_interface_policy_group"]["leaf_interface_policy_group"] == "leaf-pg1"
 
@@ -439,7 +533,7 @@ def test_create_vmm_domain_passes_fields_through():
         (
             "create_vmm_domain",
             {
-                "location": "ACI-Lab",
+                "location": None,
                 "name": "vmm1",
                 "controller_name": "vc1",
                 "host_or_ip": "vcenter.example.com",
@@ -492,7 +586,7 @@ def test_create_security_domain_passes_description_through():
     result = create_security_domain(request, nautobot=fake)
 
     assert fake.calls == [
-        ("create_security_domain", {"location": "ACI-Lab", "name": "phase-f-domain", "description": "test"})
+        ("create_security_domain", {"location": None, "name": "phase-f-domain", "description": "test"})
     ]
     assert result["security_domain"]["security_domain"] == "phase-f-domain"
 
@@ -507,7 +601,7 @@ def test_create_local_user_defaults_no_domain_binding():
         (
             "create_local_user",
             {
-                "location": "ACI-Lab",
+                "location": None,
                 "name": "phase-f-user",
                 "email": "",
                 "first_name": "",
@@ -532,7 +626,7 @@ def test_create_local_user_passes_security_domain_and_role_through():
         (
             "create_local_user",
             {
-                "location": "ACI-Lab",
+                "location": None,
                 "name": "phase-f-user",
                 "email": "",
                 "first_name": "",
@@ -933,7 +1027,7 @@ def test_create_fabric_device_passes_lab_defaults_through():
                 "serial": "",
                 "role": "leaf",
                 "pod_id": 1,
-                "location": "Isolated Lab Site",
+                "location": None,
                 "model": "Nexus 9000v",
                 "description": "",
             },
@@ -1371,3 +1465,296 @@ def test_create_ip_sla_policy_dispatch_passes_probe_settings():
     assert kwargs["port"] == 443
     assert kwargs["detect_multiplier"] == 3
     assert "tcp" in result["note"]
+
+
+def test_create_vmm_domain_without_a_controller_passes_none_through():
+    """A VMM domain with no controller is the only way to get an L4-L7
+    VIRTUAL device visible in APIC when there is no vCenter to talk to
+    (live-verified 2026-09-15 against the lab APIC: the domain forms, and
+    vnsRsALDevToDomP reaches state=formed). The tool must carry the absent
+    controller through as None rather than substituting a placeholder."""
+    fake = _FakeNautobotClient()
+    request = CreateVmmDomainRequest(name="vCenter_VMM", vlan_pool="vCenter_VMM_Pool")
+
+    create_vmm_domain(request, nautobot=fake)
+
+    _, kwargs = fake.calls[0]
+    assert kwargs["controller_name"] is None
+    assert kwargs["host_or_ip"] is None
+    assert kwargs["root_cont_name"] is None
+    assert kwargs["credential_name"] is None
+    assert kwargs["vlan_pool"] == "vCenter_VMM_Pool"
+
+
+def test_create_concrete_device_passes_interfaces_through_as_dicts():
+    """The handler must flatten the nested ConcreteInterfaceSpec models --
+    the client writes them straight into a JSON Custom Field, and a Pydantic
+    model is not JSON-serialisable."""
+    fake = _FakeNautobotClient()
+    request = CreateConcreteDeviceRequest(
+        tenant="ACI:acme", device="FW", name="ASAv_cdev",
+        vm_name="ASAv-1", vmm_domain="vCenter_VMM", vmm_controller="vCenter",
+        interfaces=[
+            {"name": "cif1", "logical_interface": "db_int", "vnic_name": "Network adapter 2"},
+            {"name": "cif2", "logical_interface": "backup_int", "vnic_name": "Network adapter 3"},
+        ],
+    )
+
+    result = create_concrete_device(request, nautobot=fake)
+
+    name, kwargs = fake.calls[0]
+    assert name == "create_concrete_device"
+    assert kwargs["device"] == "FW"
+    assert kwargs["vm_name"] == "ASAv-1"
+    assert all(isinstance(i, dict) for i in kwargs["interfaces"])
+    assert kwargs["interfaces"][0]["vnic_name"] == "Network adapter 2"
+    assert "cif1->db_int" in result["note"]
+
+
+def test_create_concrete_device_note_warns_about_vcenter_resolution():
+    """A VIRTUAL concrete device silently stays invalid if the VM or vNIC
+    names do not match vCenter, so the tool says so rather than reporting
+    plain success."""
+    fake = _FakeNautobotClient()
+    request = CreateConcreteDeviceRequest(
+        tenant="ACI:acme", device="FW", name="ASAv_cdev",
+        vm_name="ASAv-1", vmm_domain="vCenter_VMM", vmm_controller="vCenter",
+        interfaces=[{"name": "cif1", "logical_interface": "db_int", "vnic_name": "Network adapter 2"}],
+    )
+
+    note = create_concrete_device(request, nautobot=fake)["note"]
+
+    assert "ASAv-1" in note and "vCenter" in note
+    assert "must match what vCenter reports" in note
+
+
+def test_create_physical_concrete_device_note_warns_about_unformed_paths():
+    fake = _FakeNautobotClient()
+    request = CreateConcreteDeviceRequest(
+        tenant="ACI:acme", device="FW", name="fw1", device_type="PHYSICAL",
+        interfaces=[{"name": "eth1", "logical_interface": "consumer", "node_id": 101, "port": 30}],
+    )
+
+    note = create_concrete_device(request, nautobot=fake)["note"]
+
+    assert "unformed" in note
+
+
+def test_create_nd_interface_policy_splits_identity_from_attributes():
+    """tenant/name are positional identity for the client; everything else is
+    a policy attribute passed through as kwargs."""
+    fake = _FakeNautobotClient()
+    request = CreateNdInterfacePolicyRequest(tenant="ACI:acme", name="ND_Pol", hop_limit=64, mtu=1500)
+
+    create_nd_interface_policy(request, nautobot=fake)
+
+    name, kwargs = fake.calls[0]
+    assert name == "create_nd_interface_policy"
+    assert kwargs["tenant"] == "ACI:acme" and kwargs["name"] == "ND_Pol"
+    assert kwargs["hop_limit"] == 64 and kwargs["mtu"] == 1500
+
+
+def test_create_dpp_policy_passes_units_alongside_values():
+    fake = _FakeNautobotClient()
+    request = CreateDppPolicyRequest(tenant="ACI:acme", name="In", rate=100, rate_unit="mega")
+
+    create_dpp_policy(request, nautobot=fake)
+
+    _, kwargs = fake.calls[0]
+    assert kwargs["rate"] == 100 and kwargs["rate_unit"] == "mega"
+
+
+def test_create_pim_interface_policy_never_forwards_an_auth_key():
+    fake = _FakeNautobotClient()
+    request = CreatePimInterfacePolicyRequest(tenant="ACI:acme", name="PIM", auth_type="ah-md5")
+
+    create_pim_interface_policy(request, nautobot=fake)
+
+    _, kwargs = fake.calls[0]
+    assert kwargs["auth_type"] == "ah-md5"
+    assert not [k for k in kwargs if "key" in k.lower()]
+
+
+def test_create_igmp_interface_policy_passes_fields_through():
+    fake = _FakeNautobotClient()
+    request = CreateIgmpInterfacePolicyRequest(tenant="ACI:acme", name="IGMP", version="v3")
+
+    create_igmp_interface_policy(request, nautobot=fake)
+
+    _, kwargs = fake.calls[0]
+    assert kwargs["version"] == "v3"
+
+
+def test_create_custom_qos_policy_passes_maps_through():
+    fake = _FakeNautobotClient()
+    request = CreateCustomQosPolicyRequest(
+        tenant="ACI:acme", name="CQos",
+        dscp_to_priority_maps=[{"from": "EF", "to": "EF", "priority": "level1"}],
+    )
+
+    create_custom_qos_policy(request, nautobot=fake)
+
+    _, kwargs = fake.calls[0]
+    assert kwargs["dscp_to_priority_maps"][0]["priority"] == "level1"
+
+
+def test_bind_policies_reports_what_it_bound_and_warns_about_validation():
+    fake = _FakeNautobotClient()
+    request = BindL3OutInterfaceProfilePoliciesRequest(
+        tenant="ACI:acme", l3out="Edge", node_profile="NP", interface_profile="IP",
+        nd_interface_policy="ND_Pol", qos_priority="level3",
+    )
+
+    result = bind_l3out_interface_profile_policies(request, nautobot=fake)
+
+    _, kwargs = fake.calls[0]
+    assert kwargs["interface_profile"] == "IP"
+    assert kwargs["nd_interface_policy"] == "ND_Pol"
+    assert "nd_interface_policy=ND_Pol" in result["note"]
+    assert "apply time" in result["note"], "the note must say the provider only catches this late"
+
+
+def test_create_match_rule_flattens_prefix_models():
+    """Prefixes go straight into a JSON Custom Field, so the nested Pydantic
+    models must be dicts by the time they reach the client."""
+    fake = _FakeNautobotClient()
+    request = CreateMatchRuleRequest(
+        tenant="ACI:acme", name="match-permit-prefix-out",
+        prefixes=[{"ip": "172.16.200.200/32"}],
+    )
+
+    result = create_match_rule(request, nautobot=fake)
+
+    _, kwargs = fake.calls[0]
+    assert all(isinstance(p, dict) for p in kwargs["prefixes"])
+    assert kwargs["prefixes"][0]["ip"] == "172.16.200.200/32"
+    assert "172.16.200.200/32" in result["note"]
+
+
+def test_create_route_control_profile_warns_a_custom_name_is_inert():
+    """A custom-named map does nothing until bound. Saying so in the response
+    is the difference between a working lab and a silent no-op."""
+    fake = _FakeNautobotClient()
+    request = CreateRouteControlProfileRequest(
+        tenant="ACI:acme", l3out="OSPF_L3Out", name="Uni-Route-Profile-OUT",
+        contexts=[{"name": "permit-explicit", "order": 0, "action": "permit",
+                   "match_rule": "m1"}],
+    )
+
+    note = create_route_control_profile(request, nautobot=fake)["note"]
+
+    assert "does nothing until it is referenced" in note
+    assert "0:permit-explicit(permit)" in note
+    assert "implicit deny" in note
+
+
+def test_create_route_control_profile_does_not_warn_for_default_export():
+    """default-export applies to the L3Out on its own, so the warning would be
+    wrong there."""
+    fake = _FakeNautobotClient()
+    request = CreateRouteControlProfileRequest(
+        tenant="ACI:acme", l3out="OSPF_L3Out", name="default-export",
+        contexts=[{"name": "permit-explicit", "order": 0, "action": "permit"}],
+    )
+
+    note = create_route_control_profile(request, nautobot=fake)["note"]
+
+    assert "does nothing until it is referenced" not in note
+
+
+def test_route_map_contexts_are_reported_in_evaluation_order():
+    """The note sorts by order, not by the order they were supplied in."""
+    fake = _FakeNautobotClient()
+    request = CreateRouteControlProfileRequest(
+        tenant="ACI:acme", l3out="OSPF_L3Out", name="rm",
+        contexts=[{"name": "deny-b", "order": 1, "action": "deny"},
+                  {"name": "permit-a", "order": 0, "action": "permit"}],
+    )
+
+    note = create_route_control_profile(request, nautobot=fake)["note"]
+
+    assert note.index("0:permit-a") < note.index("1:deny-b")
+
+
+def test_bind_route_map_passes_direction_through():
+    fake = _FakeNautobotClient()
+    request = BindExternalEpgRouteControlProfileRequest(
+        tenant="ACI:acme", l3out="OSPF_L3Out", external_epg="Cat_ExtNet",
+        route_control_profile="Uni-Route-Profile-OUT", direction="export",
+    )
+
+    bind_external_epg_route_control_profile(request, nautobot=fake)
+
+    _, kwargs = fake.calls[0]
+    assert kwargs["direction"] == "export"
+    assert kwargs["route_control_profile"] == "Uni-Route-Profile-OUT"
+
+
+def test_subnet_scope_change_reports_both_sides():
+    """Which flags were removed matters as much as which were set -- dropping
+    export-rtctrl is the whole point of the operation."""
+    fake = _FakeNautobotClient()
+    request = SetExternalEpgSubnetScopeRequest(
+        tenant="ACI:acme", l3out="OSPF_L3Out", external_epg="Cat_ExtNet",
+        ip="172.16.200.200/32", scope=["import-security"],
+    )
+
+    note = set_external_epg_subnet_scope(request, nautobot=fake)["note"]
+
+    assert "export-rtctrl" in note and "import-security" in note
+
+
+def test_bind_external_epg_contract_reports_both_directions():
+    fake = _FakeNautobotClient()
+    request = BindExternalEpgContractRequest(
+        tenant="t", l3out="o", external_epg="Cat_ExtNet", consumed_contracts=["FileServices_Ct"]
+    )
+
+    note = bind_external_epg_contract(request, nautobot=fake)["note"]
+
+    assert "consumes FileServices_Ct" in note
+
+
+def test_add_match_rule_prefix_splits_identity_from_the_prefix():
+    fake = _FakeNautobotClient()
+    request = AddMatchRulePrefixRequest(
+        tenant="t", match_rule="deny-prefix-out", ip="172.16.199.199/32"
+    )
+
+    add_match_rule_prefix(request, nautobot=fake)
+
+    _, kwargs = fake.calls[0]
+    assert kwargs["match_rule"] == "deny-prefix-out"
+    assert kwargs["ip"] == "172.16.199.199/32"
+    assert "tenant" in kwargs
+
+
+def test_add_external_epg_subnet_reports_the_scope():
+    fake = _FakeNautobotClient()
+    request = AddExternalEpgSubnetRequest(
+        tenant="t", l3out="o", external_epg="Nexus_ExtNet", ip="172.16.199.199/32"
+    )
+
+    note = add_external_epg_subnet(request, nautobot=fake)["note"]
+
+    assert "import-security" in note
+
+
+def test_create_l3_domain_warns_when_no_vlan_pool_is_bound():
+    """An L3Out encap outside every pool is invalid on real hardware even
+    though this simulator accepts it."""
+    fake = _FakeNautobotClient()
+
+    note = create_l3_domain(CreateL3DomainRequest(name="ExtL3Dom"), nautobot=fake)["note"]
+
+    assert "no VLAN pool bound" in note
+
+
+def test_create_l3_domain_does_not_warn_when_a_pool_is_bound():
+    fake = _FakeNautobotClient()
+
+    note = create_l3_domain(
+        CreateL3DomainRequest(name="ExtL3Dom", vlan_pool="ExtL3_Pool"), nautobot=fake
+    )["note"]
+
+    assert "WARNING" not in note

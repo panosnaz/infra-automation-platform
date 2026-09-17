@@ -137,18 +137,42 @@ def test_an_invalid_evidence_level_is_rejected_at_registration():
 
 
 def test_live_verified_tools_match_the_documented_count():
-    """Platform-Status-and-Pending-Items.md states 18 live-verified and 32
-    unit-tested only. If a tool is promoted or added without updating that
-    document, this fails -- which is the documentation drift that let the
-    catalogue sit at "18 tools" while 48 were registered."""
+    """Platform-Status-and-Pending-Items.md states 51 tools: 21 live-verified
+    and 30 unit-tested only. If a tool is promoted or added without updating
+    that document, this fails -- which is the documentation drift that let the
+    catalogue sit at "18 tools" while 48 were registered.
+
+    Raised 18 -> 21 on 2026-09-15 by the PBR lab apply, which exercised
+    create_filter, create_pbr_policy and create_pbr_contract end to end
+    (MCP -> Nautobot -> generator -> terraform apply -> APIC object
+    confirmed fault-free). create_l4l7_device and create_service_graph were
+    deliberately NOT promoted in the same run: their objects exist in APIC
+    but APIC flags them invalid, so the apply is not evidence they deploy.
+
+    Catalogue 50 -> 51 the same day: create_concrete_device, which closes the
+    gap that made those two undeployable. It stays unit-tested -- its VIRTUAL
+    path needs a real vCenter and its PHYSICAL path needs leaf switches.
+
+    51 -> 57 and 21 -> 27 on 2026-09-16: the six L3Out Logical Interface
+    Profile policy tools (ND, DPP, PIM, IGMP, Custom QoS, and the binding
+    tool). These are live-verified rather than unit-tested because the
+    objects need no leaf port, switch or vCenter -- a real apply + destroy
+    against the lab APIC was possible and was run, with every MO read back.
+
+    57 -> 60 and 27 -> 30 the same day: the three route-control tools
+    (create_match_rule, create_route_control_profile,
+    set_external_epg_subnet_scope,
+    bind_external_epg_route_control_profile), built for the transit-routing
+    lab and verified the same way.
+    """
     import mcp_server.tools.aci  # noqa: F401
     import mcp_server.tools.evpn  # noqa: F401
     import mcp_server.tools.generic  # noqa: F401
     from mcp_server.tools.registry import registry
 
-    assert len(registry.by_evidence("live-verified")) == 18
-    assert len(registry.by_evidence("unit-tested")) == 32
-    assert len(registry.catalogue()) == 50
+    assert len(registry.by_evidence("live-verified")) == 35
+    assert len(registry.by_evidence("unit-tested")) == 30
+    assert len(registry.catalogue()) == 65
 
 
 def test_live_verified_tools_carry_a_note_saying_how():
@@ -160,3 +184,42 @@ def test_live_verified_tools_carry_a_note_saying_how():
 
     for spec in registry.by_evidence("live-verified"):
         assert spec.evidence_note, f"{spec.name} claims live-verified with no note"
+
+
+def test_optional_fields_with_a_default_factory_are_not_advertised_as_required():
+    """A field declared `Field(default_factory=list)` has `.default` set to
+    PydanticUndefined, not to []. Passing that into inspect.Parameter made
+    the MCP SDK advertise the field as REQUIRED, so a client omitting it got
+    "Field required" and could not call the tool at all.
+
+    Eleven fields across nine tools were affected -- including create_epg and
+    create_aep, both already marked live-verified, because every unit test
+    calls the handler function directly and never exercises the signature
+    main.py generates. Found 2026-09-16 over the real MCP protocol.
+
+    Deliberately does NOT import mcp_server.main: that module needs the `mcp`
+    SDK, which is only installed in the container, and this suite must stay
+    runnable offline. The rule it guards lives in main.py's
+    _register_with_mcp, which resolves the default with
+    get_default(call_default_factory=True).
+    """
+    from pydantic_core import PydanticUndefined
+
+    import mcp_server.tools.aci  # noqa: F401
+    import mcp_server.tools.evpn  # noqa: F401
+    import mcp_server.tools.generic  # noqa: F401
+    from mcp_server.tools.registry import registry
+
+    offenders = []
+    for spec in registry.catalogue():
+        for field_name, field_info in spec.schema.model_fields.items():
+            if field_info.is_required():
+                continue
+            resolved = field_info.get_default(call_default_factory=True)
+            if resolved is PydanticUndefined:
+                offenders.append(f"{spec.name}.{field_name}")
+
+    assert not offenders, (
+        "these optional fields resolve to PydanticUndefined and would be "
+        f"advertised as required over MCP: {offenders}"
+    )
