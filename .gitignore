@@ -48,3 +48,18 @@ docker/certificates/**/*.crt
 docker/certificates/**/*.pem
 docker/certificates/**/*.key
 platform/terraform/aci/schema.json
+
+# Session artifacts and build output (2026-09-17).
+# The team already had to strip these once -- commit 97cfbfb, "drop session
+# artifacts ... before this branch is considered mergeable". docs/ has only
+# ever tracked README.md upstream; generated audit PDFs/HTML, lab source
+# material and Word lock files are deliverables, not source.
+docs/*.pdf
+docs/*.html
+docs/*.docx
+docs/*.xlsx
+docs/*.png
+docs/~$*
+# Saved Terraform plans are build output and can embed variable values.
+tfplan
+*.tfplan
