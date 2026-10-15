@@ -1226,11 +1226,15 @@ def test_create_static_path_binding_passes_every_path_component():
                 "application_profile": "eCommerce_AP",
                 "epg": "Web_EPG",
                 "node_id": 101,
+                "encap": "vlan-11",
+                "path_type": "port",
+                "node_id2": None,
                 "module": 1,
                 "port": 10,
-                "encap": "vlan-11",
+                "policy_group": None,
                 "pod_id": 1,
                 "mode": "regular",
+                "location": None,
             },
         )
     ]
@@ -1758,3 +1762,505 @@ def test_create_l3_domain_does_not_warn_when_a_pool_is_bound():
     )["note"]
 
     assert "WARNING" not in note
+
+
+# ---------------------------------------------------------------------------
+# Read / update / delete tools (2026-10-12), plus create_contract and
+# create_l3out, which had no dispatch test until this change.
+# ---------------------------------------------------------------------------
+
+from mcp_server.schemas.aci import CreateContractRequest, CreateL3OutRequest  # noqa: E402
+from mcp_server.schemas.aci_lifecycle import (  # noqa: E402
+    DeleteFabricObjectRequest,
+    DeleteTenantObjectRequest,
+    DeleteTenantRequest,
+    GetFabricIntentRequest,
+    GetTenantIntentRequest,
+    ListAciTenantsRequest,
+    UnbindEpgContractRequest,
+    UnbindEpgDomainRequest,
+    UpdateBridgeDomainRequest,
+    UpdateEpgRequest,
+    UpdateVrfRequest,
+)
+from mcp_server.tools.aci import create_contract, create_l3out  # noqa: E402
+from mcp_server.tools.aci_lifecycle import (  # noqa: E402
+    delete_fabric_object,
+    delete_tenant,
+    delete_tenant_object,
+    get_fabric_intent,
+    get_tenant_intent,
+    list_aci_tenants,
+    unbind_epg_contract,
+    unbind_epg_domain,
+    update_bridge_domain,
+    update_epg,
+    update_vrf,
+)
+
+
+class _Recorder:
+    """Records any client method called on it and echoes the kwargs back."""
+
+    def __init__(self, returns=None):
+        self.calls: list[tuple[str, dict]] = []
+        self._returns = returns or {}
+
+    def __getattr__(self, name):
+        def _method(*args, **kwargs):
+            self.calls.append((name, kwargs if not args else {"args": args, **kwargs}))
+            return self._returns.get(name, dict(kwargs))
+        return _method
+
+
+def test_create_contract_passes_every_field_through():
+    fake = _Recorder()
+    result = create_contract(CreateContractRequest(tenant="ACI:acme", name="web-ct", filter_name="web-flt"),
+                             nautobot=fake)
+    assert fake.calls == [("create_contract", {
+        "tenant": "ACI:acme", "name": "web-ct", "filter_name": "web-flt", "scope": "context",
+        "ether_type": "ip", "ip_protocol": "unspecified", "description": "",
+    })]
+    assert "web-ct" in result["note"]
+
+
+def test_create_l3out_passes_every_field_through():
+    fake = _Recorder()
+    create_l3out(CreateL3OutRequest(tenant="ACI:acme", vrf="prod", name="wan", external_epg_name="any"),
+                 nautobot=fake)
+    assert fake.calls[0][0] == "create_l3out"
+    assert fake.calls[0][1]["external_epg_name"] == "any"
+    assert fake.calls[0][1]["subnet"] == "0.0.0.0/0"
+
+
+def test_list_aci_tenants_returns_a_count():
+    fake = _Recorder(returns={"list_aci_tenants": [{"name": "ACI:a"}, {"name": "ACI:b"}]})
+    result = list_aci_tenants(ListAciTenantsRequest(), nautobot=fake)
+    assert result["count"] == 2
+    assert fake.calls == [("list_aci_tenants", {})]
+
+
+def test_get_tenant_intent_dispatches_the_tenant():
+    fake = _Recorder()
+    get_tenant_intent(GetTenantIntentRequest(tenant="ACI:sales"), nautobot=fake)
+    assert fake.calls == [("get_tenant_intent", {"args": ("ACI:sales",)})]
+
+
+def test_get_fabric_intent_passes_an_unset_location_through_for_auto_resolution():
+    fake = _Recorder()
+    get_fabric_intent(GetFabricIntentRequest(), nautobot=fake)
+    assert fake.calls == [("get_fabric_intent", {"args": (None,)})]
+
+
+def test_update_vrf_passes_only_what_the_request_holds():
+    fake = _Recorder()
+    result = update_vrf(UpdateVrfRequest(tenant="t", name="prod", policy_control_enforcement_mode="unenforced"),
+                        nautobot=fake)
+    assert fake.calls == [("update_vrf", {
+        "tenant": "t", "name": "prod", "description": None, "ip_data_plane_learning": None,
+        "policy_control_enforcement_direction": None, "policy_control_enforcement_mode": "unenforced",
+        "preferred_group": None, "bgp_timers_policy": None, "ospf_timers_policy": None, "route_tag_policy": None,
+    })]
+    assert "does NOT fire the tenant webhook" in result["deploy"]
+
+
+def test_update_vrf_passes_the_preferred_group():
+    """2026-10-15, closes NS-01: the VRF's vzAny preferred-group switch."""
+    fake = _Recorder()
+    update_vrf(UpdateVrfRequest(tenant="t", name="prod", preferred_group=True), nautobot=fake)
+    assert fake.calls[0][1]["preferred_group"] is True
+
+
+def test_update_bridge_domain_passes_attributes_as_keywords():
+    fake = _Recorder()
+    update_bridge_domain(UpdateBridgeDomainRequest(tenant="t", name="bd", arp_flooding=True, subnet_scope="public"),
+                         nautobot=fake)
+    name, kwargs = fake.calls[0]
+    assert name == "update_bridge_domain"
+    assert kwargs["arp_flooding"] is True
+    assert kwargs["subnet_scope"] == "public"
+    assert kwargs["mac"] is None  # unset stays unset, the client skips it
+
+
+def test_update_bridge_domain_warns_about_a_public_subnet_with_no_l3out():
+    fake = _Recorder()
+    result = update_bridge_domain(UpdateBridgeDomainRequest(tenant="t", name="bd", subnet_scope="public", l3outs=[]),
+                                  nautobot=fake)
+    assert "never advertised" in result["deploy"]
+
+
+def test_update_epg_dispatch():
+    fake = _Recorder()
+    update_epg(UpdateEpgRequest(tenant="t", application_profile="ap", name="web", bridge_domain="bd2"), nautobot=fake)
+    assert fake.calls == [("update_epg", {
+        "tenant": "t", "application_profile": "ap", "name": "web",
+        "bridge_domain": "bd2", "description": None, "preferred_group_member": None,
+    })]
+
+
+def test_delete_tenant_object_dispatch():
+    fake = _Recorder()
+    delete_tenant_object(DeleteTenantObjectRequest(tenant="t", kind="route_control_profile", name="m", l3out="wan"),
+                         nautobot=fake)
+    assert fake.calls == [("delete_tenant_object", {
+        "tenant": "t", "kind": "route_control_profile", "name": "m", "application_profile": None, "l3out": "wan",
+    })]
+
+
+def test_delete_fabric_object_dispatch():
+    fake = _Recorder()
+    delete_fabric_object(DeleteFabricObjectRequest(kind="vlan_pool", name="pool1"), nautobot=fake)
+    assert fake.calls == [("delete_fabric_object", {"kind": "vlan_pool", "name": "pool1", "location": None})]
+
+
+def test_unbind_epg_contract_dispatch():
+    fake = _Recorder()
+    unbind_epg_contract(UnbindEpgContractRequest(tenant="t", application_profile="ap", epg="web", contract="c",
+                                                 relation="consumed"), nautobot=fake)
+    assert fake.calls[0] == ("unbind_epg_contract", {
+        "tenant": "t", "application_profile": "ap", "epg": "web", "contract": "c", "relation": "consumed"})
+
+
+def test_unbind_epg_domain_dispatch():
+    fake = _Recorder()
+    unbind_epg_domain(UnbindEpgDomainRequest(tenant="t", application_profile="ap", epg="web", domain="vmm1",
+                                             domain_type="vmm"), nautobot=fake)
+    assert fake.calls[0] == ("unbind_epg_domain", {
+        "tenant": "t", "application_profile": "ap", "epg": "web", "domain": "vmm1", "domain_type": "vmm"})
+
+
+def test_delete_tenant_dispatches_only_the_name_not_the_confirmation():
+    fake = _Recorder()
+    delete_tenant(DeleteTenantRequest(name="ACI:old", confirm="ACI:old"), nautobot=fake)
+    assert fake.calls == [("delete_tenant", {"args": ("ACI:old",)})]
+
+
+
+# ---------------------------------------------------------------------------
+# Port-channel / vPC / node management tools (2026-10-12).
+# ---------------------------------------------------------------------------
+
+import pytest  # noqa: E402
+
+from mcp_server.schemas.aci_access import (  # noqa: E402
+    CreateInbandMgmtEpgRequest,
+    CreateLacpPolicyRequest,
+    CreateNodeMgmtAddressRequest,
+    CreatePcVpcPolicyGroupRequest,
+    CreateVpcDomainRequest,
+    DeleteNodeMgmtAddressRequest,
+    UnbindEpgStaticPathRequest,
+    UpdateInbandMgmtEpgRequest,
+    UpdateLacpPolicyRequest,
+    UpdateNodeMgmtAddressRequest,
+    UpdatePcVpcPolicyGroupRequest,
+    UpdateVpcDomainRequest,
+)
+from mcp_server.tools.aci_access import (  # noqa: E402
+    create_inband_mgmt_epg,
+    create_lacp_policy,
+    create_node_mgmt_address,
+    create_pc_vpc_policy_group,
+    create_vpc_domain,
+    delete_node_mgmt_address,
+    unbind_epg_static_path,
+    update_inband_mgmt_epg,
+    update_lacp_policy,
+    update_node_mgmt_address,
+    update_pc_vpc_policy_group,
+    update_vpc_domain,
+)
+
+
+@pytest.mark.parametrize("tool,request_obj,method,expected_args", [
+    (create_lacp_policy, CreateLacpPolicyRequest(name="L", mode="passive", max_links=4),
+     "create_lacp_policy", (None, "L", "passive", None, 4, None)),
+    (create_vpc_domain, CreateVpcDomainRequest(name="v", domain_id=10, node1=101, node2=102),
+     "create_vpc_domain", (None, "v", 10, 101, 102)),
+    (update_vpc_domain, UpdateVpcDomainRequest(name="v", domain_id=20),
+     "update_vpc_domain", (None, "v", 20, None, None)),
+    (create_pc_vpc_policy_group, CreatePcVpcPolicyGroupRequest(name="G", bundle_type="vpc", aep="A", lacp_policy="L"),
+     "create_pc_vpc_policy_group", (None, "G", "vpc", "A", "L", "")),
+    (update_pc_vpc_policy_group, UpdatePcVpcPolicyGroupRequest(name="G", aep="A2"),
+     "update_pc_vpc_policy_group", (None, "G", "A2", None, None)),
+    (create_inband_mgmt_epg, CreateInbandMgmtEpgRequest(name="inb", encap_vlan=99),
+     "create_inband_mgmt_epg", (None, "inb", 99, "inb")),
+    (update_inband_mgmt_epg, UpdateInbandMgmtEpgRequest(name="inb", encap_vlan=100),
+     "update_inband_mgmt_epg", (None, "inb", 100, None)),
+    (create_node_mgmt_address, CreateNodeMgmtAddressRequest(node="101", type="out_of_band",
+                                                            address="10.48.0.101/24", gateway="10.48.0.1"),
+     "create_node_mgmt_address", ("101", "out_of_band", "10.48.0.101/24", "10.48.0.1", None, None)),
+    (update_node_mgmt_address, UpdateNodeMgmtAddressRequest(node="101", type="out_of_band", gateway="10.48.0.254"),
+     "update_node_mgmt_address", ("101", "out_of_band", None, "10.48.0.254", None, None)),
+    (delete_node_mgmt_address, DeleteNodeMgmtAddressRequest(node="leaf101", type="out_of_band"),
+     "delete_node_mgmt_address", ("leaf101", "out_of_band")),
+])
+def test_access_tool_dispatch(tool, request_obj, method, expected_args):
+    fake = _Recorder()
+    tool(request_obj, nautobot=fake)
+    assert fake.calls == [(method, {"args": expected_args})]
+
+
+def test_update_lacp_policy_dispatch():
+    fake = _Recorder()
+    update_lacp_policy(UpdateLacpPolicyRequest(name="L", mode="active"), nautobot=fake)
+    assert fake.calls == [("update_lacp_policy", {"args": (None, "L"), "mode": "active", "min_links": None,
+                                                  "max_links": None, "controls": None})]
+
+
+def test_unbind_epg_static_path_dispatches_the_path_identity():
+    fake = _Recorder()
+    unbind_epg_static_path(UnbindEpgStaticPathRequest(tenant="t", application_profile="ap", epg="e", node_id=101,
+                                                      path_type="port_channel", policy_group="PC1"), nautobot=fake)
+    assert fake.calls == [("unbind_epg_static_path", {"args": ("t", "ap", "e", {
+        "path_type": "port_channel", "pod_id": 1, "node_id": 101, "policy_group": "PC1"})})]
+
+
+
+# ---------------------------------------------------------------------------
+# Fabric-wide policy tools (2026-10-13).
+# ---------------------------------------------------------------------------
+
+from mcp_server.schemas.aci_fabric import (  # noqa: E402
+    CreateDnsDomainRequest,
+    CreateDnsServerRequest,
+    CreateNtpServerRequest,
+    CreateSnmpCommunityRequest,
+    DeleteDnsDomainRequest,
+    DeleteDnsServerRequest,
+    DeleteNtpServerRequest,
+    DeleteSnmpCommunityRequest,
+    ResetFabricPolicyRequest,
+    SetCoopPolicyRequest,
+    SetFaultLifecyclePolicyRequest,
+    SetIsisPolicyRequest,
+    SetNtpPolicyRequest,
+    SetSnmpPolicyRequest,
+    SetSyslogMessagePolicyRequest,
+    SetSyslogRateLimitRequest,
+    UpdateDnsDomainRequest,
+    UpdateDnsServerRequest,
+    UpdateNtpServerRequest,
+)
+from mcp_server.tools.aci_fabric import (  # noqa: E402
+    create_dns_domain,
+    create_dns_server,
+    create_ntp_server,
+    create_snmp_community,
+    delete_dns_domain,
+    delete_dns_server,
+    delete_ntp_server,
+    delete_snmp_community,
+    reset_fabric_policy,
+    set_coop_policy,
+    set_fault_lifecycle_policy,
+    set_isis_policy,
+    set_ntp_policy,
+    set_snmp_policy,
+    set_syslog_message_policy,
+    set_syslog_rate_limit,
+    update_dns_domain,
+    update_dns_server,
+    update_ntp_server,
+)
+
+
+@pytest.mark.parametrize("tool,request_obj,method,expected_args", [
+    (set_ntp_policy, SetNtpPolicyRequest(admin_state="enabled"), "set_ntp_policy", (None, "enabled")),
+    (create_ntp_server, CreateNtpServerRequest(address="10.0.0.1", preferred=True), "create_ntp_server", (None, "10.0.0.1", True, 4, 6)),
+    (update_ntp_server, UpdateNtpServerRequest(address="10.0.0.1", max_poll=8), "update_ntp_server", (None, "10.0.0.1", None, None, 8)),
+    (delete_ntp_server, DeleteNtpServerRequest(address="10.0.0.1"), "delete_ntp_server", (None, "10.0.0.1")),
+    (create_dns_server, CreateDnsServerRequest(address="10.0.0.53"), "create_dns_server", (None, "10.0.0.53", False)),
+    (update_dns_server, UpdateDnsServerRequest(address="10.0.0.53", preferred=True), "update_dns_server", (None, "10.0.0.53", True)),
+    (delete_dns_server, DeleteDnsServerRequest(address="10.0.0.53"), "delete_dns_server", (None, "10.0.0.53")),
+    (create_dns_domain, CreateDnsDomainRequest(name="corp.example.com", is_default=True), "create_dns_domain", (None, "corp.example.com", True)),
+    (update_dns_domain, UpdateDnsDomainRequest(name="corp.example.com", is_default=False), "update_dns_domain", (None, "corp.example.com", False)),
+    (delete_dns_domain, DeleteDnsDomainRequest(name="corp.example.com"), "delete_dns_domain", (None, "corp.example.com")),
+    (set_snmp_policy, SetSnmpPolicyRequest(contact="noc"), "set_snmp_policy", (None, None, "noc", None)),
+    (create_snmp_community, CreateSnmpCommunityRequest(ref="ro"), "create_snmp_community", (None, "ro")),
+    (delete_snmp_community, DeleteSnmpCommunityRequest(ref="ro"), "delete_snmp_community", (None, "ro")),
+    (set_coop_policy, SetCoopPolicyRequest(type="strict"), "set_coop_policy", (None, "strict")),
+    (set_isis_policy, SetIsisPolicyRequest(mtu=1492), "set_isis_policy", (None, 1492, None)),
+    (set_fault_lifecycle_policy, SetFaultLifecyclePolicyRequest(retain=7200), "set_fault_lifecycle_policy", (None, None, 7200, None)),
+    (set_syslog_message_policy, SetSyslogMessagePolicyRequest(admin_state="monitor"), "set_syslog_message_policy", (None, "monitor")),
+    (set_syslog_rate_limit, SetSyslogRateLimitRequest(enabled=False), "set_syslog_rate_limit", (None, False, None)),
+    (reset_fabric_policy, ResetFabricPolicyRequest(policy="ntp"), "reset_fabric_policy", (None, "ntp")),
+])
+def test_fabric_tool_dispatch(tool, request_obj, method, expected_args):
+    fake = _Recorder()
+    tool(request_obj, nautobot=fake)
+    assert fake.calls == [(method, {"args": expected_args})]
+
+
+# --- BGP route reflector policy / pod assignment (2026-10-14) -----------------
+
+from mcp_server.schemas.aci_fabric import (  # noqa: E402
+    AssignPodPolicyGroupRequest,
+    CreateBgpRouteReflectorNodeRequest,
+    DeleteBgpRouteReflectorNodeRequest,
+    SetBgpRouteReflectorPolicyRequest,
+)
+from mcp_server.tools.aci_fabric import (  # noqa: E402
+    assign_pod_policy_group,
+    create_bgp_route_reflector_node,
+    delete_bgp_route_reflector_node,
+    set_bgp_route_reflector_policy,
+)
+
+
+@pytest.mark.parametrize("tool,request_obj,method,expected_args", [
+    (set_bgp_route_reflector_policy, SetBgpRouteReflectorPolicyRequest(asn=65099), "set_bgp_route_reflector_policy", (None, 65099)),
+    (create_bgp_route_reflector_node, CreateBgpRouteReflectorNodeRequest(node="spine1001", pod_id=1),
+     "create_bgp_route_reflector_node", (None, "spine1001", 1)),
+    (delete_bgp_route_reflector_node, DeleteBgpRouteReflectorNodeRequest(node_id=1001), "delete_bgp_route_reflector_node", (None, 1001)),
+    (assign_pod_policy_group, AssignPodPolicyGroupRequest(policy_group="pg1"), "assign_pod_policy_group", (None, "pg1")),
+])
+def test_route_reflector_tool_dispatch(tool, request_obj, method, expected_args):
+    fake = _Recorder()
+    tool(request_obj, nautobot=fake)
+    assert fake.calls == [(method, {"args": expected_args})]
+
+
+# --- ESG / vzAny (2026-10-15) ---------------------------------------------------
+
+from mcp_server.schemas.aci_security import (  # noqa: E402
+    CreateEsgEpgSelectorRequest,
+    CreateEsgIpSubnetSelectorRequest,
+    CreateEsgRequest,
+    CreateEsgTagSelectorRequest,
+    DeleteEsgSelectorRequest,
+    EsgContractRequest,
+    UpdateEsgRequest,
+    VzAnyContractRequest,
+)
+from mcp_server.tools.aci_security import (  # noqa: E402
+    bind_esg_contract,
+    bind_vzany_contract,
+    create_esg,
+    create_esg_epg_selector,
+    create_esg_ip_subnet_selector,
+    create_esg_tag_selector,
+    delete_esg_selector,
+    unbind_esg_contract,
+    unbind_vzany_contract,
+    update_esg,
+)
+
+
+@pytest.mark.parametrize("tool,request_obj,method,expected", [
+    (create_esg, CreateEsgRequest(tenant="t", application_profile="ap", name="g", vrf="v", shutdown=True),
+     "create_esg", {"args": ("t", "ap", "g", "v", None, None, None, True)}),
+    (update_esg, UpdateEsgRequest(tenant="t", name="g", intra_esg_isolation=True),
+     "update_esg", {"args": ("t", "g", None, None, True, None)}),
+    (create_esg_epg_selector, CreateEsgEpgSelectorRequest(tenant="t", esg="g", application_profile="ap", epg="e"),
+     "create_esg_epg_selector", {"args": ("t", "g", "ap", "e", None)}),
+    (create_esg_ip_subnet_selector, CreateEsgIpSubnetSelectorRequest(tenant="t", esg="g", subnet="10.1.1.0/24"),
+     "create_esg_ip_subnet_selector", {"args": ("t", "g", "10.1.1.0/24", None)}),
+    (create_esg_tag_selector, CreateEsgTagSelectorRequest(tenant="t", esg="g", key="app", value="web"),
+     "create_esg_tag_selector", {"args": ("t", "g", "app", "web", "equals", None)}),
+    (delete_esg_selector, DeleteEsgSelectorRequest(tenant="t", esg="g", selector_type="ip_subnet", subnet="10.1.1.0/24"),
+     "delete_esg_selector", {"args": ("t", "g", "ip_subnet"), "application_profile": None, "epg": None,
+                             "subnet": "10.1.1.0/24", "key": None, "value": None}),
+    (bind_esg_contract, EsgContractRequest(tenant="t", esg="g", contract="c", relation="provided"),
+     "bind_esg_contract", {"args": ("t", "g", "c", "provided")}),
+    (unbind_esg_contract, EsgContractRequest(tenant="t", esg="g", contract="c", relation="consumed"),
+     "unbind_esg_contract", {"args": ("t", "g", "c", "consumed")}),
+    (bind_vzany_contract, VzAnyContractRequest(tenant="t", vrf="v", contract="c", relation="consumed"),
+     "bind_vzany_contract", {"args": ("t", "v", "c", "consumed")}),
+    (unbind_vzany_contract, VzAnyContractRequest(tenant="t", vrf="v", contract="c", relation="provided"),
+     "unbind_vzany_contract", {"args": ("t", "v", "c", "provided")}),
+])
+def test_security_tool_dispatch(tool, request_obj, method, expected):
+    fake = _Recorder()
+    tool(request_obj, nautobot=fake)
+    assert fake.calls == [(method, expected)]
+
+
+# --- L3Out depth (2026-10-16) ---------------------------------------------------
+
+from mcp_server.schemas.aci_l3out_depth import (  # noqa: E402
+    CreateBfdInterfacePolicyRequest,
+    CreateBgpBestPathPolicyRequest,
+    CreateBgpRouteSummarizationPolicyRequest,
+    CreateBgpTimersPolicyRequest,
+    CreateL3OutStaticRouteRequest,
+    CreateL3OutVpcSviRequest,
+    CreateOspfTimersPolicyRequest,
+    CreateRouteTagPolicyRequest,
+    DeleteL3OutStaticRouteRequest,
+    DeleteL3OutVpcSviRequest,
+    L3OutLoopbackRequest,
+    SetExternalSubnetRouteSummarizationRequest,
+    SetL3OutBgpPoliciesRequest,
+)
+from mcp_server.tools.aci_l3out_depth import (  # noqa: E402
+    create_bfd_interface_policy,
+    create_bgp_best_path_policy,
+    create_bgp_route_summarization_policy,
+    create_bgp_timers_policy,
+    create_l3out_loopback,
+    create_l3out_static_route,
+    create_l3out_vpc_svi,
+    create_ospf_timers_policy,
+    create_route_tag_policy,
+    delete_l3out_loopback,
+    delete_l3out_static_route,
+    delete_l3out_vpc_svi,
+    set_external_subnet_route_summarization,
+    set_l3out_bgp_policies,
+)
+
+_NODE = dict(tenant="t", l3out="o", node_profile="np", node_id=101)
+_VPC = dict(tenant="t", l3out="o", node_profile="np", interface_profile="ifp", node_id=101, node_id2=102, policy_group="g")
+
+
+@pytest.mark.parametrize("tool,request_obj,method,expected", [
+    (create_bfd_interface_policy, CreateBfdInterfacePolicyRequest(tenant="t", name="b", detect_multiplier=3),
+     "create_bfd_interface_policy", {"tenant": "t", "name": "b", "admin_state": None, "detect_multiplier": 3,
+                                     "min_rx_interval": None, "min_tx_interval": None, "echo_admin_state": None,
+                                     "echo_rx_interval": None, "description": None}),
+    (create_bgp_timers_policy, CreateBgpTimersPolicyRequest(tenant="t", name="bt", keepalive_interval=30),
+     "create_bgp_timers_policy", {"tenant": "t", "name": "bt", "keepalive_interval": 30, "hold_interval": None,
+                                  "stale_interval": None, "graceful_restart_helper": None, "max_as_limit": None,
+                                  "description": None}),
+    (create_bgp_best_path_policy, CreateBgpBestPathPolicyRequest(tenant="t", name="bp", as_path_multipath_relax=True),
+     "create_bgp_best_path_policy", {"tenant": "t", "name": "bp", "as_path_multipath_relax": True, "description": None}),
+    (create_bgp_route_summarization_policy, CreateBgpRouteSummarizationPolicyRequest(tenant="t", name="s"),
+     "create_bgp_route_summarization_policy", {"tenant": "t", "name": "s", "as_set": None, "description": None}),
+    (create_ospf_timers_policy, CreateOspfTimersPolicyRequest(tenant="t", name="ot", max_ecmp=8),
+     "create_ospf_timers_policy", {"tenant": "t", "name": "ot", "reference_bandwidth": None, "distance": None,
+                                   "max_ecmp": 8, "spf_initial_delay": None, "spf_hold_interval": None,
+                                   "spf_max_interval": None, "description": None}),
+    (create_route_tag_policy, CreateRouteTagPolicyRequest(tenant="t", name="rt", tag=7),
+     "create_route_tag_policy", {"tenant": "t", "name": "rt", "tag": 7, "description": None}),
+    (create_l3out_static_route, CreateL3OutStaticRouteRequest(**_NODE, prefix="10.9.0.0/16", next_hops=[{"ip": "10.9.1.1"}]),
+     "create_l3out_static_route", {**_NODE, "prefix": "10.9.0.0/16", "next_hops": [{"ip": "10.9.1.1", "preference": None}],
+                                   "preference": None, "bfd": None, "description": None}),
+    (delete_l3out_static_route, DeleteL3OutStaticRouteRequest(**_NODE, prefix="10.9.0.0/16"),
+     "delete_l3out_static_route", {**_NODE, "prefix": "10.9.0.0/16"}),
+    (create_l3out_loopback, L3OutLoopbackRequest(**_NODE, ip="10.9.254.1"), "create_l3out_loopback", {**_NODE, "ip": "10.9.254.1"}),
+    (delete_l3out_loopback, L3OutLoopbackRequest(**_NODE, ip="10.9.254.1"), "delete_l3out_loopback", {**_NODE, "ip": "10.9.254.1"}),
+    (create_l3out_vpc_svi, CreateL3OutVpcSviRequest(**_VPC, vlan=9, side_a_ip="10.9.2.2/24", side_b_ip="10.9.2.3/24"),
+     "create_l3out_vpc_svi", {**_VPC, "vlan": 9, "side_a_ip": "10.9.2.2/24", "side_b_ip": "10.9.2.3/24", "pod_id": 1,
+                              "mtu": None, "location": None}),
+    (delete_l3out_vpc_svi, DeleteL3OutVpcSviRequest(**_VPC), "delete_l3out_vpc_svi", dict(_VPC)),
+    (set_l3out_bgp_policies, SetL3OutBgpPoliciesRequest(tenant="t", l3out="o", bgp_best_path_policy="bp"),
+     "set_l3out_bgp_policies", {"tenant": "t", "l3out": "o", "bgp_timers_policy": None, "bgp_best_path_policy": "bp"}),
+    (set_external_subnet_route_summarization,
+     SetExternalSubnetRouteSummarizationRequest(tenant="t", l3out="o", external_epg="e", ip="10.9.0.0/16", policy="s"),
+     "set_external_subnet_route_summarization", {"tenant": "t", "l3out": "o", "external_epg": "e", "ip": "10.9.0.0/16", "policy": "s"}),
+])
+def test_l3out_depth_tool_dispatch(tool, request_obj, method, expected):
+    fake = _Recorder()
+    tool(request_obj, nautobot=fake)
+    assert fake.calls == [(method, expected)]
+
+
+def test_bfd_binding_can_be_cleared_but_not_set_to_default():
+    from pydantic import ValidationError
+
+    from mcp_server.schemas.aci import BindL3OutInterfaceProfilePoliciesRequest
+    base = dict(tenant="t", l3out="o", node_profile="np", interface_profile="ifp")
+    assert BindL3OutInterfaceProfilePoliciesRequest(**base, bfd_interface_policy="").bfd_interface_policy == ""
+    with pytest.raises(ValidationError):
+        BindL3OutInterfaceProfilePoliciesRequest(**base, bfd_interface_policy="default")

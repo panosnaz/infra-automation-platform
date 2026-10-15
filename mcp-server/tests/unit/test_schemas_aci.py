@@ -1731,3 +1731,541 @@ def test_aep_accepts_a_bare_string_and_a_typed_domain():
 def test_aep_domain_type_must_be_physical_or_l3(bad):
     with pytest.raises(ValidationError):
         CreateAepRequest(name="A", domains=[{"name": "d", "type": bad}])
+
+
+# ---------------------------------------------------------------------------
+# Read / update / delete tools (2026-10-12).
+# ---------------------------------------------------------------------------
+
+from mcp_server.schemas.aci_lifecycle import (  # noqa: E402
+    DeleteFabricObjectRequest,
+    DeleteTenantObjectRequest,
+    DeleteTenantRequest,
+    GetFabricIntentRequest,
+    GetTenantIntentRequest,
+    ListAciTenantsRequest,
+    UnbindEpgContractRequest,
+    UnbindEpgDomainRequest,
+    UpdateBridgeDomainRequest,
+    UpdateEpgRequest,
+    UpdateVrfRequest,
+)
+
+
+def test_read_requests_accept_their_minimal_input():
+    ListAciTenantsRequest()
+    assert GetTenantIntentRequest(tenant="ACI:sales").tenant == "ACI:sales"
+    assert GetFabricIntentRequest().location is None
+
+
+def test_get_tenant_intent_requires_a_tenant():
+    with pytest.raises(ValidationError):
+        GetTenantIntentRequest()
+
+
+@pytest.mark.parametrize("cls,ids", [
+    (UpdateVrfRequest, {"tenant": "t", "name": "v"}),
+    (UpdateBridgeDomainRequest, {"tenant": "t", "name": "bd"}),
+    (UpdateEpgRequest, {"tenant": "t", "application_profile": "ap", "name": "e"}),
+])
+def test_an_update_with_nothing_to_change_is_refused(cls, ids):
+    """An update that changes nothing would still PATCH and still report
+    success -- refuse it so the agent knows it forgot the actual change."""
+    with pytest.raises(ValidationError, match="nothing to update"):
+        cls(**ids)
+
+
+def test_update_vrf_accepts_valid_values_and_refuses_others():
+    UpdateVrfRequest(tenant="t", name="v", policy_control_enforcement_mode="unenforced")
+    with pytest.raises(ValidationError):
+        UpdateVrfRequest(tenant="t", name="v", policy_control_enforcement_mode="off")
+    with pytest.raises(ValidationError):
+        UpdateVrfRequest(tenant="t", name="v", policy_control_enforcement_direction="both")
+
+
+def test_update_bridge_domain_value_sets():
+    UpdateBridgeDomainRequest(tenant="t", name="bd", subnet_scope="public,shared", l2_unknown_unicast="flood")
+    for bad in ({"subnet_scope": "external"}, {"l2_unknown_unicast": "drop"},
+                {"multi_destination": "flood"}, {"l3_unknown_multicast": "proxy"}):
+        with pytest.raises(ValidationError):
+            UpdateBridgeDomainRequest(tenant="t", name="bd", **bad)
+
+
+def test_update_bridge_domain_checks_the_mac_format():
+    UpdateBridgeDomainRequest(tenant="t", name="bd", mac="00:22:BD:F8:19:FF")
+    with pytest.raises(ValidationError, match="not a MAC address"):
+        UpdateBridgeDomainRequest(tenant="t", name="bd", mac="0022.bdf8.19ff")
+
+
+def test_a_false_boolean_counts_as_a_change():
+    """`arp_flooding=False` is a real change, not 'nothing passed'. A check
+    written as `if v` instead of `if v is not None` would refuse it."""
+    UpdateBridgeDomainRequest(tenant="t", name="bd", arp_flooding=False)
+    UpdateEpgRequest(tenant="t", application_profile="ap", name="e", preferred_group_member=False)
+
+
+def test_the_allowed_values_reach_the_agent_in_the_json_schema():
+    """The point of Literal over str: tools/list carries the enum, so the
+    agent sees the allowed values before calling."""
+    schema = UpdateBridgeDomainRequest.model_json_schema()
+    assert "proxy" in str(schema["properties"]["l2_unknown_unicast"])
+    kinds = str(DeleteTenantObjectRequest.model_json_schema()["properties"]["kind"])
+    assert "route_control_profile" in kinds and "bridge_domain" in kinds
+
+
+def test_delete_tenant_object_rejects_an_unknown_kind():
+    with pytest.raises(ValidationError):
+        DeleteTenantObjectRequest(tenant="t", kind="tenant", name="x")
+
+
+def test_deleting_an_epg_needs_its_application_profile():
+    with pytest.raises(ValidationError, match="application_profile"):
+        DeleteTenantObjectRequest(tenant="t", kind="epg", name="web")
+    DeleteTenantObjectRequest(tenant="t", kind="epg", name="web", application_profile="app")
+
+
+def test_deleting_a_route_map_needs_its_l3out():
+    with pytest.raises(ValidationError, match="l3out"):
+        DeleteTenantObjectRequest(tenant="t", kind="route_control_profile", name="m")
+    DeleteTenantObjectRequest(tenant="t", kind="route_control_profile", name="m", l3out="wan")
+
+
+def test_delete_fabric_object_kinds():
+    DeleteFabricObjectRequest(kind="physical_domain", name="phys1")
+    with pytest.raises(ValidationError):
+        DeleteFabricObjectRequest(kind="vrf", name="x")
+
+
+def test_unbind_requests_restrict_the_relation_and_domain_type():
+    UnbindEpgContractRequest(tenant="t", application_profile="ap", epg="e", contract="c", relation="provided")
+    with pytest.raises(ValidationError):
+        UnbindEpgContractRequest(tenant="t", application_profile="ap", epg="e", contract="c", relation="both")
+    UnbindEpgDomainRequest(tenant="t", application_profile="ap", epg="e", domain="d", domain_type="vmm")
+    with pytest.raises(ValidationError):
+        UnbindEpgDomainRequest(tenant="t", application_profile="ap", epg="e", domain="d", domain_type="l3")
+
+
+def test_delete_tenant_needs_the_name_repeated():
+    DeleteTenantRequest(name="ACI:sales", confirm="ACI:sales")
+    with pytest.raises(ValidationError, match="confirm"):
+        DeleteTenantRequest(name="ACI:sales", confirm="yes")
+
+
+@pytest.mark.parametrize("name", ["common", "infra", "mgmt", "ACI:common", "ACI:MGMT"])
+def test_delete_tenant_never_accepts_a_system_tenant(name):
+    """CLAUDE.md: the platform must never recreate -- let alone delete --
+    common, infra or mgmt. Refused even with a correct confirmation."""
+    with pytest.raises(ValidationError, match="system tenant"):
+        DeleteTenantRequest(name=name, confirm=name)
+
+
+
+# ---------------------------------------------------------------------------
+# Port-channel / vPC / node management (2026-10-12).
+# ---------------------------------------------------------------------------
+
+from mcp_server.schemas.aci_access import (  # noqa: E402
+    CreateInbandMgmtEpgRequest,
+    CreateLacpPolicyRequest,
+    CreateNodeMgmtAddressRequest,
+    CreatePcVpcPolicyGroupRequest,
+    CreateVpcDomainRequest,
+    DeleteNodeMgmtAddressRequest,
+    UnbindEpgStaticPathRequest,
+    UpdateInbandMgmtEpgRequest,
+    UpdateLacpPolicyRequest,
+    UpdateNodeMgmtAddressRequest,
+    UpdatePcVpcPolicyGroupRequest,
+    UpdateVpcDomainRequest,
+)
+
+
+def test_lacp_policy_modes_and_link_bounds():
+    CreateLacpPolicyRequest(name="LACP_Active", mode="active", min_links=1, max_links=8)
+    with pytest.raises(ValidationError):
+        CreateLacpPolicyRequest(name="L", mode="on")
+    with pytest.raises(ValidationError, match="min_links cannot exceed"):
+        CreateLacpPolicyRequest(name="L", min_links=8, max_links=4)
+    with pytest.raises(ValidationError):
+        CreateLacpPolicyRequest(name="L", max_links=17)
+    with pytest.raises(ValidationError):
+        CreateLacpPolicyRequest(name="L", controls=["fast-hello"])
+
+
+def test_names_follow_aci_rules():
+    with pytest.raises(ValidationError, match="not a valid ACI object name"):
+        CreateVpcDomainRequest(name="vpc pair", domain_id=1, node1=101, node2=102)
+
+
+def test_vpc_domain_needs_two_different_leaves_and_a_valid_id():
+    CreateVpcDomainRequest(name="v", domain_id=1000, node1=101, node2=102)
+    with pytest.raises(ValidationError, match="two DIFFERENT leaves"):
+        CreateVpcDomainRequest(name="v", domain_id=10, node1=101, node2=101)
+    with pytest.raises(ValidationError):
+        CreateVpcDomainRequest(name="v", domain_id=1001, node1=101, node2=102)
+
+
+def test_pc_vpc_group_bundle_type_is_restricted():
+    CreatePcVpcPolicyGroupRequest(name="G", bundle_type="vpc")
+    with pytest.raises(ValidationError):
+        CreatePcVpcPolicyGroupRequest(name="G", bundle_type="lag")
+
+
+@pytest.mark.parametrize("cls,ids", [
+    (UpdateLacpPolicyRequest, {"name": "L"}),
+    (UpdateVpcDomainRequest, {"name": "v"}),
+    (UpdatePcVpcPolicyGroupRequest, {"name": "G"}),
+    (UpdateInbandMgmtEpgRequest, {"name": "E"}),
+    (UpdateNodeMgmtAddressRequest, {"node": "101", "type": "out_of_band"}),
+])
+def test_access_updates_need_a_change(cls, ids):
+    with pytest.raises(ValidationError, match="nothing to update"):
+        cls(**ids)
+
+
+def test_inband_epg_encap_range():
+    CreateInbandMgmtEpgRequest(name="inb", encap_vlan=99)
+    with pytest.raises(ValidationError):
+        CreateInbandMgmtEpgRequest(name="inb", encap_vlan=4095)
+
+
+def test_mgmt_address_must_carry_a_mask_and_a_gateway_inside_it():
+    CreateNodeMgmtAddressRequest(node="101", type="out_of_band", address="10.48.0.101/24", gateway="10.48.0.1")
+    for address, gateway, msg in [
+        ("10.48.0.101", "10.48.0.1", "prefix length"),
+        ("10.48.0.101/24", "10.49.0.1", "not inside"),
+        ("10.48.0.101/24", "10.48.0.101", "own address"),
+        ("10.48.0.0/24", "10.48.0.1", "network address"),
+    ]:
+        with pytest.raises(ValidationError, match=msg):
+            CreateNodeMgmtAddressRequest(node="101", type="out_of_band", address=address, gateway=gateway)
+
+
+def test_in_band_needs_an_epg_and_out_of_band_uses_default():
+    with pytest.raises(ValidationError, match="needs epg"):
+        CreateNodeMgmtAddressRequest(node="101", type="in_band", address="10.49.0.101/24", gateway="10.49.0.1")
+    with pytest.raises(ValidationError, match="built-in OOB EPG"):
+        CreateNodeMgmtAddressRequest(node="101", type="out_of_band", address="10.48.0.101/24",
+                                     gateway="10.48.0.1", epg="custom")
+
+
+def test_delete_mgmt_address_type_is_restricted():
+    DeleteNodeMgmtAddressRequest(node="leaf101", type="in_band")
+    with pytest.raises(ValidationError):
+        DeleteNodeMgmtAddressRequest(node="leaf101", type="inband")
+
+
+def test_static_path_binding_shape_per_type():
+    base = dict(tenant="t", application_profile="ap", epg="e", node_id=101, encap="vlan-10")
+    CreateStaticPathBindingRequest(**base, module=1, port=1)
+    CreateStaticPathBindingRequest(**base, path_type="port_channel", policy_group="PC1")
+    CreateStaticPathBindingRequest(**base, path_type="vpc", node_id2=102, policy_group="VPC1")
+    for bad, msg in [
+        (dict(), "needs module and port"),
+        (dict(path_type="vpc", policy_group="VPC1"), "node_id2"),
+        (dict(path_type="vpc", node_id2=101, policy_group="VPC1"), "node_id2"),
+        (dict(path_type="port_channel"), "needs policy_group"),
+        (dict(path_type="port_channel", policy_group="PC1", port=1), "module/port belong"),
+        (dict(module=1, port=1, node_id2=102), "only for a 'vpc'"),
+    ]:
+        with pytest.raises(ValidationError, match=msg):
+            CreateStaticPathBindingRequest(**{**base, **bad})
+
+
+def test_static_path_encap_and_mode_are_checked():
+    base = dict(tenant="t", application_profile="ap", epg="e", node_id=101, module=1, port=1)
+    with pytest.raises(ValidationError, match="must look like 'vlan-11'"):
+        CreateStaticPathBindingRequest(**base, encap="11")
+    with pytest.raises(ValidationError):
+        CreateStaticPathBindingRequest(**base, encap="vlan-11", mode="trunk")
+
+
+def test_unbind_static_path_identifies_the_path():
+    req = UnbindEpgStaticPathRequest(tenant="t", application_profile="ap", epg="e", node_id=102,
+                                     path_type="vpc", node_id2=101, policy_group="VPC1")
+    assert req.as_path() == {"path_type": "vpc", "pod_id": 1, "node_id": 102, "policy_group": "VPC1", "node_id2": 101}
+    with pytest.raises(ValidationError, match="module and port"):
+        UnbindEpgStaticPathRequest(tenant="t", application_profile="ap", epg="e", node_id=101)
+
+
+
+# ---------------------------------------------------------------------------
+# Fabric-wide policies (2026-10-13).
+# ---------------------------------------------------------------------------
+
+from mcp_server.schemas.aci_fabric import (  # noqa: E402
+    CreateDnsDomainRequest,
+    CreateDnsServerRequest,
+    CreateNtpServerRequest,
+    CreateSnmpCommunityRequest,
+    DeleteDnsDomainRequest,
+    DeleteDnsServerRequest,
+    DeleteNtpServerRequest,
+    DeleteSnmpCommunityRequest,
+    ResetFabricPolicyRequest,
+    SetCoopPolicyRequest,
+    SetFaultLifecyclePolicyRequest,
+    SetIsisPolicyRequest,
+    SetNtpPolicyRequest,
+    SetSnmpPolicyRequest,
+    SetSyslogMessagePolicyRequest,
+    SetSyslogRateLimitRequest,
+    UpdateDnsDomainRequest,
+    UpdateDnsServerRequest,
+    UpdateNtpServerRequest,
+)
+
+
+def test_ntp_server_accepts_ip_or_host_and_checks_poll_bounds():
+    CreateNtpServerRequest(address="10.0.0.1")
+    CreateNtpServerRequest(address="pool.ntp.org", min_poll=4, max_poll=10)
+    for bad, msg in [({"address": "bad host!"}, "neither an IP"), ({"address": "1.1.1.1", "min_poll": 3}, "greater than or equal to 4"),
+                     ({"address": "1.1.1.1", "max_poll": 17}, "less than or equal to 16"), ({"address": "1.1.1.1", "min_poll": 8, "max_poll": 6}, "cannot exceed")]:
+        with pytest.raises(ValidationError, match=msg):
+            CreateNtpServerRequest(**bad)
+    SetNtpPolicyRequest(admin_state="disabled")
+    with pytest.raises(ValidationError):
+        SetNtpPolicyRequest(admin_state="off")
+
+
+def test_dns_server_must_be_an_ip_and_domain_a_valid_name():
+    CreateDnsServerRequest(address="2001:db8::53")
+    with pytest.raises(ValidationError):
+        CreateDnsServerRequest(address="dns.corp.local")
+    CreateDnsDomainRequest(name="corp.example.com", is_default=True)
+    with pytest.raises(ValidationError, match="not a valid DNS domain"):
+        CreateDnsDomainRequest(name="not a domain")
+
+
+def test_snmp_community_takes_a_reference_name_not_free_text():
+    """The reference is a key into the sensitive Terraform variable; it follows
+    ACI naming so it cannot smuggle a community string with spaces/symbols."""
+    CreateSnmpCommunityRequest(ref="ro-monitoring")
+    with pytest.raises(ValidationError, match="not a valid ACI object name"):
+        CreateSnmpCommunityRequest(ref="pub lic!")
+    assert "NOT the community string" in CreateSnmpCommunityRequest.model_json_schema()["properties"]["ref"]["description"]
+
+
+def test_singleton_value_sets_and_ranges():
+    SetCoopPolicyRequest(type="strict")
+    with pytest.raises(ValidationError):
+        SetCoopPolicyRequest(type="loose")
+    SetIsisPolicyRequest(mtu=1492, redistrib_metric=60)
+    for bad in ({"mtu": 100}, {"mtu": 9000}, {"redistrib_metric": 64}):
+        with pytest.raises(ValidationError):
+            SetIsisPolicyRequest(**bad)
+    SetFaultLifecyclePolicyRequest(soak=120, retain=3600, clear=120)
+    with pytest.raises(ValidationError):
+        SetFaultLifecyclePolicyRequest(soak=3601)
+    SetSyslogMessagePolicyRequest(admin_state="monitor")
+    SetSyslogRateLimitRequest(limit_per_sec=500)
+    with pytest.raises(ValidationError):
+        SetSyslogRateLimitRequest(limit_per_sec=0)
+    SetSnmpPolicyRequest(admin_state="enabled", contact="noc@example.com", system_location="DC1")
+
+
+@pytest.mark.parametrize("cls,ids", [
+    (UpdateNtpServerRequest, {"address": "10.0.0.1"}),
+    (UpdateDnsServerRequest, {"address": "10.0.0.53"}),
+    (UpdateDnsDomainRequest, {"name": "corp.example.com"}),
+    (SetSnmpPolicyRequest, {}),
+    (SetIsisPolicyRequest, {}),
+    (SetFaultLifecyclePolicyRequest, {}),
+    (SetSyslogRateLimitRequest, {}),
+])
+def test_fabric_setters_need_a_change(cls, ids):
+    with pytest.raises(ValidationError, match="nothing to update"):
+        cls(**ids)
+
+
+def test_reset_names_a_known_policy_and_deletes_need_their_key():
+    ResetFabricPolicyRequest(policy="coop")
+    with pytest.raises(ValidationError):
+        ResetFabricPolicyRequest(policy="bgp")
+    DeleteNtpServerRequest(address="10.0.0.1")
+    DeleteDnsServerRequest(address="10.0.0.53")
+    DeleteDnsDomainRequest(name="corp.example.com")
+    DeleteSnmpCommunityRequest(ref="ro-monitoring")
+
+
+# --- BGP route reflector policy / pod assignment (2026-10-14) -----------------
+
+from mcp_server.schemas.aci_fabric import (  # noqa: E402
+    AssignPodPolicyGroupRequest,
+    CreateBgpRouteReflectorNodeRequest,
+    DeleteBgpRouteReflectorNodeRequest,
+    SetBgpRouteReflectorPolicyRequest,
+)
+
+
+@pytest.mark.parametrize("asn,ok", [(1, True), (65099, True), (4294967295, True), (0, False), (4294967296, False)])
+def test_bgp_route_reflector_asn_is_a_2_or_4_byte_as(asn, ok):
+    if ok:
+        assert SetBgpRouteReflectorPolicyRequest(asn=asn).asn == asn
+    else:
+        with pytest.raises(ValidationError):
+            SetBgpRouteReflectorPolicyRequest(asn=asn)
+
+
+def test_route_reflector_node_requests():
+    assert CreateBgpRouteReflectorNodeRequest(node="spine1001").pod_id is None
+    with pytest.raises(ValidationError):
+        CreateBgpRouteReflectorNodeRequest(node="spine1001", pod_id=0)
+    DeleteBgpRouteReflectorNodeRequest(node_id=1001)
+    with pytest.raises(ValidationError):
+        DeleteBgpRouteReflectorNodeRequest(node_id=4001)
+
+
+def test_assign_pod_policy_group_and_reset_accept_the_new_policies():
+    AssignPodPolicyGroupRequest(policy_group="pg1")
+    with pytest.raises(ValidationError):
+        AssignPodPolicyGroupRequest()
+    ResetFabricPolicyRequest(policy="bgp_route_reflector")
+    ResetFabricPolicyRequest(policy="pod_profile")
+
+
+# --- ESG / vzAny (2026-10-15) ---------------------------------------------------
+
+from mcp_server.schemas.aci_security import (  # noqa: E402
+    CreateEsgEpgSelectorRequest,
+    CreateEsgIpSubnetSelectorRequest,
+    CreateEsgRequest,
+    CreateEsgTagSelectorRequest,
+    DeleteEsgSelectorRequest,
+    EsgContractRequest,
+    UpdateEsgRequest,
+    VzAnyContractRequest,
+)
+
+
+def test_create_esg_needs_a_vrf_and_valid_names():
+    CreateEsgRequest(tenant="t", application_profile="ap", name="web-esg", vrf="prod")
+    with pytest.raises(ValidationError):
+        CreateEsgRequest(tenant="t", application_profile="ap", name="web-esg")
+    with pytest.raises(ValidationError, match="not a valid ACI object name"):
+        CreateEsgRequest(tenant="t", application_profile="ap", name="web esg", vrf="prod")
+
+
+def test_update_esg_needs_a_change():
+    with pytest.raises(ValidationError, match="nothing to update"):
+        UpdateEsgRequest(tenant="t", name="web-esg")
+    assert UpdateEsgRequest(tenant="t", name="web-esg", shutdown=False).shutdown is False
+
+
+@pytest.mark.parametrize("given,stored", [("10.1.1.0/24", "10.1.1.0/24"), ("10.1.1.10", "10.1.1.10"),
+                                          ("2001:db8::/64", "2001:db8::/64")])
+def test_ip_subnet_selector_accepts_hosts_and_subnets(given, stored):
+    assert CreateEsgIpSubnetSelectorRequest(tenant="t", esg="g", subnet=given).subnet == stored
+
+
+@pytest.mark.parametrize("bad", ["10.1.1.1/24", "10.1.1.0/33", "web"])
+def test_ip_subnet_selector_refuses_what_apic_would_not_match(bad):
+    with pytest.raises(ValidationError):
+        CreateEsgIpSubnetSelectorRequest(tenant="t", esg="g", subnet=bad)
+
+
+def test_tag_selector_operator_and_epg_selector():
+    assert CreateEsgTagSelectorRequest(tenant="t", esg="g", key="app", value="web").operator == "equals"
+    with pytest.raises(ValidationError):
+        CreateEsgTagSelectorRequest(tenant="t", esg="g", key="app", value="web", operator="startswith")
+    CreateEsgEpgSelectorRequest(tenant="t", esg="g", application_profile="ap", epg="web")
+
+
+@pytest.mark.parametrize("kwargs,missing", [
+    ({"selector_type": "epg", "epg": "web"}, "application_profile"),
+    ({"selector_type": "ip_subnet"}, "subnet"),
+    ({"selector_type": "tag", "key": "app"}, "value"),
+])
+def test_delete_selector_must_identify_one(kwargs, missing):
+    with pytest.raises(ValidationError, match=missing):
+        DeleteEsgSelectorRequest(tenant="t", esg="g", **kwargs)
+
+
+def test_contract_requests_take_provided_or_consumed_only():
+    EsgContractRequest(tenant="t", esg="g", contract="web", relation="provided")
+    VzAnyContractRequest(tenant="t", vrf="prod", contract="web", relation="consumed")
+    with pytest.raises(ValidationError):
+        VzAnyContractRequest(tenant="t", vrf="prod", contract="web", relation="provider")
+
+
+# --- L3Out depth (2026-10-16) ---------------------------------------------------
+
+from mcp_server.schemas.aci_l3out_depth import (  # noqa: E402
+    CreateBfdInterfacePolicyRequest,
+    CreateBgpBestPathPolicyRequest,
+    CreateBgpRouteSummarizationPolicyRequest,
+    CreateBgpTimersPolicyRequest,
+    CreateL3OutStaticRouteRequest,
+    CreateL3OutVpcSviRequest,
+    CreateOspfTimersPolicyRequest,
+    CreateRouteTagPolicyRequest,
+    DeleteL3OutStaticRouteRequest,
+    DeleteL3OutVpcSviRequest,
+    L3OutLoopbackRequest,
+    SetExternalSubnetRouteSummarizationRequest,
+    SetL3OutBgpPoliciesRequest,
+)
+
+
+@pytest.mark.parametrize("cls,field,ok,bad", [
+    # bounds measured on APIC 6.2(1g), 2026-10-16
+    (CreateBfdInterfacePolicyRequest, "detect_multiplier", [1, 50], [0, 51]),
+    (CreateBfdInterfacePolicyRequest, "min_rx_interval", [50, 999], [49, 1000]),
+    (CreateBgpTimersPolicyRequest, "stale_interval", [1, 3600], [0, 3601]),
+    (CreateBgpTimersPolicyRequest, "max_as_limit", [0, 2000], [2001]),
+    (CreateOspfTimersPolicyRequest, "max_ecmp", [1, 64], [0, 65]),
+    (CreateOspfTimersPolicyRequest, "distance", [1, 255], [0, 256]),
+    (CreateOspfTimersPolicyRequest, "reference_bandwidth", [1, 4000000], [0, 4000001]),
+])
+def test_l3out_depth_policy_bounds_are_the_apics(cls, field, ok, bad):
+    for value in ok:
+        cls(tenant="t", name="p", **{field: value})
+    for value in bad:
+        with pytest.raises(ValidationError):
+            cls(tenant="t", name="p", **{field: value})
+
+
+def test_route_tag_spans_32_bits_and_policies_need_valid_names():
+    CreateRouteTagPolicyRequest(tenant="t", name="rt", tag=0)
+    CreateRouteTagPolicyRequest(tenant="t", name="rt", tag=4294967295)
+    with pytest.raises(ValidationError):
+        CreateRouteTagPolicyRequest(tenant="t", name="rt", tag=4294967296)
+    with pytest.raises(ValidationError, match="not a valid ACI object name"):
+        CreateBgpBestPathPolicyRequest(tenant="t", name="bad name")
+    CreateBgpRouteSummarizationPolicyRequest(tenant="t", name="sum", as_set=True)
+
+
+def test_static_route_and_loopback_addresses():
+    r = CreateL3OutStaticRouteRequest(tenant="t", l3out="o", node_profile="np", node_id=101, prefix="10.9.100.0/24",
+                                      next_hops=[{"ip": "10.9.1.254", "preference": 1}])
+    assert r.next_hops[0].ip == "10.9.1.254"
+    with pytest.raises(ValidationError, match="host bits"):
+        CreateL3OutStaticRouteRequest(tenant="t", l3out="o", node_profile="np", node_id=101, prefix="10.9.100.1/24")
+    with pytest.raises(ValidationError):
+        CreateL3OutStaticRouteRequest(tenant="t", l3out="o", node_profile="np", node_id=101, prefix="10.9.100.0/24",
+                                      next_hops=[{"ip": "not-an-ip"}])
+    DeleteL3OutStaticRouteRequest(tenant="t", l3out="o", node_profile="np", node_id=101, prefix="10.9.100.0/24")
+    with pytest.raises(ValidationError):
+        L3OutLoopbackRequest(tenant="t", l3out="o", node_profile="np", node_id=101, ip="10.9.254.1/32")
+
+
+@pytest.mark.parametrize("change,message", [
+    ({"node_id2": 101}, "two different leaves"),
+    ({"side_b_ip": "10.9.3.3/24"}, "same subnet"),
+    ({"side_b_ip": "10.9.2.2/24"}, "must differ"),
+])
+def test_vpc_svi_request_rules(change, message):
+    base = dict(tenant="t", l3out="o", node_profile="np", interface_profile="ifp", node_id=101, node_id2=102,
+                policy_group="vpc-ipg", vlan=94, side_a_ip="10.9.2.2/24", side_b_ip="10.9.2.3/24")
+    CreateL3OutVpcSviRequest(**base)
+    with pytest.raises(ValidationError, match=message):
+        CreateL3OutVpcSviRequest(**{**base, **change})
+    DeleteL3OutVpcSviRequest(tenant="t", l3out="o", node_profile="np", interface_profile="ifp",
+                             node_id=101, node_id2=102, policy_group="vpc-ipg")
+
+
+def test_reference_setters():
+    with pytest.raises(ValidationError, match="nothing to update"):
+        SetL3OutBgpPoliciesRequest(tenant="t", l3out="o")
+    assert SetL3OutBgpPoliciesRequest(tenant="t", l3out="o", bgp_timers_policy="").bgp_timers_policy == ""
+    SetExternalSubnetRouteSummarizationRequest(tenant="t", l3out="o", external_epg="e", ip="10.9.0.0/16", policy="")

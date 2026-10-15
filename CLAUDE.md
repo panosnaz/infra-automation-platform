@@ -41,12 +41,13 @@ Reading the files above tells you how to *make* a change. This section is what m
 When you add or change a capability, you must **also**:
 
 1. **Add or extend unit tests.** A new MCP tool needs **both** a schema-validation test in `mcp-server/tests/unit/test_schemas_aci.py` *and* a dispatch test in `test_tools_aci.py`. A generator change needs a positive *and* a negative test in `tests/unit/test_transformer.py` (the negative one asserts the key is absent when the Custom Field is unset — that rule is easy to break silently). Watch a new test fail before you make it pass.
-2. **Declare any new Nautobot Custom Field in `platform/workflows/scripts/bootstrap_nautobot.py`, and run it, before writing to the field.** Writes to an undeclared field are silently discarded by the REST serializer — HTTP 200, no error, no data. On 2026-09-15 an entire L4-L7/PBR lab was built through the MCP tools, every call reported success, and nothing persisted. The script is the authoritative schema (32 fields today); `--verify` checks any environment without changing it, and `tests/unit/test_bootstrap_nautobot.py` fails if you add a field to the code without declaring it there.
+2. **Declare any new Nautobot Custom Field in `platform/workflows/scripts/bootstrap_nautobot.py`, and run it, before writing to the field.** Writes to an undeclared field are silently discarded by the REST serializer — HTTP 200, no error, no data. On 2026-09-15 an entire L4-L7/PBR lab was built through the MCP tools, every call reported success, and nothing persisted. The script is the authoritative schema (40 fields today); `--verify` checks any environment without changing it, and `tests/unit/test_bootstrap_nautobot.py` fails if you add a field to the code without declaring it there.
 3. **Attempt live verification, and say so either way.** Actually run it: a new MCP tool over the real MCP protocol against live Nautobot; a new or changed Terraform module against the real APIC — `plan`, then `apply` and `destroy` where that is safe on a throwaway object. Note that this simulator **accepts** configuration for switches that do not exist (relations simply sit at `state: unformed`), so far more is live-verifiable here than the older "permanently blocked by simulator" notes claim — verify before assuming a blocker. If live verification genuinely is not feasible, write down *why*, rather than silently downgrading the claim to a plan. **Live verification must include an APIC fault check** — run `platform/workflows/scripts/check_apic_faults.py --snapshot` before and `--compare` after. Object existence plus `state: formed` is NOT sufficient: APIC accepts configuration it then marks invalid, deploying nothing, and Terraform reports success either way. On 2026-09-15 an apply verified that way was found to have left 11 faults and an invalid L4-L7 device.
 4. **Record it in the relevant ADR** — [ADR-020](knowledge/adr/ADR-020-ACI-Domain-Coverage-Expansion.md) for ACI, [ADR-021](knowledge/adr/ADR-021-VXLAN-EVPN-Domain-Expansion.md) for EVPN.
 5. **Update [`Platform-Status-and-Pending-Items.md`](knowledge/architecture/Platform-Status-and-Pending-Items.md)**, and the tool catalogue in ADR-020 if you added an MCP tool.
 6. **Declare the evidence level in code, not only in prose.** A new MCP tool passes `evidence=` to `registry.register()` — `unit-tested` (the default), `plan-verified`, or `live-verified`, the last requiring an `evidence_note` saying how. Terraform resources and fixtures that are not live-verified carry an `# EVIDENCE:` comment; find them all with `grep -rn "EVIDENCE:" platform/terraform/`. The default is deliberately the weakest claim, so forgetting understates rather than overstates. `tests/unit/test_registry.py` fails if a tool declares an invalid level, claims `live-verified` without a note, or if the live/unit counts drift from what `Platform-Status-and-Pending-Items.md` documents.
 7. **State the evidence level explicitly, and never imply more than was proven.** `unit-tested`, `plan-verified`, and `live-verified (apply + destroy)` are three different claims. This is the one that keeps being lost: a clean `terraform plan` validates against the provider schema only, never against live APIC state, and treating "plan-verified" as "works" is what caused an applicable feature set to be recorded as permanently blocked.
+8. **Declare what cannot be set yet, the same way.** If the provider or APIC supports a setting that your tool or Terraform does not expose, add it to `mcp-server/src/mcp_server/not_settable.py` with an `NS-xx` id (what, why, what applies meanwhile, next step), declare it on every tool it affects with `not_settable=("NS-xx",)` — the agent then reads it in the tool description before calling — mark the Terraform resource with `# NOT-SETTABLE[NS-xx]:`, and add the row to `Evidence-Matrix.md` §6. `tests/unit/test_not_settable.py` fails if the four disagree. The reason this exists: a missing setting is invisible — the call succeeds and the attribute silently stays at an APIC default, or, as NS-01 showed, a stored setting has no effect because the switch that enables it is the one missing.
 
 **Verifying a claim before you write it down.** A clean plan is not evidence a resource was produced — count it: `terraform plan ... | grep -c '<resource_type>'`. An OSPF fixture once planned cleanly while producing zero `aci_l3out_ospf_interface_profile` resources, and nobody noticed because the plan succeeded.
 
@@ -80,7 +81,11 @@ python platform/workflows/scripts/bootstrap_nautobot.py --verify
 python platform/workflows/scripts/bootstrap_nautobot.py --location "Customer DC1"
 ```
 
-Without it the tools report success and write nothing — see Definition of Done item 2. To rebuild a fabric from Nautobot (wipe the APIC, regenerate, re-apply), follow [`knowledge/runbooks/Demo-Rebuild-From-Nautobot.md`](knowledge/runbooks/Demo-Rebuild-From-Nautobot.md).
+Without it the tools report success and write nothing — see Definition of Done item 2.
+
+Every apply is preceded by an APIC configuration backup, which needs a one-time AES passphrase on the APIC: put `apic_export_passphrase` in Vault, `source platform/terraform/aci/scripts/load-vault-creds.sh`, then `python platform/workflows/scripts/apic_backup.py --enable-encryption`. Without it the backup step fails closed and no apply runs. Rollback: [`knowledge/runbooks/ACI-Restore-From-Pre-Apply-Backup.md`](knowledge/runbooks/ACI-Restore-From-Pre-Apply-Backup.md).
+
+To rebuild a fabric from Nautobot (wipe the APIC, regenerate, re-apply), follow [`knowledge/runbooks/Demo-Rebuild-From-Nautobot.md`](knowledge/runbooks/Demo-Rebuild-From-Nautobot.md).
 
 ---
 
@@ -92,7 +97,7 @@ Without it the tools report success and write nothing — see Definition of Done
 | `platform/terraform/aci/` | Terraform ACI module |
 | `platform/ansible/aci/` | Ansible Day-2 playbooks |
 | `platform/netascode/aci/` | Generated NetAsCode YAML — committed by the `generate_nac` CI job, not gitignored |
-| `platform/workflows/scripts/` | Python scripts backing GitLab CI jobs (`write_results.py`, `capture_knowledge.py`, `check_determinism.sh`, `commit_generated_yaml.sh`, `policy_check.py`, `validate_nac.py`) |
+| `platform/workflows/scripts/` | Python scripts backing GitLab CI jobs (`write_results.py`, `capture_knowledge.py`, `check_determinism.sh`, `commit_generated_yaml.sh`, `policy_check.py`, `validate_nac.py`, `check_apic_faults.py`, `apic_backup.py`, `mask_secrets.py`) |
 | `tests/pyats/aci/` | pyATS validation tests |
 | `tests/unit/` | Generator unit tests |
 | `tests/integration/` | Live-lab integration smoke tests |
@@ -108,7 +113,7 @@ Without it the tools report success and write nothing — see Definition of Done
 - **Terraform:** consumes NetAsCode YAML; does not duplicate Nautobot data.
 - **Ansible:** Day-2 operations only; does not provision new infrastructure.
 - **Validation:** always independent of Terraform and Ansible.
-- **Secrets:** never hardcode tokens, passwords, or API keys. Use environment variables, or read from Vault at runtime.
+- **Secrets:** never hardcode tokens, passwords, or API keys. Use environment variables, or read from Vault at runtime. A secret never goes into Nautobot or the generated YAML either: store a **reference**, supply the value as a sensitive Terraform variable at apply time (`local_user_passwords`, `snmp_community_strings`). If the secret becomes part of an APIC DN (SNMP communities do), Terraform prints it as the resource id regardless of `sensitive` — run Terraform through `platform/workflows/scripts/mask_secrets.py`, as the CI plan/apply jobs do, and treat the state as a credential store.
 - **ACI system tenants** (`common`, `infra`, `mgmt`): Terraform must not recreate these.
 - **GitLab CI `needs:` is not transitive** — a job only auto-downloads artifacts from jobs explicitly listed in its own `needs:` array. Always list every upstream job whose generated file/artifact is actually consumed, not just the immediately-prior stage.
 

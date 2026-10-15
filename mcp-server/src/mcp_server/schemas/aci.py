@@ -3,6 +3,7 @@ never a cross-domain intent envelope (ADR-018)."""
 from __future__ import annotations
 
 import re
+from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -317,7 +318,7 @@ class CreatePodPolicyGroupRequest(BaseModel):
     fabric-wide, so they live in the Location's `aci_fabric_policies` JSON
     Custom Field alongside VLAN Pools/AEPs, not on a Tenant."""
 
-    location: str = Field(description="Name of the existing Nautobot Location representing the ACI fabric.")
+    location: str | None = Field(default=None, description="Nautobot Location holding the fabric intent. Omit to auto-resolve (refused if ambiguous).")
     name: str = Field(description="Pod Policy Group name, e.g. 'Pod_PG'.")
     bgp_route_reflector_policy: str | None = Field(
         default="default",
@@ -415,7 +416,7 @@ class CreateVrfRouteLeakRequest(BaseModel):
 
 
 class FabricPolicyRequest(BaseModel):
-    location: str = Field(description="ACI fabric Location whose JSON custom field is updated.")
+    location: str | None = Field(default=None, description="Nautobot Location holding the fabric intent. Omit to auto-resolve (refused if ambiguous).")
     name: str = Field(description="Object name.")
 
     @field_validator("name")
@@ -518,7 +519,7 @@ class CreateAccessPortSelectorRequest(FabricPolicyRequest):
 
 
 class CreateAccessPortBlockRequest(BaseModel):
-    location: str
+    location: str | None = Field(default=None, description="Nautobot Location holding the fabric intent. Omit to auto-resolve (refused if ambiguous).")
     access_port_profile: str
     selector: str
     name: str
@@ -534,14 +535,14 @@ class CreateLeafProfileRequest(FabricPolicyRequest):
 
 
 class CreateLeafSelectorRequest(BaseModel):
-    location: str
+    location: str | None = Field(default=None, description="Nautobot Location holding the fabric intent. Omit to auto-resolve (refused if ambiguous).")
     leaf_profile: str
     name: str
     selector_type: str = "range"
 
 
 class CreateLeafNodeBlockRequest(BaseModel):
-    location: str
+    location: str | None = Field(default=None, description="Nautobot Location holding the fabric intent. Omit to auto-resolve (refused if ambiguous).")
     leaf_profile: str
     selector: str
     name: str
@@ -550,15 +551,59 @@ class CreateLeafNodeBlockRequest(BaseModel):
 
 
 class CreateStaticPathBindingRequest(BaseModel):
+    """Bind an EPG to a leaf port, a port-channel, or a vPC.
+
+    Adding a binding never removes another one -- the same path bound again
+    (e.g. with a new encap) replaces only itself. Until 2026-10-12 every call
+    replaced the EPG's whole static-path list, so binding a second port
+    silently unbound the first.
+    """
     tenant: str
     application_profile: str
     epg: str
-    node_id: int = Field(ge=1)
-    module: int = Field(ge=1)
-    port: int = Field(ge=1)
-    encap: str
+    # Required fields first: main.py builds a positional signature from this
+    # field order, and a required field after a defaulted one is a ValueError
+    # that stops the server starting (caught by test_registry 2026-10-12).
+    node_id: int = Field(ge=1, description="Leaf node ID (the first leaf for a vPC).")
+    encap: str = Field(description="Encapsulation, e.g. 'vlan-11'.")
+    path_type: Literal["port", "port_channel", "vpc"] = Field(
+        default="port",
+        description="'port' = one interface (module/port); 'port_channel' = a PC policy group on one leaf; "
+                    "'vpc' = a vPC policy group across the two leaves of a vPC domain.",
+    )
+    node_id2: int | None = Field(default=None, ge=1, description="Second leaf of the vPC pair. vPC only.")
+    module: int | None = Field(default=None, ge=1, description="Slot, usually 1. Port bindings only.")
+    port: int | None = Field(default=None, ge=1, description="Port number. Port bindings only.")
+    policy_group: str | None = Field(
+        default=None, description="Existing PC or vPC interface policy group. port_channel/vpc only."
+    )
     pod_id: int = Field(default=1, ge=1)
-    mode: str = Field(default="regular")
+    mode: Literal["regular", "native", "untagged"] = Field(
+        default="regular", description="'regular' = tagged trunk, 'native' = 802.1p, 'untagged' = access."
+    )
+    location: str | None = Field(
+        default=None, description="Location holding the PC/vPC policy groups. Omit to auto-resolve."
+    )
+
+    @model_validator(mode="after")
+    def _shape_matches_type(self):
+        if self.path_type == "port":
+            if self.module is None or self.port is None:
+                raise ValueError("a 'port' binding needs module and port")
+        else:
+            if not self.policy_group:
+                raise ValueError(f"a '{self.path_type}' binding needs policy_group (the PC/vPC interface policy group)")
+            if self.module is not None or self.port is not None:
+                raise ValueError(f"module/port belong to a 'port' binding, not '{self.path_type}' -- "
+                                 "the policy group's interface selectors decide the member ports")
+        if self.path_type == "vpc":
+            if self.node_id2 is None or self.node_id2 == self.node_id:
+                raise ValueError("a 'vpc' binding needs node_id2, the other leaf of the vPC pair")
+        elif self.node_id2 is not None:
+            raise ValueError("node_id2 is only for a 'vpc' binding")
+        if not re.match(r"^vlan-\d{1,4}$", self.encap):
+            raise ValueError(f"encap '{self.encap}' must look like 'vlan-11'")
+        return self
 
 
 class CreateProtocolL3OutRequest(BaseModel):
@@ -805,6 +850,11 @@ class BindL3OutInterfaceProfilePoliciesRequest(BaseModel):
     pim_v6_interface_policy: str | None = Field(default=None, description="Name of a PIM interface policy in this tenant, for IPv6.")
     igmp_interface_policy: str | None = Field(default=None, description="Name of an IGMP interface policy in this tenant.")
     custom_qos_policy: str | None = Field(default=None, description="Name of a Custom QoS policy in this tenant.")
+    bfd_interface_policy: str | None = Field(
+        default=None,
+        description="Name of a BFD interface policy in this tenant (2026-10-16). Unlike the fields above, an empty "
+                    "string REMOVES BFD from the profile -- BFD is its own object, so its removal reaches the APIC.",
+    )
 
     @model_validator(mode="after")
     def _something_to_bind(self):
@@ -812,6 +862,8 @@ class BindL3OutInterfaceProfilePoliciesRequest(BaseModel):
             k: v for k, v in self.model_dump().items()
             if k not in ("tenant", "l3out", "node_profile", "interface_profile") and v
         }
+        if self.bfd_interface_policy == "":
+            bindings["bfd_interface_policy"] = ""
         if not bindings:
             raise ValueError(
                 "nothing to bind -- supply at least one policy or qos_priority. "
@@ -830,7 +882,7 @@ class BindL3OutInterfaceProfilePoliciesRequest(BaseModel):
             field for field in (
                 "nd_interface_policy", "ingress_dpp_policy", "egress_dpp_policy",
                 "pim_interface_policy", "pim_v6_interface_policy",
-                "igmp_interface_policy", "custom_qos_policy",
+                "igmp_interface_policy", "custom_qos_policy", "bfd_interface_policy",
             )
             if getattr(self, field) == "default"
         )

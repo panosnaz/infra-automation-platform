@@ -81,11 +81,23 @@ _QUERY_DEVICES = """
       name
       enabled
       description
+      ip_addresses {
+        address
+        _custom_field_data
+      }
     }
     _custom_field_data
   }
 }
 """
+# Node management addresses (2026-10-12) are native IP Addresses on each
+# switch's management interface, so they are read here, nested under the
+# fabric devices, rather than by a separate IP query. That keeps the read
+# bounded to fabric switches (a customer IPAM can hold many thousands of IPs)
+# and needs no GraphQL filter on the aci_mgmt_* Custom Fields -- Nautobot
+# builds its GraphQL filter arguments at startup, so a filter on a field
+# created by bootstrap_nautobot.py would fail with "Unknown argument" until
+# Nautobot is restarted (confirmed against the lab 2026-10-12).
 
 _QUERY_PREFIXES = """
 {

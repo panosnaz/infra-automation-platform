@@ -86,7 +86,13 @@ Runs, in order, against the proven domain automation (unchanged, per Platform-v2
 
 1. **Generate** — `platform/python/generate_aci.py` (or future `generate_evpn.py`) reads Nautobot, produces NetAsCode YAML.
 2. **Terraform Plan** — `platform/terraform/aci/` (unchanged), `resource_group:` serializes plan/apply per domain+environment — the exact capability that a Phase 1 concurrency issue (two `terraform apply` runs contending for the same provider plugin — see the [Infrastructure Validation Report](Phase1-Infrastructure-Validation-Report.md) §9) already demonstrated the ad hoc script-execution model lacks.
-3. **Terraform Apply** — same module, `-auto-approve` after Approval (2.4) has already gated the job.
+3. **Terraform Apply** — same module, `-auto-approve` after Approval (2.4) has already gated the job. **Preceded by an APIC configuration backup** (2026-10-17). `platform/workflows/scripts/apic_backup.py --create`:
+   * takes a snapshot of the fabric as it is before the apply;
+   * waits for it to complete;
+   * records it in the job artifact `apic-backup.json` (kept even when the apply fails);
+   * keeps the newest 20.
+
+   It **fails closed**: no completed snapshot, no apply. APIC 6.2 refuses every export without a global AES passphrase, so the passphrase lives in Vault (`apic_export_passphrase`) and is enabled once with `--enable-encryption`, which never overwrites an existing key. Rollback: [`ACI-Restore-From-Pre-Apply-Backup.md`](../runbooks/ACI-Restore-From-Pre-Apply-Backup.md).
 4. **Ansible** — `platform/ansible/aci/` Day-2 playbooks, unchanged.
 
 **Output:** Terraform state/output, Ansible run logs, all published as GitLab CI artifacts (or to MinIO for larger objects, once wired — see Platform v2 As-Built §6 item 3).

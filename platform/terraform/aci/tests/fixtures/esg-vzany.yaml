@@ -1,0 +1,71 @@
+# Endpoint Security Groups and vzAny (2026-10-15), in a throwaway tenant.
+#
+# One ESG with every selector kind (EPG, IP subnet, tag) and a provided
+# contract; an ESG alone in an application profile no EPG uses; vzAny of
+# VRF prod with the preferred group enabled and a consumed contract. VRF dev
+# has no vzAny intent, so its vzAny is not managed at all (see main.tf).
+#
+# EVIDENCE: live-verified 2026-10-15 in an isolated state: 24 added -> every
+# value read back from APIC, relations 'formed', no new faults, re-plan "No
+# changes" -> intent cleared (preferred group off, vzAny / ESG contracts, one
+# IP and the tag selector removed) 2 changed / 2 destroyed, APIC matched ->
+# destroy 22, tenant gone, faults back to the baseline. See ADR-020.
+apic:
+  tenants:
+    - name: lcf-esg
+      vrfs:
+        - name: prod
+          preferred_group: true
+          vzany:
+            consumed_contracts: [lcf-shared-ct]
+        - name: dev
+      bridge_domains:
+        - name: web-bd
+          vrf: prod
+          unicast_routing: true
+          subnets:
+            - {ip: 10.92.1.1/24, public: false, private: true, shared: false}
+        - name: dev-bd
+          vrf: dev
+          unicast_routing: true
+      application_profiles:
+        - name: app
+          endpoint_groups:
+            - name: web
+              bridge_domain: web-bd
+              preferred_group_member: true
+          endpoint_security_groups:
+            - name: web-esg
+              vrf: prod
+              description: web tier by EPG, subnet and tag
+              intra_esg_isolation: true
+              preferred_group_member: true
+              provided_contracts: [lcf-web-ct]
+              epg_selectors:
+                - {application_profile: app, endpoint_group: web}
+              ip_subnet_selectors:
+                - {value: 10.92.50.0/24}
+                - {value: 10.92.60.10}
+              tag_selectors:
+                - {key: app, value: web, operator: equals}
+        - name: sec-only
+          endpoint_security_groups:
+            - name: dev-esg
+              vrf: dev
+              shutdown: true
+              consumed_contracts: [lcf-web-ct]
+              ip_subnet_selectors:
+                - {value: 10.92.50.0/24}
+      filters:
+        - name: lcf-http
+          entries:
+            - {name: http, ether_type: ip, ip_protocol: tcp, dest_from_port: "80", dest_to_port: "80"}
+      contracts:
+        - name: lcf-web-ct
+          scope: tenant
+          subjects:
+            - {name: s, filters: [lcf-http]}
+        - name: lcf-shared-ct
+          scope: context
+          subjects:
+            - {name: s, filters: [lcf-http]}

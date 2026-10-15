@@ -10,6 +10,8 @@ from typing import Any, Callable, Literal, get_args
 
 from pydantic import BaseModel
 
+from mcp_server.not_settable import NOT_SETTABLE, describe
+
 # How far a tool has actually been proven, weakest first. These are the three
 # levels CLAUDE.md's Definition of Done already required be stated -- but
 # stating them only in prose meant nothing enforced or surfaced them, and the
@@ -46,6 +48,26 @@ class ToolSpec:
     # failure mode this exists to prevent.
     evidence: EvidenceLevel = "unit-tested"
     evidence_note: str = ""
+    # Settings this tool (or the Terraform behind it) cannot set yet -- IDs
+    # from mcp_server/not_settable.py. The agent is told before it calls.
+    not_settable: tuple[str, ...] = ()
+
+    def client_description(self) -> str:
+        """What the MCP client sees: the description, then -- only when they
+        apply -- the evidence caveat and the not-yet-settable remark."""
+        description = self.description
+        if self.evidence != "live-verified":
+            caveat = f" [EVIDENCE: {self.evidence}"
+            if self.evidence_note:
+                caveat += f" -- {self.evidence_note}"
+            caveat += (
+                ". This tool has not been exercised against live infrastructure; "
+                "report that uncertainty if it fails.]"
+            )
+            description += caveat
+        if self.not_settable:
+            description += describe(self.not_settable)
+        return description
 
 
 class ToolRegistry:
@@ -61,11 +83,15 @@ class ToolRegistry:
         schema: type[BaseModel],
         evidence: EvidenceLevel = "unit-tested",
         evidence_note: str = "",
+        not_settable: tuple[str, ...] = (),
     ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
         if evidence not in EVIDENCE_LEVELS:
             raise ValueError(
                 f"Tool '{name}': evidence must be one of {EVIDENCE_LEVELS}, got '{evidence}'"
             )
+        unknown = [i for i in not_settable if i not in NOT_SETTABLE]
+        if unknown:
+            raise ValueError(f"Tool '{name}': unknown not_settable id(s) {unknown} -- add them to not_settable.py")
 
         def _decorator(handler: Callable[..., Any]) -> Callable[..., Any]:
             if name in self._tools:
@@ -74,6 +100,7 @@ class ToolRegistry:
                 name=name, domain=domain, description=description,
                 schema=schema, handler=handler,
                 evidence=evidence, evidence_note=evidence_note,
+                not_settable=tuple(not_settable),
             )
             return handler
 

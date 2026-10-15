@@ -207,3 +207,74 @@ def test_is_managed_without_global_objects_still_works():
     that pass only tenants behave exactly as before."""
     assert check_apic_faults.is_managed("uni/tn-sales/lDevVip-FW/fault-F0764", ["sales"])
     assert not check_apic_faults.is_managed("uni/vmmp-VMware/dom-vCenter_VMM/fault-F1068", ["sales"])
+
+
+@pytest.mark.parametrize("lc", ["soaking-clearing", "raised-clearing", "retaining"])
+def test_a_fault_already_clearing_is_not_a_failure(lc):
+    """Measured 2026-10-12: Terraform creates a VLAN pool before its range, so
+    APIC raises F0721 "missing Encapsulation Blocks" for that instant, then
+    clears it. The compare ran while it was still minor/soaking-clearing and
+    failed a clean apply. Its lifecycle says the condition is already gone."""
+    after = {"uni/infra/vlanns-[p]-static/fault-F0721": {**_fault(code="F0721"), "lc": lc}}
+    assert new_managed_faults({}, after, ["sales"], ["vlanns-[p]-"]) == {}
+
+
+@pytest.mark.parametrize("lc", ["soaking", "raised", None])
+def test_a_fault_not_yet_clearing_still_fails(lc):
+    """`soaking` is a NEW fault that has not cleared -- it may well be real,
+    so it still counts. A snapshot from before the lifecycle was recorded
+    (no `lc`) keeps the old behaviour."""
+    fault = _fault(code="F0721")
+    if lc is not None:
+        fault["lc"] = lc
+    after = {"uni/infra/vlanns-[p]-static/fault-F0721": fault}
+    assert new_managed_faults({}, after, ["sales"], ["vlanns-[p]-"])
+
+
+def test_fabric_singletons_are_claimed_only_when_declared(tmp_path):
+    """2026-10-13: a fabric-policy apply was compared against "[] tenants + 0
+    objects" -- an OK that looked at nothing."""
+    from check_apic_faults import managed_global_objects
+
+    nac = tmp_path / "t.yaml"
+    nac.write_text("apic:\n  fabric_policies:\n    ntp: {admin_state: enabled}\n    isis: {mtu: 1492}\n")
+    frags = managed_global_objects(str(nac))
+    assert "uni/fabric/time-default" in frags and "uni/fabric/isisDomP-default" in frags
+    assert "uni/fabric/snmppol-default" not in frags, "undeclared singletons are not ours"
+
+
+def test_pc_vpc_and_management_objects_are_claimed(tmp_path):
+    from check_apic_faults import managed_global_objects
+
+    nac = tmp_path / "t.yaml"
+    nac.write_text(
+        "apic:\n"
+        "  access_policies:\n"
+        "    lacp_policies: [{name: L}]\n    vpc_domains: [{name: V}]\n    pc_vpc_policy_groups: [{name: G}]\n"
+        "  node_management:\n"
+        "    inband_epgs: [{name: I}]\n"
+        "    static_addresses: [{node_id: 901, pod_id: 1, type: out_of_band, address: 10.0.0.1/24}]\n"
+    )
+    frags = managed_global_objects(str(nac))
+    for f in ("lacplagp-L", "expgep-V", "accbundle-G", "inb-I", "StNode-[topology/pod-1/node-901]"):
+        assert f in frags
+    assert is_managed("uni/tn-mgmt/mgmtp-default/oob-default/rsooBStNode-[topology/pod-1/node-901]/fault-F1", [], frags)
+
+
+def test_route_reflector_and_pod_profile_faults_are_claimed(tmp_path):
+    """2026-10-14: the APIC accepts a route-reflector node that is not a
+    registered spine with HTTP 200, then raises F1893 under the BGP policy.
+    The compare has to own that DN, or the fault goes unreported."""
+    from check_apic_faults import managed_global_objects
+
+    nac = tmp_path / "t.yaml"
+    nac.write_text(
+        "apic:\n  fabric_policies:\n"
+        "    bgp_route_reflector: {asn: 65099, nodes: [{node_id: 1901, pod_id: 1}]}\n"
+        "    pod_profile: {policy_group: pg1}\n"
+    )
+    frags = managed_global_objects(str(nac))
+    fault_dn = "uni/fabric/bgpInstP-default/rr/node-1901/badselection/fault-F1893"
+    after = {fault_dn: _fault(code="F1893", descr="Only spine nodes can be BGP Route-Reflectors.")}
+    assert new_managed_faults({}, after, [], frags)
+    assert "uni/fabric/podprof-default" in frags

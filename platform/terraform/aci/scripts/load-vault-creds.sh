@@ -37,7 +37,10 @@ _vault_value() {
 import json
 import sys
 data = json.load(sys.stdin)["data"]["data"]
-print(data.get(sys.argv[1], ""))
+value = data.get(sys.argv[1], "")
+# A nested Vault value (e.g. snmp_community_strings) must reach Terraform as
+# JSON, not as a Python repr.
+print(value if isinstance(value, str) else json.dumps(value))
 ' "$1"
 }
 
@@ -59,6 +62,20 @@ export TF_VAR_aci_insecure="$(_vault_value aci_insecure)"
 if [[ -z "${TF_VAR_aci_insecure}" ]]; then
   export TF_VAR_aci_insecure="true"
 fi
-unset _secret_json _vmm_vcenter_username _vmm_vcenter_password
+# SNMP community strings (2026-10-13): optional JSON object under the key
+# snmp_community_strings, {"<reference>": "<community string>"}. Nautobot holds
+# only the references; main.tf's precondition stops the plan if one is missing.
+_snmp_community_strings="$(_vault_value snmp_community_strings)"
+if [[ -n "${_snmp_community_strings}" ]]; then
+  export TF_VAR_snmp_community_strings="${_snmp_community_strings}"
+fi
+# APIC export AES passphrase (2026-10-17): APIC 6.2 refuses every config
+# export without it, so apic_backup.py --create (run before every apply)
+# cannot work without it either. Not a TF_VAR_ -- Terraform does not use it.
+_apic_export_passphrase="$(_vault_value apic_export_passphrase)"
+if [[ -n "${_apic_export_passphrase}" ]]; then
+  export APIC_EXPORT_PASSPHRASE="${_apic_export_passphrase}"
+fi
+unset _secret_json _vmm_vcenter_username _vmm_vcenter_password _snmp_community_strings _apic_export_passphrase
 
 echo "[vault] Exported password-based ACI Terraform variables from Vault (${VAULT_ADDR})"

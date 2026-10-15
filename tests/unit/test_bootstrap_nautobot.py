@@ -127,6 +127,7 @@ def test_the_schema_matches_what_the_platform_actually_reads():
     sources = [
         root / "platform" / "python" / "generator" / "transformer.py",
         root / "mcp-server" / "src" / "mcp_server" / "clients" / "nautobot.py",
+        root / "mcp-server" / "src" / "mcp_server" / "clients" / "nautobot_lifecycle.py",
     ]
     referenced: set[str] = set()
     for path in sources:
@@ -150,6 +151,7 @@ def test_the_schema_has_no_fields_nothing_uses():
     sources = [
         root / "platform" / "python" / "generator" / "transformer.py",
         root / "mcp-server" / "src" / "mcp_server" / "clients" / "nautobot.py",
+        root / "mcp-server" / "src" / "mcp_server" / "clients" / "nautobot_lifecycle.py",
     ]
     referenced: set[str] = set()
     for path in sources:

@@ -1045,6 +1045,10 @@ def test_xml_compatible_access_hierarchy_emitted_from_location_policy():
         _location(
             "ACI-Lab",
             aci_fabric_policies={
+                # Declared since 2026-10-12: a selector naming an undeclared
+                # group never planned (main.tf indexes the group map by name),
+                # and the generator now says so instead of Terraform.
+                "leaf_interface_policy_groups": [{"name": "ExtL3_IPG"}],
                 "access_port_profiles": [
                     {
                         "name": "LEAF101_IFP",
@@ -1837,3 +1841,428 @@ def test_l3_domains_key_absent_when_unset():
     result = build_netascode_yaml(tenants=[], prefixes=[], locations=locations)
 
     assert "l3_domains" not in (result["apic"].get("access_policies") or {})
+
+
+
+# ---------------------------------------------------------------------------
+# Port-channel / vPC / node management (2026-10-12)
+# ---------------------------------------------------------------------------
+
+_ACCESS = {
+    "aeps": [{"name": "AEP1"}],
+    "lacp_policies": [{"name": "LACP_Active", "mode": "active"}],
+    "vpc_domains": [{"name": "vpc-101-102", "domain_id": 10, "node1": 101, "node2": 102}],
+    "pc_vpc_policy_groups": [
+        {"name": "Srv_vPC", "bundle_type": "vpc", "aep": "AEP1", "lacp_policy": "LACP_Active"},
+        {"name": "Srv_PC", "bundle_type": "port_channel", "aep": "AEP1"},
+    ],
+    "access_port_profiles": [{"name": "Leaf101", "selectors": [{"name": "srv", "policy_group": "Srv_vPC"}]}],
+}
+_LEAVES = [_device("leaf101", 101), _device("leaf102", 102)]
+
+
+def _epg_with_paths(paths: list[dict]) -> dict:
+    return _vlan("Web_EPG", "ACI:sales", custom_fields={
+        "aci_application_profile": "app", "aci_epg_bridge_domain": "bd", "aci_static_paths": paths,
+    })
+
+
+def _build(access=None, paths=None, devices=None, extra=None):
+    fabric = dict(access if access is not None else _ACCESS)
+    fabric.update(extra or {})
+    return build_netascode_yaml(
+        [_tenant("ACI:sales")], prefixes=[],
+        vlans=[_epg_with_paths(paths)] if paths is not None else [],
+        locations=[_location("Lab", fabric)],
+        devices=devices if devices is not None else _LEAVES,
+    )
+
+
+def test_pc_vpc_objects_are_emitted_into_access_policies():
+    access = _build()["apic"]["access_policies"]
+    assert access["lacp_policies"] == [{"name": "LACP_Active", "mode": "active"}]
+    assert access["vpc_domains"][0]["node1"] == 101
+    assert [g["name"] for g in access["pc_vpc_policy_groups"]] == ["Srv_vPC", "Srv_PC"]
+
+
+def test_pc_vpc_keys_are_absent_when_unset():
+    """The negative case: no new key appears for a fabric that has none."""
+    access = build_netascode_yaml([], prefixes=[], locations=[_location("Lab", {"aeps": [{"name": "A"}]})])
+    access = access["apic"]["access_policies"]
+    for key in ("lacp_policies", "vpc_domains", "pc_vpc_policy_groups"):
+        assert key not in access
+    assert "node_management" not in build_netascode_yaml([], prefixes=[], devices=_LEAVES)["apic"]
+
+
+def test_vpc_and_pc_static_paths_pass_through_with_their_shape():
+    paths = [
+        {"path_type": "vpc", "node_id": 101, "node_id2": 102, "policy_group": "Srv_vPC", "encap": "vlan-10", "pod_id": 1},
+        {"path_type": "port_channel", "node_id": 101, "policy_group": "Srv_PC", "encap": "vlan-10", "pod_id": 1},
+    ]
+    epg = _build(paths=paths)["apic"]["tenants"][0]["application_profiles"][0]["endpoint_groups"][0]
+    assert epg["static_paths"] == paths
+
+
+@pytest.mark.parametrize("paths,access_patch,message", [
+    ([{"path_type": "vpc", "node_id": 101, "node_id2": 102, "policy_group": "Nope", "encap": "vlan-10"}],
+     None, "undeclared PC/vPC policy group 'Nope'"),
+    ([{"path_type": "port_channel", "node_id": 101, "policy_group": "Srv_vPC", "encap": "vlan-10"}],
+     None, "binds 'Srv_vPC' as port_channel, but it is a vpc group"),
+    ([], {"vpc_domains": []}, None),
+])
+def test_bundle_path_references_must_resolve(paths, access_patch, message):
+    if message is None:
+        _build(paths=paths, extra=access_patch)  # valid: nothing raised
+        return
+    with pytest.raises(PolicyReferenceError, match=message):
+        _build(paths=paths, extra=access_patch)
+
+
+def test_a_vpc_path_needs_a_vpc_domain_for_its_pair():
+    path = {"path_type": "vpc", "node_id": 101, "node_id2": 102, "policy_group": "Srv_vPC", "encap": "vlan-10"}
+    _build(paths=[path])  # the pair is covered by vpc-101-102
+    with pytest.raises(PolicyReferenceError, match=r"nodes \[101, 102\], which no vPC domain pairs"):
+        _build(paths=[path], extra={"vpc_domains": []})
+
+
+@pytest.mark.parametrize("patch,message", [
+    ({"pc_vpc_policy_groups": [{"name": "G", "bundle_type": "vpc", "aep": "Missing"}]}, "undeclared AEP 'Missing'"),
+    ({"pc_vpc_policy_groups": [{"name": "G", "bundle_type": "vpc", "lacp_policy": "Missing"}]}, "undeclared LACP policy"),
+    ({"leaf_interface_policy_groups": [{"name": "Srv_vPC"}]}, "both an access-port and a PC/vPC policy group"),
+    ({"access_port_profiles": [{"name": "P", "selectors": [{"name": "s", "policy_group": "Ghost"}]}]},
+     "applies undeclared policy group 'Ghost'"),
+    ({"vpc_domains": [{"name": "a", "domain_id": 1, "node1": 101, "node2": 102},
+                      {"name": "b", "domain_id": 2, "node1": 102, "node2": 103}]}, "leaf 102 is in two vPC domains"),
+    ({"vpc_domains": [{"name": "a", "domain_id": 1, "node1": 101, "node2": 102},
+                      {"name": "b", "domain_id": 1, "node1": 103, "node2": 104}]}, "vPC domain ID 1 is used by both"),
+])
+def test_access_policy_references_must_resolve(patch, message):
+    devices = _LEAVES + [_device("leaf103", 103), _device("leaf104", 104)]
+    with pytest.raises(PolicyReferenceError, match=message):
+        _build(extra=patch, devices=devices)
+
+
+def test_vpc_domain_members_are_checked_against_inventory():
+    with pytest.raises(FabricInventoryError, match="vPC domain 'vpc-101-102'"):
+        _build(devices=[_device("leaf101", 101)])
+
+
+def test_a_vpc_paths_second_node_is_checked_against_inventory():
+    path = {"path_type": "vpc", "node_id": 101, "node_id2": 102, "policy_group": "Srv_vPC", "encap": "vlan-10"}
+    with pytest.raises(FabricInventoryError, match="node 102 referenced by tenant 'sales' EPG 'Web_EPG' static path"):
+        _build(paths=[path], devices=[_device("leaf101", 101)])
+
+
+def _leaf_with_mgmt(name, node_id, ips):
+    device = _device(name, node_id, pod_id=1)
+    device["interfaces"] = [{"name": "mgmt0", "enabled": True, "description": "", "ip_addresses": ips}]
+    return device
+
+
+def test_management_addresses_come_from_ip_addresses_on_fabric_switches():
+    devices = [_leaf_with_mgmt("leaf101", 101, [
+        {"address": "10.48.0.101/24", "_custom_field_data": {"aci_mgmt_type": "out_of_band", "aci_mgmt_gateway": "10.48.0.1"}},
+        {"address": "192.0.2.9/24", "_custom_field_data": {}},  # ordinary IPAM: ignored
+    ])]
+    mgmt = build_netascode_yaml([], prefixes=[], devices=devices)["apic"]["node_management"]
+    assert mgmt == {"static_addresses": [
+        {"node_id": 101, "pod_id": 1, "type": "out_of_band", "address": "10.48.0.101/24", "gateway": "10.48.0.1"},
+    ]}
+
+
+def test_an_in_band_address_needs_a_declared_epg():
+    devices = [_leaf_with_mgmt("leaf101", 101, [{"address": "10.49.0.101/24", "_custom_field_data": {
+        "aci_mgmt_type": "in_band", "aci_mgmt_gateway": "10.49.0.1", "aci_mgmt_epg": "inb-epg"}}])]
+    with pytest.raises(PolicyReferenceError, match="undeclared in-band EPG 'inb-epg'"):
+        build_netascode_yaml([], prefixes=[], devices=devices)
+    data = build_netascode_yaml([], prefixes=[], devices=devices,
+                                locations=[_location("Lab", {"inband_mgmt_epgs": [{"name": "inb-epg", "encap_vlan": 99}]})])
+    assert data["apic"]["node_management"]["inband_epgs"] == [{"name": "inb-epg", "encap_vlan": 99}]
+    assert data["apic"]["node_management"]["static_addresses"][0]["epg"] == "inb-epg"
+
+
+def test_snmp_community_references_pass_through_without_any_string():
+    """2026-10-13: Nautobot holds only the reference; the community string is
+    a credential supplied to Terraform at apply time. The generator must emit
+    exactly the reference -- nothing it could have invented in its place."""
+    fabric = {"snmp": {"admin_state": "enabled", "communities": [{"ref": "ro-monitoring"}]}}
+    out = build_netascode_yaml([], prefixes=[], locations=[_location("Lab", fabric)])
+    assert out["apic"]["fabric_policies"]["snmp"]["communities"] == [{"ref": "ro-monitoring"}]
+
+
+def test_no_fabric_singletons_are_emitted_when_unset():
+    out = build_netascode_yaml([], prefixes=[], locations=[_location("Lab", {"vlan_pools": [{"name": "p"}]})])
+    for key in ("ntp", "dns", "snmp", "coop", "isis", "fault_lifecycle", "syslog_system_msg", "syslog_rate_limit"):
+        assert key not in out["apic"]["fabric_policies"]
+
+
+# --- BGP route reflector policy / pod profile (2026-10-14) -------------------
+
+_RR = {"asn": 65099, "nodes": [{"node_id": 1001, "pod_id": 1}]}
+
+
+def test_bgp_route_reflector_and_pod_profile_are_emitted():
+    fabric = {"bgp_route_reflector": _RR, "pod_policy_groups": [{"name": "pg1"}], "pod_profile": {"policy_group": "pg1"}}
+    out = build_netascode_yaml([], prefixes=[], locations=[_location("Lab", fabric)],
+                               devices=[_device("spine1001", 1001, role="spine")])
+    assert out["apic"]["fabric_policies"]["bgp_route_reflector"] == _RR
+    assert out["apic"]["fabric_policies"]["pod_profile"] == {"policy_group": "pg1"}
+
+
+def test_bgp_route_reflector_and_pod_profile_absent_when_unset():
+    out = build_netascode_yaml([], prefixes=[], locations=[_location("Lab", {"pod_policy_groups": [{"name": "pg1"}]})])
+    assert "bgp_route_reflector" not in out["apic"]["fabric_policies"]
+    assert "pod_profile" not in out["apic"]["fabric_policies"]
+
+
+def test_a_route_reflector_node_must_be_in_inventory():
+    with pytest.raises(FabricInventoryError, match="node 1001 referenced by BGP route reflector policy"):
+        build_netascode_yaml([], prefixes=[], locations=[_location("Lab", {"bgp_route_reflector": _RR})],
+                             devices=[_device("leaf101", 101)])
+
+
+def test_a_route_reflector_node_must_be_a_spine():
+    """APIC accepts a leaf as route reflector with HTTP 200 and then raises
+    F1893 ("Only spine nodes can be BGP Route-Reflectors") -- verified live
+    2026-10-14. Caught here, by name, instead."""
+    rr = {"asn": 65099, "nodes": [{"node_id": 101, "pod_id": 1}]}
+    with pytest.raises(FabricInventoryError, match="node 101 .*leaf101.* is a leaf"):
+        build_netascode_yaml([], prefixes=[], locations=[_location("Lab", {"bgp_route_reflector": rr})],
+                             devices=[_device("leaf101", 101)])
+
+
+def test_route_reflector_nodes_need_a_fabric_as():
+    with pytest.raises(PolicyReferenceError, match="route reflector nodes but no fabric AS"):
+        build_netascode_yaml([], prefixes=[], locations=[_location("Lab", {"bgp_route_reflector": {"nodes": _RR["nodes"]}})])
+
+
+def test_the_pod_profile_must_name_a_declared_pod_policy_group():
+    with pytest.raises(PolicyReferenceError, match="undeclared Pod Policy Group 'ghost'"):
+        build_netascode_yaml([], prefixes=[], locations=[_location("Lab", {"pod_profile": {"policy_group": "ghost"}})])
+
+
+# --- ESG / vzAny (2026-10-15) ---------------------------------------------------
+
+def _sec_tenant(esgs=None, vrf_cf=None, contracts=("web-ct", "db-ct")):
+    tenant = _tenant("ACI:sales", vrfs=[{"name": "prod", "_custom_field_data": vrf_cf or {}},
+                                        {"name": "dev", "_custom_field_data": {}}])
+    tenant["_custom_field_data"] = {"aci_contracts": {"contracts": [{"name": c} for c in contracts]
+                                                      + [{"name": "wide-ct", "scope": "tenant"}]}}
+    if esgs is not None:
+        tenant["_custom_field_data"]["aci_endpoint_security_groups"] = {"esgs": esgs}
+    return tenant
+
+
+def _sec_build(esgs=None, vrf_cf=None, vlans=None):
+    prefixes = [_prefix("10.0.1.0/24", "ACI:sales", "web-bd", "prod"), _prefix("10.0.2.0/24", "ACI:sales", "dev-bd", "dev")]
+    vlans = vlans if vlans is not None else [
+        _vlan("web", "ACI:sales", custom_fields={"aci_application_profile": "app", "aci_epg_bridge_domain": "web-bd"}),
+        _vlan("dev-web", "ACI:sales", custom_fields={"aci_application_profile": "app", "aci_epg_bridge_domain": "dev-bd"}),
+    ]
+    return build_netascode_yaml([_sec_tenant(esgs, vrf_cf)], prefixes, vlans=vlans)
+
+
+_ESG = {"name": "web-esg", "application_profile": "app", "vrf": "prod", "intra_esg_isolation": True,
+        "provided_contracts": ["web-ct"],
+        "epg_selectors": [{"application_profile": "app", "endpoint_group": "web"}],
+        "ip_subnet_selectors": [{"value": "10.0.1.0/24"}],
+        "tag_selectors": [{"key": "app", "value": "web", "operator": "equals"}]}
+
+
+def test_esgs_are_emitted_into_their_application_profile():
+    ap = _sec_build([_ESG])["apic"]["tenants"][0]["application_profiles"][0]
+    assert [e["name"] for e in ap["endpoint_groups"]] == ["web", "dev-web"]
+    esg = ap["endpoint_security_groups"][0]
+    assert "application_profile" not in esg, "the AP is the parent, not an attribute"
+    assert esg == {k: v for k, v in _ESG.items() if k != "application_profile"}
+
+
+def test_an_esg_in_an_ap_without_epgs_creates_the_ap():
+    esg = {"name": "lone", "application_profile": "sec-only", "vrf": "prod"}
+    aps = _sec_build([esg])["apic"]["tenants"][0]["application_profiles"]
+    assert {"name": "sec-only", "endpoint_security_groups": [{"name": "lone", "vrf": "prod"}]} in aps
+
+
+def test_esg_and_vzany_keys_absent_when_unset():
+    tenant = _sec_build()["apic"]["tenants"][0]
+    assert all("endpoint_security_groups" not in ap for ap in tenant["application_profiles"])
+    for vrf in tenant["vrfs"]:
+        assert "preferred_group" not in vrf and "vzany" not in vrf
+
+
+def test_vrf_preferred_group_and_vzany_contracts():
+    vrf_cf = {"aci_vrf_preferred_group": True, "aci_vzany_contracts": {"provided": [], "consumed": ["db-ct"]}}
+    vrf = next(v for v in _sec_build(vrf_cf=vrf_cf)["apic"]["tenants"][0]["vrfs"] if v["name"] == "prod")
+    assert vrf["preferred_group"] is True
+    assert vrf["vzany"] == {"consumed_contracts": ["db-ct"]}
+    off = next(v for v in _sec_build(vrf_cf={"aci_vrf_preferred_group": False})["apic"]["tenants"][0]["vrfs"]
+               if v["name"] == "prod")
+    assert off["preferred_group"] is False, "an explicit false is emitted, so Terraform turns it off"
+
+
+@pytest.mark.parametrize("esgs,vrf_cf,message", [
+    ([{**_ESG, "vrf": "ghost"}], None, "ESG 'web-esg' is in undeclared VRF 'ghost'"),
+    ([{**_ESG, "provided_contracts": ["ghost"]}], None, "ESG 'web-esg' provides undeclared contract 'ghost'"),
+    (None, {"aci_vzany_contracts": {"consumed": ["ghost"]}}, "vzAny of VRF 'prod' consumes undeclared contract 'ghost'"),
+    (None, {"aci_vzany_contracts": {"provided": ["wide-ct"]}},
+     "vzAny of VRF 'prod' provides contract 'wide-ct' with scope 'tenant' -- vzAny can only provide 'context'"),
+    ([{**_ESG, "epg_selectors": [{"application_profile": "app", "endpoint_group": "nope"}]}], None,
+     "ESG 'web-esg' selects undeclared EPG 'app/nope'"),
+    ([{**_ESG, "epg_selectors": [{"application_profile": "app", "endpoint_group": "dev-web"}]}], None,
+     r"ESG 'web-esg' \(VRF 'prod'\) selects EPG 'app/dev-web', whose bridge domain is in VRF 'dev'"),
+    ([_ESG, {"name": "other", "application_profile": "app", "vrf": "prod",
+             "epg_selectors": [{"application_profile": "app", "endpoint_group": "web"}]}], None,
+     "EPG 'app/web' is selected by more than one ESG: web-esg, other"),
+    ([_ESG, {"name": "other", "application_profile": "app", "vrf": "prod", "ip_subnet_selectors": [{"value": "10.0.1.0/24"}]}],
+     None, "IP subnet 10.0.1.0/24 is selected by more than one ESG in VRF 'prod': web-esg, other"),
+    ([_ESG, {**_ESG, "application_profile": "app"}], None, "ESG 'web-esg' is declared twice in application profile 'app'"),
+    ([_ESG, {"name": "other", "application_profile": "app", "vrf": "prod",
+             "tag_selectors": [{"key": "app", "value": "web", "operator": "regex"}]}],
+     None, "tag selector app=web is in more than one ESG in VRF 'prod': web-esg, other"),
+])
+def test_esg_and_vzany_references_must_resolve(esgs, vrf_cf, message):
+    with pytest.raises(PolicyReferenceError, match=message):
+        _sec_build(esgs, vrf_cf)
+
+
+def test_the_same_subnet_in_two_vrfs_is_allowed():
+    other = {"name": "dev-esg", "application_profile": "app", "vrf": "dev", "ip_subnet_selectors": [{"value": "10.0.1.0/24"}]}
+    _sec_build([_ESG, other])  # nothing raised
+
+
+def test_preferred_group_members_in_a_vrf_without_the_preferred_group_warn(capsys):
+    """NS-01's trap, now visible: membership does nothing until the VRF's
+    preferred group is enabled. A warning, not an error -- it is valid intent
+    on the way to enabling it."""
+    _sec_build([{"name": "g", "application_profile": "app", "vrf": "prod", "preferred_group_member": True}])
+    assert "ESG 'g' is a preferred-group member, but VRF 'prod' does not enable its preferred group" in capsys.readouterr().err
+    _sec_build([{"name": "g", "application_profile": "app", "vrf": "prod", "preferred_group_member": True}],
+               vrf_cf={"aci_vrf_preferred_group": True})
+    assert "preferred-group member" not in capsys.readouterr().err
+
+
+def test_vzany_intent_that_was_cleared_is_still_emitted():
+    """vzAny is managed only for VRFs with vzAny intent (decision 2026-10-15).
+    unbind_vzany_contract leaves {} behind: that VRF must stay managed -- an
+    empty `vzany` -- so Terraform REMOVES the relations. Dropping the key would
+    make Terraform forget vzAny and the APIC keep the last contracts (NS-26)."""
+    vrf = next(v for v in _sec_build(vrf_cf={"aci_vzany_contracts": {}})["apic"]["tenants"][0]["vrfs"]
+               if v["name"] == "prod")
+    assert vrf["vzany"] == {}
+    assert "preferred_group" not in vrf, "contracts and the preferred group are managed independently"
+
+
+def test_a_vrf_never_given_vzany_intent_has_no_vzany_keys():
+    vrf = next(v for v in _sec_build(vrf_cf={"aci_vzany_contracts": None, "aci_vrf_preferred_group": None})
+               ["apic"]["tenants"][0]["vrfs"] if v["name"] == "prod")
+    assert "vzany" not in vrf and "preferred_group" not in vrf
+
+
+# --- L3Out depth (2026-10-16) -------------------------------------------------
+
+_L3D_POLICIES = {
+    "bgp_timers_policies": [{"name": "t1", "keepalive_interval": 30}],
+    "bgp_best_path_policies": [{"name": "bp", "as_path_multipath_relax": True}],
+    "bgp_route_summarization_policies": [{"name": "sum", "as_set": True}],
+    "ospf_timers_policies": [{"name": "ot", "max_ecmp": 8}],
+    "route_tag_policies": [{"name": "rt", "tag": 100}],
+}
+_VPC_ACCESS = {"vpc_domains": [{"name": "vpc", "domain_id": 9, "node1": 101, "node2": 102}],
+               "pc_vpc_policy_groups": [{"name": "vpc-ipg", "bundle_type": "vpc"}]}
+
+
+def _l3d_l3out(**over):
+    l3out = {"name": "out", "vrf": "prod", "protocol": "bgp", "bgp_timers_policy": "t1", "bgp_best_path_policy": "bp",
+             "node_profiles": [{"name": "np", "nodes": [
+                 {"node_id": 101, "pod_id": 1, "loopbacks": [{"ip": "10.9.254.1"}],
+                  "static_routes": [{"prefix": "10.9.100.0/24", "bfd": True, "next_hops": [{"ip": "10.9.1.254"}]}]}],
+                 "interface_profiles": [{"name": "ifp", "bfd_interface_policy": "bfd1", "interfaces": [
+                     {"path_type": "vpc", "node_id": 101, "node_id2": 102, "pod_id": 1, "policy_group": "vpc-ipg",
+                      "svi": True, "vlan": 94, "side_a_ip": "10.9.2.2/24", "side_b_ip": "10.9.2.3/24"}]}]}],
+             "external_epgs": [{"name": "ext", "subnets": [{"ip": "10.9.0.0/16", "scope": ["export-rtctrl"],
+                                                            "bgp_route_summarization_policy": "sum"}]}]}
+    l3out.update(over)
+    return l3out
+
+
+def _l3d_build(l3out=None, vrf_cf=None, policies=None, access=None, devices=None):
+    tenant = _tenant("ACI:sales", vrfs=[{"name": "prod", "_custom_field_data": vrf_cf if vrf_cf is not None else
+                                         {"aci_vrf_protocol_policies": {"bgp_timers_policy": "t1",
+                                                                        "ospf_timers_policy": "ot", "route_tag_policy": "rt"}}}])
+    tenant["_custom_field_data"] = {
+        "aci_protocol_policies": policies if policies is not None else _L3D_POLICIES,
+        "aci_interface_policies": {"bfd_interface_policies": [{"name": "bfd1", "detect_multiplier": 3}]},
+        "aci_l3outs": {"l3outs": [l3out if l3out is not None else _l3d_l3out()]},
+    }
+    return build_netascode_yaml([tenant], prefixes=[], locations=[_location("Lab", access if access is not None else _VPC_ACCESS)],
+                                devices=devices if devices is not None else [_device("leaf101", 101), _device("leaf102", 102)])
+
+
+def test_l3out_depth_is_emitted():
+    t = _l3d_build()["apic"]["tenants"][0]
+    for kind, entries in _L3D_POLICIES.items():
+        assert t[kind] == entries
+    assert t["bfd_interface_policies"] == [{"name": "bfd1", "detect_multiplier": 3}]
+    assert t["vrfs"][0] | {} == {"name": "prod", "bgp_timers_policy": "t1", "ospf_timers_policy": "ot", "route_tag_policy": "rt"}
+    out = t["l3outs"][0]
+    assert out["bgp_timers_policy"] == "t1" and out["node_profiles"][0]["nodes"][0]["static_routes"][0]["bfd"] is True
+    assert out["node_profiles"][0]["interface_profiles"][0]["interfaces"][0]["side_b_ip"] == "10.9.2.3/24"
+
+
+def test_l3out_depth_keys_absent_when_unset():
+    l3out = {"name": "out", "vrf": "prod", "protocol": "bgp", "external_epgs": []}
+    t = _l3d_build(l3out=l3out, vrf_cf={}, policies={})["apic"]["tenants"][0]
+    for kind in list(_L3D_POLICIES):
+        assert kind not in t
+    assert t["vrfs"][0] == {"name": "prod"}
+    assert "bgp_timers_policy" not in t["l3outs"][0]
+
+
+@pytest.mark.parametrize("l3out,vrf_cf,access,message", [
+    (None, {"aci_vrf_protocol_policies": {"ospf_timers_policy": "ghost"}}, None,
+     "VRF 'prod' names undeclared ospf_timers_policy 'ghost'"),
+    (_l3d_l3out(bgp_timers_policy="ghost"), None, None, "L3Out 'out' names undeclared bgp_timers_policy 'ghost'"),
+    (_l3d_l3out(protocol="ospf"), None, None,
+     "L3Out 'out' sets bgp_timers_policy / bgp_best_path_policy but is not a BGP L3Out"),
+    (_l3d_l3out(external_epgs=[{"name": "ext", "subnets": [{"ip": "10.9.0.0/16", "bgp_route_summarization_policy": "x"}]}]),
+     None, None, "subnet 10.9.0.0/16 .* names undeclared bgp_route_summarization_policy 'x'"),
+    (None, None, {"vpc_domains": [], "pc_vpc_policy_groups": [{"name": "vpc-ipg", "bundle_type": "vpc"}]},
+     r"vPC interface on nodes \[101, 102\]: no vPC domain pairs them"),
+    (None, None, {"vpc_domains": _VPC_ACCESS["vpc_domains"], "pc_vpc_policy_groups": [{"name": "vpc-ipg", "bundle_type": "port_channel"}]},
+     "vPC interface .* policy group 'vpc-ipg' is not a vPC policy group"),
+])
+def test_l3out_depth_references_must_resolve(l3out, vrf_cf, access, message):
+    with pytest.raises(PolicyReferenceError, match=message):
+        _l3d_build(l3out=l3out, vrf_cf=vrf_cf, access=access)
+
+
+@pytest.mark.parametrize("change,message", [
+    ({"svi": False}, "a vPC L3Out interface must be an SVI"),
+    ({"side_b_ip": None}, "needs side_a_ip and side_b_ip"),
+    ({"vlan": None}, "needs a vlan"),
+])
+def test_vpc_svi_needs_its_parts(change, message):
+    l3out = _l3d_l3out()
+    iface = l3out["node_profiles"][0]["interface_profiles"][0]["interfaces"][0]
+    iface.update(change)
+    for k in [k for k, v in change.items() if v is None]:
+        iface.pop(k)
+    with pytest.raises(PolicyReferenceError, match=message):
+        _l3d_build(l3out=l3out)
+
+
+def test_duplicate_static_routes_and_loopbacks_are_refused():
+    """Terraform keys them by node + prefix / node + IP: a duplicate is a
+    plan-time 'duplicate object key' error naming nothing useful."""
+    l3out = _l3d_l3out()
+    node = l3out["node_profiles"][0]["nodes"][0]
+    node["static_routes"].append({"prefix": "10.9.100.0/24"})
+    node["loopbacks"].append({"ip": "10.9.254.1"})
+    with pytest.raises(PolicyReferenceError, match="static route 10.9.100.0/24 is declared twice on node 101") as exc:
+        _l3d_build(l3out=l3out)
+    assert "loopback 10.9.254.1 is declared twice on node 101" in str(exc.value)
+
+
+def test_the_vpc_interfaces_second_node_is_checked_against_inventory():
+    with pytest.raises(FabricInventoryError, match="node 102 referenced by tenant 'sales' L3Out 'out' interface profile 'ifp'"):
+        _l3d_build(devices=[_device("leaf101", 101)])

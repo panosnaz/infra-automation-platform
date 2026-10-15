@@ -312,13 +312,16 @@ def create_contract(request: CreateContractRequest, *, nautobot: NautobotClient)
 
 @registry.register(
     name="create_pod_policy_group",
+    not_settable=("NS-22", "NS-23"),
     domain="cisco_aci",
     description=(
         "Create a fabric Pod Policy Group (Fabric > Fabric Policies > Pods > "
         "Policy Groups) and resolve its BGP Route Reflector Policy. ACI ships "
         "exactly one BGP Route Reflector Policy, named 'default', which is "
         "what this resolves to unless told otherwise. Re-running with the same "
-        "name updates the group in place."
+        "name updates the group in place. The group applies only once it is "
+        "assigned to the pod (assign_pod_policy_group); the BGP policy itself "
+        "is set with set_bgp_route_reflector_policy / create_bgp_route_reflector_node."
     ),
     schema=CreatePodPolicyGroupRequest,
 )
@@ -567,6 +570,7 @@ def create_aep(request: CreateAepRequest, *, nautobot: NautobotClient) -> dict:
 
 @registry.register(
     name="create_leaf_interface_policy_group",
+    not_settable=("NS-03",),
     evidence="live-verified",
     evidence_note="MCP protocol session 2026-09-04",
     domain="cisco_aci",
@@ -619,9 +623,10 @@ def create_vrf_route_leak(request: CreateVrfRouteLeakRequest, *, nautobot: Nauto
     }
 
 
-def _fabric_tool(name: str, schema, method: str, description: str):
+def _fabric_tool(name: str, schema, method: str, description: str, **evidence):
     def decorator(function):
-        return registry.register(name=name, domain="cisco_aci", description=description, schema=schema)(function)
+        return registry.register(name=name, domain="cisco_aci", description=description, schema=schema,
+                                 **evidence)(function)
     return decorator
 
 
@@ -630,12 +635,12 @@ def create_leaf_interface_profile(request: CreateLeafInterfaceProfileRequest, *,
     return {"leaf_interface_profile": nautobot.create_leaf_interface_profile(**request.model_dump())}
 
 
-@registry.register(name="create_fabric_device", domain="cisco_aci", description="Create or update an ACI fabric device in Nautobot DCIM.", schema=CreateFabricDeviceRequest)
+@registry.register(name="create_fabric_device", domain="cisco_aci", description="Create or update an ACI fabric device in Nautobot DCIM.", schema=CreateFabricDeviceRequest, not_settable=("NS-15",))
 def create_fabric_device(request: CreateFabricDeviceRequest, *, nautobot: NautobotClient) -> dict:
     return {"device": nautobot.create_fabric_device(**request.model_dump())}
 
 
-@registry.register(name="create_fabric_interface", domain="cisco_aci", description="Create or update a physical fabric interface in Nautobot DCIM.", schema=CreateFabricInterfaceRequest)
+@registry.register(name="create_fabric_interface", domain="cisco_aci", description="Create or update a physical fabric interface in Nautobot DCIM.", schema=CreateFabricInterfaceRequest, not_settable=("NS-15",))
 def create_fabric_interface(request: CreateFabricInterfaceRequest, *, nautobot: NautobotClient) -> dict:
     return {"interface": nautobot.create_fabric_interface(**request.model_dump())}
 
@@ -645,7 +650,14 @@ def create_interface_selector(request: CreateInterfaceSelectorRequest, *, nautob
     return {"interface_selector": nautobot.create_interface_selector(**request.model_dump())}
 
 
-@_fabric_tool("create_static_path_binding", CreateStaticPathBindingRequest, "create_static_path_binding", "Bind an EPG to a static leaf path.")
+@_fabric_tool("create_static_path_binding", CreateStaticPathBindingRequest, "create_static_path_binding", "Bind an EPG to a static path: one leaf port (path_type='port'), a port-channel policy group on one leaf ('port_channel') or a vPC policy group across a vPC pair ('vpc'). Adds to the EPG's existing paths; the same path bound again replaces only itself. PC/vPC bindings are refused unless the policy group exists with the matching type and, for vPC, a vPC domain pairs exactly those two leaves.",
+              evidence="live-verified",
+              evidence_note=("2026-10-12: port, port-channel and vPC bindings written over the real MCP protocol and "
+                             "read back from Nautobot -- three bindings kept side by side (the old replace-the-list bug "
+                             "gone), vPC pair given in either order, wrong-type and unpaired-vPC bindings refused. "
+                             "Rendered DNs applied to the lab APIC via tests/fixtures/pc-vpc-mgmt.yaml; fvRsPathAtt "
+                             "stays unformed (no switches)."),
+              not_settable=("NS-06",))
 def create_static_path_binding(request: CreateStaticPathBindingRequest, *, nautobot: NautobotClient) -> dict:
     return {"static_path": nautobot.create_static_path_binding(**request.model_dump())}
 
@@ -1091,15 +1103,16 @@ def create_custom_qos_policy(request: CreateCustomQosPolicyRequest, *, nautobot:
 
 @registry.register(
     name="bind_l3out_interface_profile_policies",
+    not_settable=("NS-12", "NS-13", "NS-27"),
     domain="cisco_aci",
     description=(
-        "Bind ND / Data Plane Policing / PIM / PIMv6 / IGMP / Custom QoS "
+        "Bind ND / Data Plane Policing / PIM / PIMv6 / IGMP / Custom QoS / BFD "
         "policies to an existing L3Out Logical Interface Profile, and/or set "
         "its QoS priority. Each policy must already exist in the same tenant "
         "(or be a full uni/... DN). Omitting a field leaves it unchanged; "
-        "there is no way to clear a binding back to the APIC default through "
-        "this tool, and the literal string 'default' is rejected because APIC "
-        "fails the apply on it."
+        "only BFD can be removed (bfd_interface_policy=''). The other bindings "
+        "cannot be cleared back to the APIC default through this tool, and the "
+        "literal string 'default' is rejected because APIC fails the apply on it."
     ),
     schema=BindL3OutInterfaceProfilePoliciesRequest,
     evidence=EVIDENCE_LEVEL,
@@ -1353,3 +1366,8 @@ def create_l3_domain(request: CreateL3DomainRequest, *, nautobot: NautobotClient
         note += (" WARNING: no VLAN pool bound -- any L3Out encap VLAN using this "
                  "domain will sit outside every pool.")
     return {"l3_domain": result, "note": note}
+
+
+# Read / update / delete tools live in their own module; importing this one
+# registers them too, so every caller that loads the ACI tools gets all of them.
+from mcp_server.tools import aci_access, aci_fabric, aci_l3out_depth, aci_lifecycle, aci_security  # noqa: E402,F401

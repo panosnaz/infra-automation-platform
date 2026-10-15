@@ -82,7 +82,10 @@ stages:
   script:
     - cd "${TERRAFORM_DIR}"
     - terraform init -input=false
-    - terraform plan -input=false -lock-timeout=60s -out=tfplan
+    # Through mask_secrets.py: an SNMP community string is part of its APIC DN,
+    # which Terraform prints as the resource id on refresh/create/destroy --
+    # `sensitive` does not hide it there, and this log is readable in GitLab.
+    - python3 "${CI_PROJECT_DIR}/platform/workflows/scripts/mask_secrets.py" --env TF_VAR_snmp_community_strings -- terraform plan -input=false -lock-timeout=60s -out=tfplan
     # Snapshot APIC faults BEFORE anything changes. This fabric already
     # carries unrelated faults (undiscovered nodes, licensing), so only a
     # before/after delta can attribute a fault to this deployment.
@@ -105,9 +108,15 @@ stages:
     - unzip -q /tmp/tf.zip -d /usr/local/bin
     - . "${TERRAFORM_DIR}/scripts/load-vault-creds.sh"
   script:
+    # Configuration backup FIRST (2026-10-17): an APIC snapshot of the fabric as
+    # it is before this apply, so a bad apply can be rolled back to exactly
+    # this state (apic_backup.py --restore). Fail-closed: no completed
+    # snapshot, no apply. Needs the AES export passphrase in Vault -- APIC 6.2
+    # refuses every export without it. Keeps the newest 20 snapshots.
+    - python3 "${CI_PROJECT_DIR}/platform/workflows/scripts/apic_backup.py" --create "${CI_PROJECT_DIR}/apic-backup.json" --reason "pipeline ${CI_PIPELINE_ID} ${CI_COMMIT_SHORT_SHA}"
     - cd "${TERRAFORM_DIR}"
     - terraform init -input=false
-    - terraform apply -input=false -auto-approve -lock-timeout=60s tfplan
+    - python3 "${CI_PROJECT_DIR}/platform/workflows/scripts/mask_secrets.py" --env TF_VAR_snmp_community_strings -- terraform apply -input=false -auto-approve -lock-timeout=60s tfplan
   resource_group: "terraform-${POLICY_DOMAIN}-${CI_ENVIRONMENT_NAME}"
   # Milestone 1: a plain manual gate proves the Approval stage's mechanics.
   # allow_failure explicitly false so the pipeline actually blocks later
@@ -118,8 +127,11 @@ stages:
   when: manual
   allow_failure: false
   artifacts:
+    # when: always -- the backup record matters most when the apply fails.
+    when: always
     paths:
       - "${TERRAFORM_DIR}/tfplan"
+      - apic-backup.json
     expire_in: "1 week"
 
 .ansible_configure:

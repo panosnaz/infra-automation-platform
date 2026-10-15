@@ -1,0 +1,96 @@
+# L3Out depth (2026-10-16), in a throwaway tenant.
+#
+# A BGP L3Out on leaves 101/102: a static route with two next hops and BFD,
+# a loopback per node, a routed port, an SVI on the 101-102 vPC (side A/B
+# addresses), BFD on the interface profile, BGP timers and best-path policy on
+# the L3Out, and BGP route summarization on an external EPG subnet. VRF prod
+# references BGP timers, OSPF timers and a route tag policy.
+#
+# Leaves 101/102 are not registered on this simulator: paths stay unformed,
+# as for every other L3Out path here (see ADR-020).
+#
+# EVIDENCE: live-verified 2026-10-16 in an isolated state (14/14): a VRF
+# without depth intent plans no change; full apply -> every object and
+# relation read back, 'formed' -> re-plan "No changes"; all depth intent
+# removed in one apply -> VRF relations back to tn-common defaults, subnet
+# summarization relation gone, nothing dangling; destroy; faults at baseline.
+# On this simulator the floor is F1298 per leaf given an L3Out interface and
+# F0749 per vPC pair -- leaves 101/102 are not registered; a control without
+# any depth feature raises the same faults.
+apic:
+  access_policies:
+    aeps:
+      - {name: lcf-l3d-aep}
+    l3_domains:
+      - {name: lcf-l3d-dom}
+    vpc_domains:
+      - {name: lcf-l3d-vpc, domain_id: 94, node1: 101, node2: 102}
+    pc_vpc_policy_groups:
+      - {name: lcf-l3d-vpc-ipg, bundle_type: vpc, aep: lcf-l3d-aep}
+  tenants:
+    - name: lcf-l3d
+      vrfs:
+        - name: prod
+          bgp_timers_policy: lcf-bgp-timers
+          ospf_timers_policy: lcf-ospf-timers
+          route_tag_policy: lcf-route-tag
+      bfd_interface_policies:
+        - {name: lcf-bfd, admin_state: enabled, detect_multiplier: 3, min_rx_interval: 300, min_tx_interval: 300}
+      bgp_timers_policies:
+        - {name: lcf-bgp-timers, keepalive_interval: 30, hold_interval: 90, stale_interval: 300, graceful_restart_helper: true, max_as_limit: 0}
+      bgp_best_path_policies:
+        - {name: lcf-bestpath, as_path_multipath_relax: true}
+      bgp_route_summarization_policies:
+        - {name: lcf-summ, as_set: true}
+      ospf_timers_policies:
+        - {name: lcf-ospf-timers, reference_bandwidth: 100000, distance: 110, max_ecmp: 8}
+      route_tag_policies:
+        - {name: lcf-route-tag, tag: 4294967295}
+      l3outs:
+        - name: lcf-bgp-out
+          vrf: prod
+          domain: lcf-l3d-dom
+          protocol: bgp
+          bgp_timers_policy: lcf-bgp-timers
+          bgp_best_path_policy: lcf-bestpath
+          node_profiles:
+            - name: np
+              nodes:
+                - node_id: 101
+                  pod_id: 1
+                  router_id: 10.94.255.101
+                  router_id_as_loopback: false
+                  loopbacks:
+                    - {ip: 10.94.254.101}
+                  static_routes:
+                    - prefix: 10.94.100.0/24
+                      preference: 1
+                      bfd: true
+                      next_hops:
+                        - {ip: 10.94.1.254, preference: 1}
+                        - {ip: 10.94.1.253, preference: 2}
+                - node_id: 102
+                  pod_id: 1
+                  router_id: 10.94.255.102
+                  router_id_as_loopback: false
+                  loopbacks:
+                    - {ip: 10.94.254.102}
+              interface_profiles:
+                - name: ifp
+                  bfd_interface_policy: lcf-bfd
+                  interfaces:
+                    - {node_id: 101, pod_id: 1, module: 1, port: 20, ip: 10.94.1.1/24}
+                    - path_type: vpc
+                      node_id: 101
+                      node_id2: 102
+                      pod_id: 1
+                      policy_group: lcf-l3d-vpc-ipg
+                      svi: true
+                      vlan: 94
+                      side_a_ip: 10.94.2.2/24
+                      side_b_ip: 10.94.2.3/24
+          external_epgs:
+            - name: ext
+              subnets:
+                - {ip: 0.0.0.0/0, scope: [import-security]}
+                - {ip: 10.94.0.0/16, scope: [export-rtctrl], bgp_route_summarization_policy: lcf-summ}

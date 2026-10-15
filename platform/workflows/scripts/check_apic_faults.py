@@ -42,6 +42,15 @@ import yaml
 # resolved history, and "info" is not actionable.
 _FAILING_SEVERITIES = frozenset({"critical", "major", "minor", "warning"})
 
+# Fault lifecycle states meaning the condition has ALREADY cleared and APIC is
+# only finishing the bookkeeping. A fault keeps its original severity for a
+# while after the condition goes away (soaking-clearing / raised-clearing),
+# so severity alone misreports it. Measured 2026-10-12: Terraform creates a
+# VLAN pool before its range, APIC raises F0721 "missing Encapsulation Blocks"
+# for that instant, and a compare run a minute later failed a clean apply.
+# `soaking` (new, not yet cleared) is deliberately NOT here -- it may be real.
+_CLEARING_LIFECYCLES = frozenset({"soaking-clearing", "raised-clearing", "retaining"})
+
 
 class ApicError(RuntimeError):
     """APIC unreachable or rejected the request."""
@@ -88,6 +97,7 @@ def fetch_faults(url: str, username: str, password: str, insecure: bool = True) 
         faults[attrs["dn"]] = {
             "code": attrs.get("code", ""),
             "severity": attrs.get("severity", ""),
+            "lc": attrs.get("lc", ""),
             "descr": attrs.get("descr", ""),
         }
     return faults
@@ -116,6 +126,29 @@ _GLOBAL_SCOPES: tuple[tuple[tuple[str, ...], str], ...] = (
     (("access_policies", "leaf_interface_policy_groups"), "accportgrp-{name}"),
     (("access_policies", "access_port_profiles"), "accportprof-{name}"),
     (("access_policies", "leaf_profiles"), "nprof-{name}"),
+    # Port-channel / vPC / in-band management (2026-10-12).
+    (("access_policies", "lacp_policies"), "lacplagp-{name}"),
+    (("access_policies", "vpc_domains"), "expgep-{name}"),
+    (("access_policies", "pc_vpc_policy_groups"), "accbundle-{name}"),
+    (("node_management", "inband_epgs"), "inb-{name}"),
+)
+
+# Fabric-wide singletons (2026-10-13): one fixed DN each, claimed when the YAML
+# sets that policy. Without these the compare scoped a fabric-policy apply to
+# "[] tenants + 0 objects" and reported OK while looking at nothing.
+_SINGLETON_SCOPES: tuple[tuple[str, str], ...] = (
+    ("ntp", "uni/fabric/time-default"),
+    ("dns", "uni/fabric/dnsp-default"),
+    ("snmp", "uni/fabric/snmppol-default"),
+    ("coop", "uni/fabric/pol-default"),
+    ("isis", "uni/fabric/isisDomP-default"),
+    ("fault_lifecycle", "uni/fabric/moncommon/flcp-generic"),
+    ("syslog_system_msg", "uni/fabric/moncommon/sysmsgp"),
+    ("syslog_rate_limit", "uni/fabric/moncommon/ratelimitp"),
+    # 2026-10-14. A route-reflector node that is not a registered spine is
+    # accepted (HTTP 200) and then faulted F1893 under .../rr/node-N.
+    ("bgp_route_reflector", "uni/fabric/bgpInstP-default"),
+    ("pod_profile", "uni/fabric/podprof-default"),
 )
 
 
@@ -145,6 +178,14 @@ def managed_global_objects(netascode_yaml: str) -> list[str]:
             name = item.get("name") if isinstance(item, dict) else None
             if name:
                 fragments.append(template.format(name=name))
+
+    fabric = apic.get("fabric_policies") or {}
+    fragments.extend(dn for key, dn in _SINGLETON_SCOPES if fabric.get(key))
+
+    # Static node management addresses: mgmtRsOoBStNode / mgmtRsInBStNode and
+    # their deployment faults all carry the node's topology DN.
+    for addr in (apic.get("node_management") or {}).get("static_addresses") or []:
+        fragments.append(f"StNode-[topology/pod-{addr.get('pod_id', 1)}/node-{addr.get('node_id')}]")
     return fragments
 
 
@@ -173,6 +214,7 @@ def new_managed_faults(
         for dn, info in after.items()
         if dn not in before
         and info.get("severity") in _FAILING_SEVERITIES
+        and info.get("lc") not in _CLEARING_LIFECYCLES
         and is_managed(dn, tenants, global_objects)
     }
 
@@ -247,7 +289,8 @@ def main() -> int:
         file=sys.stderr,
     )
     for dn, info in sorted(introduced.items()):
-        print(f"  [{info['severity']}] {info['code']}  {dn}", file=sys.stderr)
+        lc = f" ({info['lc']})" if info.get("lc") else ""
+        print(f"  [{info['severity']}{lc}] {info['code']}  {dn}", file=sys.stderr)
         print(f"      {info['descr']}", file=sys.stderr)
     print(
         "\nTerraform reported success, so these objects exist -- but APIC "

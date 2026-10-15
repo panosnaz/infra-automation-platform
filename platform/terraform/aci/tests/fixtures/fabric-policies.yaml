@@ -1,0 +1,48 @@
+# Fabric-wide policies (2026-10-13): NTP, DNS, SNMP (community by reference),
+# COOP, ISIS, fault lifecycle, syslog message handling and rate limit.
+#
+# These are APIC singletons. NTP/DNS/SNMP/fault/syslog are aci_rest_managed
+# with content_on_destroy, so a destroy puts back APIC's defaults. COOP and
+# ISIS are typed resources that CANNOT reset their singleton (NS-21), so this
+# fixture sets them to the APIC's current values (compatible; 1492 / 32 on
+# this APIC) -- applying it changes nothing there, and destroying it leaves
+# the fabric as found.
+#
+# The SNMP community is a REFERENCE: plan/apply with
+#   TF_VAR_snmp_community_strings='{"lcf-ro": "<string>"}'
+# Without it the plan stops on the precondition, by design.
+#
+# EVIDENCE: live-verified 2026-10-13 in an isolated state, twice: plan 9 to
+# add -> apply 9 added -> every value read back from the APIC -> re-plan "No
+# changes" -> destroy 9 destroyed -> all 8 singletons byte-identical to the
+# pre-apply snapshot; no new faults (unscoped, 5 before / 5 after). COOP and
+# ISIS warn "cannot be deleted" on destroy, as NS-21 says.
+apic:
+  tenants: []
+  fabric_policies:
+    ntp:
+      admin_state: enabled
+      servers:
+        - {address: 10.254.0.1, preferred: true, min_poll: 4, max_poll: 8}
+        - {address: ntp.lcf-test.example, preferred: false, min_poll: 4, max_poll: 6}
+    dns:
+      servers:
+        - {address: 10.254.0.53, preferred: true}
+        - {address: 10.254.0.54, preferred: false}
+      domains:
+        - {name: a.lcf-test.example, is_default: false}
+        - {name: b.lcf-test.example, is_default: true}
+    snmp:
+      admin_state: enabled
+      contact: noc@lcf-test.example
+      location: Lab row 4
+      communities:
+        - {ref: lcf-ro}
+    coop:
+      type: compatible
+    isis:
+      mtu: 1492
+      redistrib_metric: 32
+    fault_lifecycle: {soak: 120, retain: 7200, clear: 120}
+    syslog_system_msg: {admin_state: monitor}
+    syslog_rate_limit: {enabled: true, limit_per_sec: 400}

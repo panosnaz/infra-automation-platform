@@ -28,7 +28,7 @@ export TF_VAR_aci_url=https://172.30.46.103
 export TF_VAR_aci_username=admin
 export TF_VAR_aci_password=<password>  # or: source platform/terraform/aci/scripts/load-vault-creds.sh
 
-# 1. Nautobot schema complete? (32 Custom Fields + the Location)
+# 1. Nautobot schema complete? (40 Custom Fields + the Location)
 python platform/workflows/scripts/bootstrap_nautobot.py --verify --location "Isolated Lab Site"
 
 # 2. Intent regenerates deterministically?

@@ -55,6 +55,19 @@ variable "local_user_passwords" {
   default     = {}
 }
 
+# SNMP community strings (2026-10-13). A community string is a credential, so
+# Nautobot and the generated YAML hold only a REFERENCE name
+# (apic.fabric_policies.snmp.communities[].ref); the string itself arrives
+# here at apply time, keyed by that reference -- e.g. from Vault via
+# TF_VAR_snmp_community_strings='{"ro-monitoring": "..."}'. Same rule as
+# local_user_passwords above.
+variable "snmp_community_strings" {
+  description = "Map of SNMP community reference -> community string. Never persisted in Nautobot/YAML."
+  type        = map(string)
+  sensitive   = true
+  default     = {}
+}
+
 # Fabric membership registration (2026-09-14). OFF by default, deliberately.
 #
 # Setting this true makes Terraform register every Nautobot-modeled leaf/spine

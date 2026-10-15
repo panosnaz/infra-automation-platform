@@ -139,6 +139,7 @@ def build_netascode_yaml(
             entry["bridge_domains"] = bridge_domains
 
         application_profiles = _build_application_profiles(vlans_by_tenant.get(aci_name, []))
+        _add_endpoint_security_groups(application_profiles, tenant.get("_custom_field_data") or {})
         if application_profiles:
             entry["application_profiles"] = application_profiles
 
@@ -170,6 +171,14 @@ def build_netascode_yaml(
         # finding F-01 -- scales with the number of fields).
         entry.update(_build_interface_policies(tenant.get("_custom_field_data") or {}))
 
+        # L3Out depth (2026-10-16): BGP timers / best path / route
+        # summarization, OSPF timers and route tag policies -- tenant-scoped,
+        # named by VRFs, L3Outs and external EPG subnets.
+        protocol_cf = (tenant.get("_custom_field_data") or {}).get("aci_protocol_policies") or {}
+        for kind in PROTOCOL_POLICY_KINDS:
+            if protocol_cf.get(kind):
+                entry[kind] = list(protocol_cf[kind])
+
         # Route control (2026-09-16). Match rules are tenant-scoped; the route
         # maps themselves live inside each L3Out and therefore arrive through
         # aci_l3outs as pass-through, needing no builder of their own.
@@ -199,6 +208,10 @@ def build_netascode_yaml(
     if aaa_policies:
         result["apic"]["aaa_policies"] = aaa_policies
 
+    node_management = _build_node_management(locations or [], devices or [])
+    if node_management:
+        result["apic"]["node_management"] = node_management
+
     # Fabric inventory (2026-09-14). Emitted before validation so a failure
     # message can name what inventory actually exists.
     # Policy references are validated unconditionally: unlike node references
@@ -206,6 +219,10 @@ def build_netascode_yaml(
     # to make it opt-in.
     _validate_interface_policy_references(result)
     _validate_route_control_references(result)
+    _validate_access_references(result)
+    _validate_fabric_references(result)
+    _validate_security_references(result)
+    _validate_l3out_depth_references(result)
 
     inventory = _build_fabric_inventory(devices or [])
     if inventory:
@@ -246,6 +263,23 @@ def _build_vrfs(vrfs: list[dict[str, Any]]) -> list[dict[str, Any]]:
             entry["policy_control_enforcement_direction"] = v
         if v := cf.get("aci_policy_control_enforcement_mode"):
             entry["policy_control_enforcement_mode"] = v
+
+        # 2026-10-16 -- L3Out depth: VRF-wide BGP timers, OSPF timers, route tag.
+        vrf_policies = cf.get("aci_vrf_protocol_policies") or {}
+        for key in VRF_PROTOCOL_POLICY_KEYS:
+            if vrf_policies.get(key):
+                entry[key] = vrf_policies[key]
+
+        # 2026-10-15 -- vzAny, managed only for VRFs with vzAny intent. Both
+        # keys are emitted whenever the field holds a value, even false / {}:
+        # once intent was written, clearing it must reach the APIC (preferred
+        # group off, relations removed). Absent keys mean "never managed" --
+        # Terraform then leaves vzAny alone; it cannot reset it (NS-26).
+        if (v := cf.get("aci_vrf_preferred_group")) is not None:
+            entry["preferred_group"] = bool(v)
+        vzany_cf = cf.get("aci_vzany_contracts")
+        if isinstance(vzany_cf, dict):
+            entry["vzany"] = {f"{k}_contracts": list(vzany_cf[k]) for k in ("provided", "consumed") if vzany_cf.get(k)}
 
         result.append(entry)
     return result
@@ -434,6 +468,25 @@ def _build_application_profiles(vlans: list[dict[str, Any]]) -> list[dict[str, A
     ]
 
 
+def _add_endpoint_security_groups(application_profiles: list[dict[str, Any]], tenant_cf: dict[str, Any]) -> None:
+    """Place each ESG under its application profile (2026-10-15).
+
+    ESGs are stored on the Tenant (`aci_endpoint_security_groups`), each
+    naming its application profile; in the YAML the AP is the parent. An AP
+    that holds only ESGs -- no EPG uses it -- is created here, because an ESG
+    needs an AP to live in.
+    """
+    for esg in ((tenant_cf.get("aci_endpoint_security_groups") or {}).get("esgs") or []):
+        ap_name = esg.get("application_profile")
+        ap = next((a for a in application_profiles if a["name"] == ap_name), None)
+        if ap is None:
+            ap = {"name": ap_name}
+            application_profiles.append(ap)
+        ap.setdefault("endpoint_security_groups", []).append(
+            {k: v for k, v in esg.items() if k != "application_profile"}
+        )
+
+
 def _build_contracts_and_filters(tenant_cf: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Build apic.tenants[].filters[] and apic.tenants[].contracts[] from a
     tenant's ``aci_contracts`` JSON Custom Field (ADR-020 Phase A item 3).
@@ -495,7 +548,20 @@ INTERFACE_POLICY_KINDS: dict[str, tuple[str, ...]] = {
     "pim_interface_policies": ("pim_interface_policy", "pim_v6_interface_policy"),
     "igmp_interface_policies": ("igmp_interface_policy",),
     "custom_qos_policies": ("custom_qos_policy",),
+    # 2026-10-16 -- L3Out depth.
+    "bfd_interface_policies": ("bfd_interface_policy",),
 }
+
+# L3Out depth (2026-10-16): tenant-scoped protocol policies, stored together
+# in the `aci_protocol_policies` Custom Field, and the objects that name each.
+PROTOCOL_POLICY_KINDS: dict[str, str] = {
+    "bgp_timers_policies": "bgp_timers_policy",
+    "bgp_best_path_policies": "bgp_best_path_policy",
+    "bgp_route_summarization_policies": "bgp_route_summarization_policy",
+    "ospf_timers_policies": "ospf_timers_policy",
+    "route_tag_policies": "route_tag_policy",
+}
+VRF_PROTOCOL_POLICY_KEYS = ("bgp_timers_policy", "ospf_timers_policy", "route_tag_policy")
 
 
 def _build_interface_policies(tenant_cf: dict[str, Any]) -> dict[str, Any]:
@@ -759,6 +825,10 @@ def _build_fabric_and_access_policies(
     l3_domains: list[dict[str, Any]] = []
     aeps: list[dict[str, Any]] = []
     leaf_interface_policy_groups: list[dict[str, Any]] = []
+    # Port-channel / vPC (2026-10-12).
+    lacp_policies: list[dict[str, Any]] = []
+    vpc_domains: list[dict[str, Any]] = []
+    pc_vpc_policy_groups: list[dict[str, Any]] = []
     vmm_domains: list[dict[str, Any]] = []
     pod_policy_groups: list[dict[str, Any]] = []
     ntp: dict[str, Any] = {}
@@ -769,6 +839,8 @@ def _build_fabric_and_access_policies(
     fault_lifecycle: dict[str, Any] = {}
     syslog_system_msg: dict[str, Any] = {}
     syslog_rate_limit: dict[str, Any] = {}
+    bgp_route_reflector: dict[str, Any] = {}
+    pod_profile: dict[str, Any] = {}
 
     for location in locations:
         cf = location.get("_custom_field_data") or {}
@@ -781,6 +853,9 @@ def _build_fabric_and_access_policies(
         l3_domains.extend(data.get("l3_domains") or [])
         aeps.extend(data.get("aeps") or [])
         leaf_interface_policy_groups.extend(data.get("leaf_interface_policy_groups") or [])
+        lacp_policies.extend(data.get("lacp_policies") or [])
+        vpc_domains.extend(data.get("vpc_domains") or [])
+        pc_vpc_policy_groups.extend(data.get("pc_vpc_policy_groups") or [])
         vmm_domains.extend(data.get("vmm_domains") or [])
         pod_policy_groups.extend(data.get("pod_policy_groups") or [])
         # POD-wide policies are singletons -- last Location with the field
@@ -803,6 +878,13 @@ def _build_fabric_and_access_policies(
             syslog_system_msg = data["syslog_system_msg"]
         if data.get("syslog_rate_limit"):
             syslog_rate_limit = data["syslog_rate_limit"]
+        # 2026-10-14: the fabric AS + spine route reflectors
+        # (uni/fabric/bgpInstP-default) and the Pod Policy Group assigned to
+        # the default pod selector -- singletons, same rule.
+        if data.get("bgp_route_reflector"):
+            bgp_route_reflector = data["bgp_route_reflector"]
+        if data.get("pod_profile"):
+            pod_profile = data["pod_profile"]
 
     fabric_policies: dict[str, Any] = {}
     if vlan_pools:
@@ -827,6 +909,10 @@ def _build_fabric_and_access_policies(
         fabric_policies["syslog_system_msg"] = syslog_system_msg
     if syslog_rate_limit:
         fabric_policies["syslog_rate_limit"] = syslog_rate_limit
+    if bgp_route_reflector:
+        fabric_policies["bgp_route_reflector"] = bgp_route_reflector
+    if pod_profile:
+        fabric_policies["pod_profile"] = pod_profile
 
     access_policies: dict[str, Any] = {}
     if physical_domains:
@@ -837,6 +923,12 @@ def _build_fabric_and_access_policies(
         access_policies["aeps"] = aeps
     if leaf_interface_policy_groups:
         access_policies["leaf_interface_policy_groups"] = leaf_interface_policy_groups
+    if lacp_policies:
+        access_policies["lacp_policies"] = lacp_policies
+    if vpc_domains:
+        access_policies["vpc_domains"] = vpc_domains
+    if pc_vpc_policy_groups:
+        access_policies["pc_vpc_policy_groups"] = pc_vpc_policy_groups
     for key in ("leaf_interface_profiles", "interface_selectors", "access_port_profiles", "leaf_profiles"):
         values = []
         for location in locations:
@@ -971,10 +1063,11 @@ def _collect_node_references(data: dict[str, Any]) -> list[tuple[int, str]]:
         for ap in tenant.get("application_profiles", []):
             for epg in ap.get("endpoint_groups", []):
                 for path in epg.get("static_paths", []):
-                    if (node_id := path.get("node_id")) is not None:
-                        references.append(
-                            (int(node_id), f"tenant '{tenant_name}' EPG '{epg.get('name')}' static path")
-                        )
+                    for key in ("node_id", "node_id2"):
+                        if (node_id := path.get(key)) is not None:
+                            references.append(
+                                (int(node_id), f"tenant '{tenant_name}' EPG '{epg.get('name')}' static path")
+                            )
 
         # L4-L7 concrete interfaces resolve to the same
         # topology/pod-N/paths-M/... DN as a static path, so they get the
@@ -997,12 +1090,29 @@ def _collect_node_references(data: dict[str, Any]) -> list[tuple[int, str]]:
                         )
                 for interface_profile in node_profile.get("interface_profiles", []):
                     for interface in interface_profile.get("interfaces", []):
-                        if (node_id := interface.get("node_id")) is not None:
-                            references.append(
-                                (int(node_id), f"tenant '{tenant_name}' L3Out '{l3out_name}' interface profile '{interface_profile.get('name')}'")
-                            )
+                        # node_id2: the second leaf of a vPC SVI (2026-10-16).
+                        for key in ("node_id", "node_id2"):
+                            if (node_id := interface.get(key)) is not None:
+                                references.append(
+                                    (int(node_id), f"tenant '{tenant_name}' L3Out '{l3out_name}' interface profile '{interface_profile.get('name')}'")
+                                )
+
+    # A vPC domain names both its leaves; a typo pairs a real leaf with one
+    # that does not exist, and APIC accepts the protection group regardless.
+    for domain in (data.get("apic", {}).get("access_policies") or {}).get("vpc_domains", []):
+        for key in ("node1", "node2"):
+            if (node_id := domain.get(key)) is not None:
+                references.append((int(node_id), f"vPC domain '{domain.get('name')}'"))
+
+    for node in _route_reflector_nodes(data):
+        references.append((int(node["node_id"]), "BGP route reflector policy"))
 
     return references
+
+
+def _route_reflector_nodes(data: dict[str, Any]) -> list[dict[str, Any]]:
+    fabric = data.get("apic", {}).get("fabric_policies") or {}
+    return [n for n in (fabric.get("bgp_route_reflector") or {}).get("nodes", []) if n.get("node_id") is not None]
 
 
 def _validate_node_references(data: dict[str, Any], inventory: dict[str, Any]) -> None:
@@ -1017,6 +1127,19 @@ def _validate_node_references(data: dict[str, Any], inventory: dict[str, Any]) -
     known = {node["node_id"]: node for node in inventory.get("nodes", [])}
     unknown = [(node_id, where) for node_id, where in _collect_node_references(data) if node_id not in known]
     if not unknown:
+        # Only spines can reflect routes. APIC accepts a leaf (or anything
+        # else) with HTTP 200 and then raises F1893 under
+        # bgpInstP-default/rr/node-N -- verified live 2026-10-14.
+        not_spines = [
+            f"node {n['node_id']} ({known[int(n['node_id'])]['name']}) is a {known[int(n['node_id'])]['role']}"
+            for n in _route_reflector_nodes(data)
+            if known[int(n["node_id"])].get("role") != "spine"
+        ]
+        if not_spines:
+            raise FabricInventoryError(
+                "BGP route reflector policy names switches that are not spines: " + "; ".join(not_spines) +
+                ". Only spines can be BGP route reflectors -- APIC would accept this and raise fault F1893."
+            )
         return
 
     roster = ", ".join(
@@ -1031,6 +1154,340 @@ def _validate_node_references(data: dict[str, Any], inventory: dict[str, Any]) -
         "setting the aci_node_id/aci_pod_id Custom Fields) or correct the node ID in the referencing intent. "
         "The APIC would accept this DN and silently leave the relation unformed, so this is caught here on purpose."
     )
+
+
+def _build_node_management(
+    locations: list[dict[str, Any]], devices: list[dict[str, Any]]
+) -> dict[str, Any]:
+    """Build apic.node_management: in-band management EPGs (Location JSON)
+    and static node management addresses (2026-10-12).
+
+    An address is a native Nautobot IP Address on a fabric switch's
+    interface, and only counts when it carries `aci_mgmt_type` -- any other
+    IP on the switch is ordinary IPAM and is ignored, the same opt-in rule as
+    EPG-from-VLAN. The node and pod come from the switch itself, so the
+    address can never name a node that is not in inventory.
+
+    Out-of-band addresses always attach to APIC's built-in OOB EPG
+    `uni/tn-mgmt/mgmtp-default/oob-default`, which this platform never
+    manages; in-band addresses name an EPG declared in `inband_mgmt_epgs`.
+    """
+    inband_epgs: list[dict[str, Any]] = []
+    for location in locations:
+        data = (location.get("_custom_field_data") or {}).get("aci_fabric_policies") or {}
+        inband_epgs.extend(data.get("inband_mgmt_epgs") or [])
+
+    addresses: list[dict[str, Any]] = []
+    for device in devices:
+        cf = device.get("_custom_field_data") or {}
+        if cf.get("aci_node_id") is None:
+            continue
+        for interface in device.get("interfaces") or []:
+            for ip in interface.get("ip_addresses") or []:
+                ip_cf = ip.get("_custom_field_data") or {}
+                mgmt_type = ip_cf.get("aci_mgmt_type")
+                if not mgmt_type:
+                    continue
+                entry: dict[str, Any] = {
+                    "node_id": int(cf["aci_node_id"]),
+                    "pod_id": int(cf.get("aci_pod_id") or 1),
+                    "type": mgmt_type,
+                    "address": ip["address"],
+                }
+                if ip_cf.get("aci_mgmt_gateway"):
+                    entry["gateway"] = ip_cf["aci_mgmt_gateway"]
+                if mgmt_type == "in_band":
+                    entry["epg"] = ip_cf.get("aci_mgmt_epg")
+                addresses.append(entry)
+
+    result: dict[str, Any] = {}
+    if inband_epgs:
+        result["inband_epgs"] = inband_epgs
+    if addresses:
+        result["static_addresses"] = sorted(addresses, key=lambda a: (a["node_id"], a["type"]))
+    return result
+
+
+def _validate_l3out_depth_references(data: dict[str, Any]) -> None:
+    """L3Out depth references (2026-10-16).
+
+    Every protocol policy a VRF, L3Out or external EPG subnet names must be
+    declared in the same tenant (Terraform resolves them by key: an unknown
+    name is a plan error that names nothing useful). BGP timers / best path on
+    a non-BGP L3Out would be silently ignored -- there is no BGP protocol
+    profile to carry them. A vPC SVI needs both side addresses, a VLAN, a
+    vPC policy group and a vPC domain pairing its two leaves; and duplicate
+    static routes or loopbacks on one node collide as Terraform keys.
+    """
+    apic = data.get("apic", {})
+    access = apic.get("access_policies") or {}
+    bundles = {g.get("name"): g for g in access.get("pc_vpc_policy_groups", [])}
+    pairs = {frozenset((int(d.get("node1", 0)), int(d.get("node2", 0)))) for d in access.get("vpc_domains", [])}
+    problems: list[str] = []
+
+    for tenant in apic.get("tenants", []):
+        declared = {ref: {p.get("name") for p in tenant.get(kind, [])} for kind, ref in PROTOCOL_POLICY_KINDS.items()}
+
+        for vrf in tenant.get("vrfs", []):
+            for key in VRF_PROTOCOL_POLICY_KEYS:
+                if vrf.get(key) and vrf[key] not in declared[key]:
+                    problems.append(f"VRF '{vrf['name']}' names undeclared {key} '{vrf[key]}'")
+
+        for l3out in tenant.get("l3outs", []):
+            name = l3out.get("name")
+            bgp_refs = [k for k in ("bgp_timers_policy", "bgp_best_path_policy") if l3out.get(k)]
+            for key in bgp_refs:
+                if l3out[key] not in declared[key]:
+                    problems.append(f"L3Out '{name}' names undeclared {key} '{l3out[key]}'")
+            if bgp_refs and l3out.get("protocol") != "bgp":
+                problems.append(
+                    f"L3Out '{name}' sets bgp_timers_policy / bgp_best_path_policy but is not a BGP L3Out "
+                    f"(protocol '{l3out.get('protocol')}') -- nothing would carry them"
+                )
+            for epg in l3out.get("external_epgs", []):
+                for subnet in epg.get("subnets", []):
+                    ref = subnet.get("bgp_route_summarization_policy")
+                    if ref and ref not in declared["bgp_route_summarization_policy"]:
+                        problems.append(
+                            f"subnet {subnet.get('ip')} of external EPG '{epg.get('name')}' (L3Out '{name}') names "
+                            f"undeclared bgp_route_summarization_policy '{ref}'"
+                        )
+            for node_profile in l3out.get("node_profiles", []):
+                for node in node_profile.get("nodes", []):
+                    nid = node.get("node_id")
+                    for label, items, key in (("static route", node.get("static_routes", []), "prefix"),
+                                              ("loopback", node.get("loopbacks", []), "ip")):
+                        values = [i.get(key) for i in items]
+                        for dup in sorted({v for v in values if values.count(v) > 1}):
+                            problems.append(f"L3Out '{name}': {label} {dup} is declared twice on node {nid}")
+                    for route in node.get("static_routes", []):
+                        hops = [h.get("ip") for h in route.get("next_hops", [])]
+                        for dup in sorted({h for h in hops if hops.count(h) > 1}):
+                            problems.append(f"L3Out '{name}': next hop {dup} is declared twice on static route {route.get('prefix')}")
+                for profile in node_profile.get("interface_profiles", []):
+                    for iface in profile.get("interfaces", []):
+                        if iface.get("path_type", "port") != "vpc":
+                            continue
+                        pair = [int(iface.get("node_id", 0)), int(iface.get("node_id2", 0))]
+                        where = f"L3Out '{name}' vPC interface on nodes {sorted(pair)}"
+                        if not iface.get("svi"):
+                            problems.append(f"{where}: a vPC L3Out interface must be an SVI (svi: true)")
+                        if not iface.get("vlan"):
+                            problems.append(f"{where}: an SVI needs a vlan")
+                        if not (iface.get("side_a_ip") and iface.get("side_b_ip")):
+                            problems.append(f"{where}: needs side_a_ip and side_b_ip -- one address per leaf")
+                        group = bundles.get(iface.get("policy_group"))
+                        if group is None:
+                            problems.append(f"{where}: undeclared PC/vPC policy group '{iface.get('policy_group')}'")
+                        elif group.get("bundle_type") != "vpc":
+                            problems.append(f"{where}: policy group '{iface.get('policy_group')}' is not a vPC policy group")
+                        if frozenset(pair) not in pairs:
+                            problems.append(f"{where}: no vPC domain pairs them")
+
+    if problems:
+        raise PolicyReferenceError(
+            "L3Out depth references do not resolve:\n" + "\n".join(f"  - {p}" for p in problems)
+        )
+
+
+def _validate_security_references(data: dict[str, Any]) -> None:
+    """ESG and vzAny references (2026-10-15).
+
+    Each is fatal here, naming the offender. APIC 6.2 rejects an EPG selected
+    from another VRF or by two ESGs, and one IP subnet or tag selector in two
+    ESGs of a VRF, with HTTP 400 at apply time -- failing the pipeline part-
+    way through (probed 2026-10-15). An ESG in a VRF Terraform does not manage
+    fails the plan; a missing contract likewise.
+
+    Preferred-group members in a VRF whose preferred group is off only WARN:
+    that is NS-01's old trap (membership with no effect), and a legitimate
+    intermediate state while a design is being built.
+    """
+    problems: list[str] = []
+    for tenant in data.get("apic", {}).get("tenants", []):
+        vrfs = {v["name"]: v for v in tenant.get("vrfs", [])}
+        contracts = {c.get("name") for c in tenant.get("contracts", [])}
+        scopes = {c.get("name"): c.get("scope") or "context" for c in tenant.get("contracts", [])}
+        bd_vrf = {bd["name"]: bd.get("vrf") for bd in tenant.get("bridge_domains", [])}
+        epg_vrf: dict[str, str | None] = {}
+        preferred: list[tuple[str, str | None]] = []
+        for ap in tenant.get("application_profiles", []):
+            for epg in ap.get("endpoint_groups", []):
+                epg_vrf[f"{ap['name']}/{epg['name']}"] = bd_vrf.get(epg.get("bridge_domain"))
+                if epg.get("preferred_group_member"):
+                    preferred.append((f"EPG '{ap['name']}/{epg['name']}'", bd_vrf.get(epg.get("bridge_domain"))))
+
+        for vrf in vrfs.values():
+            for key, verb in (("provided_contracts", "provides"), ("consumed_contracts", "consumes")):
+                for c in (vrf.get("vzany") or {}).get(key, []):
+                    if c not in contracts:
+                        problems.append(f"vzAny of VRF '{vrf['name']}' {verb} undeclared contract '{c}'")
+                    elif key == "provided_contracts" and scopes[c] != "context":
+                        # APIC 6.2: HTTP 400 at apply (probed 2026-10-15).
+                        problems.append(
+                            f"vzAny of VRF '{vrf['name']}' provides contract '{c}' with scope '{scopes[c]}' -- "
+                            "vzAny can only provide 'context' (VRF) scoped contracts"
+                        )
+
+        selected_epgs: dict[str, list[str]] = defaultdict(list)
+        selected_subnets: dict[tuple, list[str]] = defaultdict(list)
+        selected_tags: dict[tuple, list[str]] = defaultdict(list)
+        for ap in tenant.get("application_profiles", []):
+            seen: set[str] = set()
+            for esg in ap.get("endpoint_security_groups", []):
+                name, vrf = esg.get("name"), esg.get("vrf")
+                if name in seen:
+                    problems.append(f"ESG '{name}' is declared twice in application profile '{ap['name']}'")
+                seen.add(name)
+                if vrf not in vrfs:
+                    problems.append(f"ESG '{name}' is in undeclared VRF '{vrf}'")
+                if esg.get("preferred_group_member"):
+                    preferred.append((f"ESG '{name}'", vrf))
+                for key, verb in (("provided_contracts", "provides"), ("consumed_contracts", "consumes")):
+                    for c in esg.get(key, []):
+                        if c not in contracts:
+                            problems.append(f"ESG '{name}' {verb} undeclared contract '{c}'")
+                for sel in esg.get("epg_selectors", []):
+                    ref = f"{sel.get('application_profile')}/{sel.get('endpoint_group')}"
+                    selected_epgs[ref].append(name)
+                    if ref not in epg_vrf:
+                        problems.append(f"ESG '{name}' selects undeclared EPG '{ref}'")
+                    elif epg_vrf[ref] is not None and epg_vrf[ref] != vrf:
+                        problems.append(
+                            f"ESG '{name}' (VRF '{vrf}') selects EPG '{ref}', whose bridge domain is in VRF "
+                            f"'{epg_vrf[ref]}' -- an ESG can only select endpoints in its own VRF"
+                        )
+                for sel in esg.get("ip_subnet_selectors", []):
+                    selected_subnets[(vrf, sel.get("value"))].append(name)
+                for sel in esg.get("tag_selectors", []):
+                    selected_tags[(vrf, f"{sel.get('key')}={sel.get('value')}")].append(name)
+
+        for ref, names in selected_epgs.items():
+            if len(names) > 1:
+                problems.append(f"EPG '{ref}' is selected by more than one ESG: {', '.join(names)}")
+        for (vrf, subnet), names in selected_subnets.items():
+            if len(names) > 1:
+                problems.append(f"IP subnet {subnet} is selected by more than one ESG in VRF '{vrf}': {', '.join(names)}")
+        for (vrf, tag), names in selected_tags.items():
+            if len(names) > 1:
+                problems.append(f"tag selector {tag} is in more than one ESG in VRF '{vrf}': {', '.join(names)}")
+
+        for what, vrf in preferred:
+            if vrf in vrfs and not vrfs[vrf].get("preferred_group"):
+                print(
+                    f"WARNING: [generator] tenant '{tenant.get('name')}': {what} is a preferred-group member, but "
+                    f"VRF '{vrf}' does not enable its preferred group -- the membership has no effect until it does "
+                    "(update_vrf preferred_group=true).",
+                    file=sys.stderr,
+                )
+
+    if problems:
+        raise PolicyReferenceError(
+            "ESG / vzAny references do not resolve:\n" + "\n".join(f"  - {p}" for p in problems)
+        )
+
+
+def _validate_fabric_references(data: dict[str, Any]) -> None:
+    """BGP route reflector policy and pod profile references (2026-10-14).
+
+    Both are accepted by APIC and do nothing: route-reflector nodes with no
+    fabric AS run no MP-BGP, and a pod selector naming a Pod Policy Group
+    that does not exist leaves the relation unresolved.
+    """
+    fabric = data.get("apic", {}).get("fabric_policies") or {}
+    problems: list[str] = []
+    rr = fabric.get("bgp_route_reflector") or {}
+    if rr.get("nodes") and not rr.get("asn"):
+        problems.append("the BGP route reflector policy has route reflector nodes but no fabric AS")
+    group = (fabric.get("pod_profile") or {}).get("policy_group")
+    if group and group not in {g.get("name") for g in fabric.get("pod_policy_groups", [])}:
+        problems.append(f"the default pod selector is assigned undeclared Pod Policy Group '{group}'")
+    if problems:
+        raise PolicyReferenceError("Fabric policy references do not resolve:\n" + "\n".join(f"  - {p}" for p in problems))
+
+
+def _validate_access_references(data: dict[str, Any]) -> None:
+    """Port-channel / vPC / management references must resolve (2026-10-12).
+
+    Every one of these is a name or a node pair that APIC accepts and leaves
+    unresolved: a vPC binding on a pair no protection group covers, a
+    selector naming a group that does not exist, an in-band address pointing
+    at an EPG nobody declared. None fails at plan time; most do not fail at
+    apply time either. So they are fatal here, naming the offender.
+    """
+    apic = data.get("apic", {})
+    access = apic.get("access_policies") or {}
+    problems: list[str] = []
+
+    aeps = {a.get("name") for a in access.get("aeps", [])}
+    lacps = {p.get("name") for p in access.get("lacp_policies", [])}
+    access_groups = {g.get("name") for g in access.get("leaf_interface_policy_groups", [])}
+    bundles = {g.get("name"): g for g in access.get("pc_vpc_policy_groups", [])}
+
+    for name in sorted(access_groups & set(bundles)):
+        problems.append(f"'{name}' is both an access-port and a PC/vPC policy group -- selectors resolve groups by name")
+    for name, group in bundles.items():
+        if group.get("aep") and group["aep"] not in aeps:
+            problems.append(f"PC/vPC policy group '{name}' uses undeclared AEP '{group['aep']}'")
+        if group.get("lacp_policy") and group["lacp_policy"] not in lacps:
+            problems.append(f"PC/vPC policy group '{name}' uses undeclared LACP policy '{group['lacp_policy']}'")
+
+    selectors = [(s.get("name"), s.get("policy_group")) for s in access.get("interface_selectors", [])]
+    for profile in access.get("access_port_profiles", []):
+        selectors += [(s.get("name"), s.get("policy_group")) for s in profile.get("selectors", [])]
+    for sel_name, group in selectors:
+        if group and group not in access_groups and group not in bundles:
+            problems.append(f"interface selector '{sel_name}' applies undeclared policy group '{group}'")
+
+    pairs: dict[frozenset, str] = {}
+    seen_nodes: dict[int, str] = {}
+    seen_ids: dict[int, str] = {}
+    for domain in access.get("vpc_domains", []):
+        name = domain.get("name")
+        pair = frozenset((int(domain.get("node1", 0)), int(domain.get("node2", 0))))
+        pairs[pair] = name
+        for node in pair:
+            if node in seen_nodes:
+                problems.append(f"leaf {node} is in two vPC domains ('{seen_nodes[node]}' and '{name}')")
+            seen_nodes[node] = name
+        did = int(domain.get("domain_id", 0))
+        if did in seen_ids:
+            problems.append(f"vPC domain ID {did} is used by both '{seen_ids[did]}' and '{name}'")
+        seen_ids[did] = name
+
+    for tenant in apic.get("tenants", []):
+        for ap in tenant.get("application_profiles", []):
+            for epg in ap.get("endpoint_groups", []):
+                for path in epg.get("static_paths", []):
+                    kind = path.get("path_type", "port")
+                    if kind == "port":
+                        continue
+                    where = f"tenant '{tenant.get('name')}' EPG '{epg.get('name')}'"
+                    group = bundles.get(path.get("policy_group"))
+                    if group is None:
+                        problems.append(f"{where} binds undeclared PC/vPC policy group '{path.get('policy_group')}'")
+                    elif group.get("bundle_type") != kind:
+                        problems.append(
+                            f"{where} binds '{path.get('policy_group')}' as {kind}, but it is a {group.get('bundle_type')} group"
+                        )
+                    if kind == "vpc":
+                        pair = frozenset((int(path.get("node_id", 0)), int(path.get("node_id2", 0))))
+                        if pair not in pairs:
+                            problems.append(f"{where} binds a vPC on nodes {sorted(pair)}, which no vPC domain pairs")
+
+    mgmt = apic.get("node_management") or {}
+    inband = {e.get("name") for e in mgmt.get("inband_epgs", [])}
+    for addr in mgmt.get("static_addresses", []):
+        if addr.get("type") == "in_band" and addr.get("epg") not in inband:
+            problems.append(
+                f"node {addr.get('node_id')} in-band address {addr.get('address')} names undeclared "
+                f"in-band EPG '{addr.get('epg')}'"
+            )
+
+    if problems:
+        raise PolicyReferenceError(
+            "Access / management references do not resolve:\n" + "\n".join(f"  - {p}" for p in problems)
+        )
 
 
 def _parse_bd_name(description: str) -> str | None:

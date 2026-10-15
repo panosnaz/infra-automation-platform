@@ -1,0 +1,100 @@
+# Port-channel / vPC / node management (2026-10-12).
+#
+# Throwaway objects only, all prefixed pcvpc-: one LACP policy, one vPC
+# domain, one PC and one vPC policy group applied through an access port
+# profile, an EPG bound to a port, a port-channel and a vPC, one in-band
+# management EPG, and one OOB + one in-band static node address.
+#
+# Nodes 901/902 are deliberately NOT in this lab's roster (101/102/1001), so
+# applying this never touches management addresses or vPC pairs that already
+# exist on real nodes. Before reusing it at another site, check the APIC for
+# mgmtRsOoBStNode / mgmtRsInBStNode on the nodes you choose: Terraform adopts
+# an existing address on create and removes it on destroy.
+#
+# EVIDENCE: live-verified 2026-10-12, in an isolated Terraform state (never
+# with the lab's own state -- the fixture as config would plan to destroy
+# everything else): plan (types counted) -> apply 28 added -> objects read
+# back from APIC -> fault delta -> destroy 28 destroyed -> faults 41 before /
+# 41 after. Only new faults while applied: F1298 "Node Cannot Deploy" on
+# 901/902, the switch-absence family. A transient F0721 on the pool (raised
+# while the pool briefly had no range, then cleared) is why check_apic_faults
+# now ignores faults whose lifecycle is already clearing.
+apic:
+  tenants:
+    - name: pcvpc-fixture
+      vrfs:
+        - name: pcvpc_VRF
+      bridge_domains:
+        - name: pcvpc_BD
+          vrf: pcvpc_VRF
+          unicast_routing: true
+          subnets:
+            - ip: 10.251.1.1/24
+              private: true
+      application_profiles:
+        - name: pcvpc_AP
+          endpoint_groups:
+            - name: pcvpc_EPG
+              bridge_domain: pcvpc_BD
+              static_paths:
+                - {pod_id: 1, node_id: 901, module: 1, port: 10, encap: vlan-3910, mode: regular}
+                - {pod_id: 1, node_id: 901, path_type: port_channel, policy_group: pcvpc-PC, encap: vlan-3910, mode: regular}
+                - {pod_id: 1, node_id: 902, node_id2: 901, path_type: vpc, policy_group: pcvpc-vPC, encap: vlan-3910, mode: regular}
+
+  fabric_policies:
+    vlan_pools:
+      - name: pcvpc-pool
+        alloc_mode: static
+        ranges:
+          - {from: 3910, to: 3911}
+
+  access_policies:
+    physical_domains:
+      - name: pcvpc-phys
+        vlan_pool: pcvpc-pool
+    aeps:
+      - name: pcvpc-aep
+        domains: [pcvpc-phys]
+    leaf_interface_policy_groups:
+      - name: pcvpc-access
+        aep: pcvpc-aep
+    lacp_policies:
+      - name: pcvpc-lacp
+        mode: active
+        min_links: 1
+        max_links: 8
+    vpc_domains:
+      - name: pcvpc-vpc-901-902
+        domain_id: 901
+        node1: 901
+        node2: 902
+    pc_vpc_policy_groups:
+      - name: pcvpc-PC
+        bundle_type: port_channel
+        aep: pcvpc-aep
+        lacp_policy: pcvpc-lacp
+      - name: pcvpc-vPC
+        bundle_type: vpc
+        aep: pcvpc-aep
+        lacp_policy: pcvpc-lacp
+    access_port_profiles:
+      - name: pcvpc-leaf901
+        selectors:
+          - name: pcvpc-access-sel
+            policy_group: pcvpc-access
+            blocks: [{name: blk10, from_card: 1, from_port: 10}]
+          - name: pcvpc-pc-sel
+            policy_group: pcvpc-PC
+            blocks: [{name: blk11, from_card: 1, from_port: 11, to_port: 12}]
+          - name: pcvpc-vpc-sel
+            policy_group: pcvpc-vPC
+            blocks: [{name: blk13, from_card: 1, from_port: 13}]
+
+  node_management:
+    inband_epgs:
+      - name: pcvpc-inb
+        encap_vlan: 3999
+        bridge_domain: inb
+    static_addresses:
+      - {node_id: 901, pod_id: 1, type: out_of_band, address: 10.252.0.91/24, gateway: 10.252.0.1}
+      - {node_id: 902, pod_id: 1, type: in_band, address: 10.253.0.92/24, gateway: 10.253.0.1, epg: pcvpc-inb}

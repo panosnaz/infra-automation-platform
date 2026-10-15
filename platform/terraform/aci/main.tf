@@ -73,6 +73,36 @@ locals {
     }
   ]...)
 
+  # 2026-10-15 -- Endpoint Security Groups, under their application profile:
+  # "tenant/ap/esg" => {...}, and their three selector kinds.
+  endpoint_security_groups = merge([
+    for ap_key, ap in local.application_profiles : {
+      for esg in lookup(ap, "endpoint_security_groups", []) :
+      "${ap_key}/${esg.name}" => merge(esg, {
+        tenant_name = ap.tenant_name
+        ap_name     = ap.ap_name
+      })
+    }
+  ]...)
+  esg_epg_selectors = merge([
+    for k, esg in local.endpoint_security_groups : {
+      for sel in lookup(esg, "epg_selectors", []) :
+      "${k}/${sel.application_profile}/${sel.endpoint_group}" => merge(sel, { esg_key = k, tenant_name = esg.tenant_name })
+    }
+  ]...)
+  esg_ip_subnet_selectors = merge([
+    for k, esg in local.endpoint_security_groups : {
+      for sel in lookup(esg, "ip_subnet_selectors", []) :
+      "${k}/${sel.value}" => merge(sel, { esg_key = k })
+    }
+  ]...)
+  esg_tag_selectors = merge([
+    for k, esg in local.endpoint_security_groups : {
+      for sel in lookup(esg, "tag_selectors", []) :
+      "${k}/${sel.key}=${sel.value}" => merge(sel, { esg_key = k })
+    }
+  ]...)
+
   epg_subnets = merge([
     for epg_key, epg in local.endpoint_groups : {
       for subnet in lookup(epg, "subnets", []) :
@@ -501,6 +531,35 @@ locals {
     g.name => g
   }
 
+  # Port-channel / vPC (2026-10-12). LACP policies and vPC domains are named,
+  # shared objects; a PC/vPC policy group is the bundle a selector applies
+  # and a static path binds. Selectors name their policy group, so the name
+  # resolves against BOTH group maps -- the generator refuses a name that
+  # exists in both (PolicyReferenceError).
+  lacp_policies = {
+    for p in lookup(lookup(local.nac.apic, "access_policies", {}), "lacp_policies", []) :
+    p.name => p
+  }
+  vpc_domains = {
+    for d in lookup(lookup(local.nac.apic, "access_policies", {}), "vpc_domains", []) :
+    d.name => d
+  }
+  pc_vpc_policy_groups = {
+    for g in lookup(lookup(local.nac.apic, "access_policies", {}), "pc_vpc_policy_groups", []) :
+    g.name => g
+  }
+
+  # Node management (2026-10-12). Out-of-band addresses attach to APIC's
+  # built-in OOB EPG, which this module never manages (it lives in the mgmt
+  # system tenant and must survive a destroy); in-band ones to an EPG declared
+  # here. One address per node per type, so that is the key.
+  node_management  = lookup(local.nac.apic, "node_management", {})
+  inband_mgmt_epgs = { for e in lookup(local.node_management, "inband_epgs", []) : e.name => e }
+  mgmt_static_addresses = {
+    for a in lookup(local.node_management, "static_addresses", []) :
+    "${a.type}/${a.pod_id}/${a.node_id}" => a
+  }
+
   # Ported from copilot/aci-platform-comparison (2026-09-08) -- IPG-level
   # CDP/LLDP/link-level/spanning-tree/port-security policies, leaf interface
   # profiles/selectors, EPG-to-domain/static-path bindings, and physical/
@@ -604,10 +663,14 @@ locals {
   static_path_bindings = merge([
     for epg_key, epg in local.endpoint_groups : {
       for p in lookup(epg, "static_paths", []) :
-      "${epg_key}/${p.node_id}/${p.module}/${p.port}" => merge(p, {
-        tenant_name = epg.tenant_name
-        ap_name     = epg.ap_name
-        epg_name    = epg.name
+      (
+        try(p.path_type, "port") == "vpc" ? "${epg_key}/vpc/${min(p.node_id, p.node_id2)}-${max(p.node_id, p.node_id2)}/${p.policy_group}" :
+        try(p.path_type, "port") == "port_channel" ? "${epg_key}/pc/${p.node_id}/${p.policy_group}" :
+        "${epg_key}/${p.node_id}/${p.module}/${p.port}"
+        ) => merge(p, {
+          tenant_name = epg.tenant_name
+          ap_name     = epg.ap_name
+          epg_name    = epg.name
       })
     }
   ]...)
@@ -630,10 +693,14 @@ locals {
       "${profile_key}/${p.name}" => merge(p, { node_profile_key = profile_key, node_profile_name = profile.name, tenant_name = profile.tenant_name, l3out_name = profile.l3out_name, l3out_key = profile.l3out_key })
     }
   ]...)
+  # A vPC SVI (2026-10-16) has no module/port: it is keyed by its node pair and
+  # policy group. Port interfaces keep their existing key, so no address churn.
   l3out_interfaces = merge([
     for ip_key, profile in local.l3out_interface_profiles : {
       for i in lookup(profile, "interfaces", []) :
-      "${ip_key}/${i.node_id}/${i.module}/${i.port}" => merge(i, { interface_profile_key = ip_key, interface_profile_name = profile.name, node_profile_key = profile.node_profile_key, node_profile_name = profile.node_profile_name, l3out_key = profile.l3out_key, l3out_name = profile.l3out_name, tenant_name = profile.tenant_name })
+      (lookup(i, "path_type", "port") == "vpc"
+        ? "${ip_key}/vpc-${i.node_id}-${i.node_id2}-${i.policy_group}"
+      : "${ip_key}/${i.node_id}/${i.module}/${i.port}") => merge(i, { interface_profile_key = ip_key, interface_profile_name = profile.name, node_profile_key = profile.node_profile_key, node_profile_name = profile.node_profile_name, l3out_key = profile.l3out_key, l3out_name = profile.l3out_name, tenant_name = profile.tenant_name })
     }
   ]...)
   bgp_peers = merge([
@@ -651,6 +718,63 @@ locals {
       })
     }
   ]...)
+  # L3Out depth (2026-10-16): per-node static routes and loopbacks, the two
+  # sides of a vPC SVI, and six tenant-scoped protocol policies.
+  l3out_static_routes = merge([
+    for node_key, n in local.l3out_nodes : {
+      for r in lookup(n, "static_routes", []) :
+      "${node_key}/${r.prefix}" => merge(r, { node_key = node_key })
+    }
+  ]...)
+  l3out_static_route_next_hops = merge([
+    for route_key, r in local.l3out_static_routes : {
+      for h in lookup(r, "next_hops", []) :
+      "${route_key}/${h.ip}" => merge(h, { route_key = route_key })
+    }
+  ]...)
+  l3out_loopbacks = merge([
+    for node_key, n in local.l3out_nodes : {
+      for lb in lookup(n, "loopbacks", []) :
+      "${node_key}/${lb.ip}" => merge(lb, { node_key = node_key })
+    }
+  ]...)
+  l3out_vpc_members = merge([
+    for k, i in local.l3out_interfaces : {
+      for side in ["A", "B"] :
+      "${k}/${side}" => { interface_key = k, side = side, ip = i[side == "A" ? "side_a_ip" : "side_b_ip"] }
+    } if lookup(i, "path_type", "port") == "vpc"
+  ]...)
+  bfd_interface_policies = merge([
+    for tn, t in local.tenants : {
+      for p in lookup(t, "bfd_interface_policies", []) : "${tn}/${p.name}" => merge(p, { tenant_name = tn })
+    }
+  ]...)
+  bgp_timers_policies = merge([
+    for tn, t in local.tenants : {
+      for p in lookup(t, "bgp_timers_policies", []) : "${tn}/${p.name}" => merge(p, { tenant_name = tn })
+    }
+  ]...)
+  bgp_best_path_policies = merge([
+    for tn, t in local.tenants : {
+      for p in lookup(t, "bgp_best_path_policies", []) : "${tn}/${p.name}" => merge(p, { tenant_name = tn })
+    }
+  ]...)
+  bgp_route_summarization_policies = merge([
+    for tn, t in local.tenants : {
+      for p in lookup(t, "bgp_route_summarization_policies", []) : "${tn}/${p.name}" => merge(p, { tenant_name = tn })
+    }
+  ]...)
+  ospf_timers_policies = merge([
+    for tn, t in local.tenants : {
+      for p in lookup(t, "ospf_timers_policies", []) : "${tn}/${p.name}" => merge(p, { tenant_name = tn })
+    }
+  ]...)
+  route_tag_policies = merge([
+    for tn, t in local.tenants : {
+      for p in lookup(t, "route_tag_policies", []) : "${tn}/${p.name}" => merge(p, { tenant_name = tn })
+    }
+  ]...)
+
   ospf_interfaces = merge([
     for l3out_key, l3out in local.l3outs : {
       for o in lookup(l3out, "ospf_interfaces", []) :
@@ -710,6 +834,15 @@ locals {
     g.name => g
   }
 
+  # 2026-10-14 -- the fabric AS and spine route reflectors (default BGP
+  # instance policy) and the Pod Policy Group assigned to all pods.
+  bgp_route_reflector = lookup(local.fabric_pod_policies, "bgp_route_reflector", {})
+  bgp_rr_nodes = {
+    for n in lookup(local.bgp_route_reflector, "nodes", []) :
+    tostring(n.node_id) => n
+  }
+  pod_profile = lookup(local.fabric_pod_policies, "pod_profile", {})
+
   # ADR-020 Phase G -- Fault Lifecycle Policy / Syslog System Message Policy
   # / Syslog Rate Limit Policy are mandatory fabric-wide singletons under
   # uni/fabric/moncommon (the fabric's Common Monitoring Policy, distinct
@@ -760,6 +893,7 @@ resource "aci_tenant" "this" {
 # ---------------------------------------------------------------------------
 # VRFs
 # ---------------------------------------------------------------------------
+# NOT-SETTABLE[NS-10]: further VRF attributes (e.g. BD enforcement) not modelled.
 resource "aci_vrf" "this" {
   for_each = local.vrfs
 
@@ -775,11 +909,34 @@ resource "aci_vrf" "this" {
   ip_data_plane_learning               = lookup(each.value, "ip_data_plane_learning", null)
   policy_control_enforcement_direction = lookup(each.value, "policy_control_enforcement_direction", null)
   policy_control_enforcement_mode      = lookup(each.value, "policy_control_enforcement_mode", null)
+
+  # L3Out depth (2026-10-16): VRF-wide BGP timers, OSPF timers and the route
+  # tag stamped on routes this VRF redistributes, by policy NAME (the current
+  # relation_to_* attributes; the relation_fv_rs_* ones are deprecated and
+  # made the provider recompute unrelated VRF relations).
+  #
+  # Unset is the EMPTY name, written explicitly -- not null. That is exactly
+  # what APIC stores on a fresh VRF (resolving to tn-common's default), so a
+  # VRF that never had these sees no change. Null instead left the relation
+  # unmanaged: once intent was removed and the policy destroyed, the VRF kept
+  # naming the deleted policy, and APIC resolved OSPF timers and route tag as
+  # "mismatch-target" with fault F0756 (measured 2026-10-16).
+  relation_to_bgp_timers = {
+    bgp_timers_name = lookup(each.value, "bgp_timers_policy", null) == null ? "" : aci_bgp_timers.this["${each.value.tenant_name}/${each.value.bgp_timers_policy}"].name
+  }
+  relation_to_ospf_timers = {
+    ospf_timers_name = lookup(each.value, "ospf_timers_policy", null) == null ? "" : aci_ospf_timers.this["${each.value.tenant_name}/${each.value.ospf_timers_policy}"].name
+  }
+  relation_to_l3out_route_tag_policy = {
+    l3out_route_tag_policy_name = lookup(each.value, "route_tag_policy", null) == null ? "" : aci_l3out_route_tag_policy.this["${each.value.tenant_name}/${each.value.route_tag_policy}"].name
+  }
 }
 
 # ---------------------------------------------------------------------------
 # Bridge Domains
 # ---------------------------------------------------------------------------
+# NOT-SETTABLE[NS-10]: further BD attributes (IP learning, limit learning to subnets) not modelled.
+# NOT-SETTABLE[NS-09]: subnet/gateway changes: the subnet is the Nautobot Prefix, no update path.
 resource "aci_bridge_domain" "this" {
   for_each = local.bridge_domains
 
@@ -853,6 +1010,7 @@ resource "aci_application_profile" "this" {
 # ---------------------------------------------------------------------------
 # Endpoint Groups (ADR-020 Phase A item 2)
 # ---------------------------------------------------------------------------
+# NOT-SETTABLE[NS-10]: further EPG attributes (flood-on-encap, intra-EPG isolation, QoS class) not modelled.
 resource "aci_application_epg" "this" {
   for_each = local.endpoint_groups
 
@@ -1303,6 +1461,97 @@ resource "aci_epg_to_contract" "this" {
 }
 
 # ---------------------------------------------------------------------------
+# vzAny and Endpoint Security Groups (2026-10-15)
+#
+# vzAny (uni/tn-X/ctx-Y/any) exists for every VRF and cannot be deleted.
+# Managed ONLY for VRFs with vzAny intent (decision 2026-10-15): a VRF whose
+# YAML has `preferred_group` or `vzany` -- keys the generator emits once the
+# intent was ever written, even as false / {}. Untouched VRFs, and hand-made
+# vzAny settings on them, are left alone.
+#
+# The two halves are independent: `preferred_group` absent leaves the switch
+# unmanaged (null); `vzany` absent leaves the contracts unmanaged (null), while
+# `vzany: {}` passes empty lists, which REMOVE the relations -- that is how an
+# unbind reaches the APIC. Dropping a VRF out of this map does NOT reset
+# vzAny: the provider only forgets it and the APIC keeps the last values.
+# ---------------------------------------------------------------------------
+# NOT-SETTABLE[NS-24]: consumed contract interfaces, match type and contract priority are not set.
+# NOT-SETTABLE[NS-26]: removing the vzAny intent entirely leaves the last values on the APIC.
+resource "aci_any" "this" {
+  for_each = {
+    for k, v in local.vrfs : k => v
+    if contains(keys(v), "preferred_group") || contains(keys(v), "vzany")
+  }
+
+  parent_dn              = aci_vrf.this[each.key].id
+  preferred_group_member = try(each.value.preferred_group ? "enabled" : "disabled", null)
+
+  relation_to_provider_contracts = contains(keys(each.value), "vzany") ? [
+    for c in lookup(each.value.vzany, "provided_contracts", []) :
+    { contract_name = aci_contract.this["${each.value.tenant_name}/${c}"].name }
+  ] : null
+  relation_to_consumer_contracts = contains(keys(each.value), "vzany") ? [
+    for c in lookup(each.value.vzany, "consumed_contracts", []) :
+    { contract_name = aci_contract.this["${each.value.tenant_name}/${c}"].name }
+  ] : null
+}
+
+# NOT-SETTABLE[NS-24]: contract masters, intra-ESG contracts, contract interfaces and the ESG QoS class are not set.
+resource "aci_endpoint_security_group" "this" {
+  for_each = local.endpoint_security_groups
+
+  parent_dn   = aci_application_profile.this["${each.value.tenant_name}/${each.value.ap_name}"].id
+  name        = each.value.name
+  description = lookup(each.value, "description", null)
+
+  # Booleans in Nautobot -> APIC enums. Unset leaves the attribute unmanaged
+  # (APIC default), the convention for every optional attribute in this file.
+  admin_state            = try(each.value.shutdown ? "yes" : "no", null)
+  intra_esg_isolation    = try(each.value.intra_esg_isolation ? "enforced" : "unenforced", null)
+  preferred_group_member = try(each.value.preferred_group_member ? "include" : "exclude", null)
+
+  relation_to_vrf = {
+    vrf_name = aci_vrf.this["${each.value.tenant_name}/${each.value.vrf}"].name
+  }
+  relation_to_provided_contracts = [
+    for c in lookup(each.value, "provided_contracts", []) :
+    { contract_name = aci_contract.this["${each.value.tenant_name}/${c}"].name }
+  ]
+  relation_to_consumed_contracts = [
+    for c in lookup(each.value, "consumed_contracts", []) :
+    { contract_name = aci_contract.this["${each.value.tenant_name}/${c}"].name }
+  ]
+}
+
+resource "aci_endpoint_security_group_epg_selector" "this" {
+  for_each = local.esg_epg_selectors
+
+  endpoint_security_group_dn = aci_endpoint_security_group.this[each.value.esg_key].id
+  match_epg_dn               = aci_application_epg.this["${each.value.tenant_name}/${each.value.application_profile}/${each.value.endpoint_group}"].id
+  description                = lookup(each.value, "description", null)
+}
+
+# NOT-SETTABLE[NS-25]: IP subnet expressions only -- no MAC or VM-attribute selector expressions.
+resource "aci_endpoint_security_group_selector" "this" {
+  for_each = local.esg_ip_subnet_selectors
+
+  endpoint_security_group_dn = aci_endpoint_security_group.this[each.value.esg_key].id
+  match_expression           = "ip=='${each.value.value}'"
+  description                = lookup(each.value, "description", null)
+}
+
+# NOT-SETTABLE[NS-25]: the endpoint / policy tags these selectors match are not set by this module.
+resource "aci_endpoint_security_group_tag_selector" "this" {
+  for_each = local.esg_tag_selectors
+
+  endpoint_security_group_dn = aci_endpoint_security_group.this[each.value.esg_key].id
+  match_key                  = each.value.key
+  match_value                = each.value.value
+  value_operator             = lookup(each.value, "operator", "equals")
+  description                = lookup(each.value, "description", null)
+}
+
+# ---------------------------------------------------------------------------
 # L3Out (ADR-020 Phase A item 4 -- logical-only MVP)
 #
 # Scope deliberately excludes physical fabric attachment (Logical Node/
@@ -1476,6 +1725,8 @@ resource "aci_relation_from_external_epg_to_route_control_profile" "this" {
   depends_on = [aci_route_control_profile.this]
 }
 
+# NOT-SETTABLE[NS-12]: ARP interface policy -- the provider has no resource that can create an arpIfPol.
+# NOT-SETTABLE[NS-13]: NetFlow monitor -- no attribute for the l3extRsLIfPToNetflowMonitorPol relation.
 resource "aci_logical_interface_profile" "this" {
   for_each                = local.l3out_interface_profiles
   logical_node_profile_dn = aci_logical_node_profile.this[each.value.node_profile_key].id
@@ -1672,11 +1923,16 @@ resource "aci_l3out_path_attachment" "this" {
   for_each                     = local.l3out_interfaces
   logical_interface_profile_dn = aci_logical_interface_profile.this[each.value.interface_profile_key].id
   if_inst_t                    = try(each.value.svi, false) ? "ext-svi" : (lookup(each.value, "vlan", null) != null ? "sub-interface" : "l3-port")
-  target_dn                    = "topology/pod-${each.value.pod_id}/paths-${each.value.node_id}/pathep-[eth${each.value.module}/${each.value.port}]"
-  addr                         = lookup(each.value, "ip", null)
-  encap                        = lookup(each.value, "vlan", null) != null ? "vlan-${each.value.vlan}" : null
-  mode                         = lookup(each.value, "mode", null)
-  mtu                          = lookup(each.value, "mtu", null)
+  # A vPC SVI (2026-10-16) targets the protection pair and the vPC policy
+  # group; its addresses live on the two l3extMember sides below, so the
+  # attachment itself carries 0.0.0.0.
+  target_dn = (lookup(each.value, "path_type", "port") == "vpc"
+    ? "topology/pod-${each.value.pod_id}/protpaths-${each.value.node_id}-${each.value.node_id2}/pathep-[${each.value.policy_group}]"
+  : "topology/pod-${each.value.pod_id}/paths-${each.value.node_id}/pathep-[eth${each.value.module}/${each.value.port}]")
+  addr  = lookup(each.value, "path_type", "port") == "vpc" ? "0.0.0.0" : lookup(each.value, "ip", null)
+  encap = lookup(each.value, "vlan", null) != null ? "vlan-${each.value.vlan}" : null
+  mode  = lookup(each.value, "mode", null)
+  mtu   = lookup(each.value, "mtu", null)
 }
 
 resource "aci_l3out_floating_svi" "this" {
@@ -1701,6 +1957,14 @@ resource "aci_l3out_bgp_external_policy" "this" {
 resource "aci_l3out_bgp_protocol_profile" "this" {
   for_each                = local.l3out_bgp_policies
   logical_node_profile_dn = one([for k, p in local.l3out_node_profiles : aci_logical_node_profile.this[k].id if startswith(k, "${each.key}/")])
+
+  # L3Out depth (2026-10-16): this L3Out's BGP timers and best-path policy.
+  relation_bgp_rs_bgp_node_ctx_pol = lookup(each.value, "bgp_timers_policy", null) == null ? null : (
+    aci_bgp_timers.this["${each.value.tenant_name}/${each.value.bgp_timers_policy}"].id
+  )
+  relation_bgp_rs_best_path_ctrl_pol = lookup(each.value, "bgp_best_path_policy", null) == null ? null : (
+    aci_bgp_best_path_policy.this["${each.value.tenant_name}/${each.value.bgp_best_path_policy}"].id
+  )
 }
 
 # EVIDENCE: plan-verified only -- see aci_l3out_path_attachment above. No
@@ -1750,6 +2014,153 @@ resource "aci_ospf_interface_policy" "this" {
     try(each.value.passive ? "passive" : null, null),
   ])
   description = lookup(each.value, "description", null)
+}
+
+# ---------------------------------------------------------------------------
+# L3Out depth (2026-10-16)
+#
+# Per-node static routes (with next hops and optional BFD) and loopbacks, BFD
+# on interface profiles, the two sides of a vPC SVI, and six tenant-scoped
+# policies: BFD interface, BGP timers, BGP best path, BGP route summarization,
+# OSPF timers and route tag. The policies are referenced by DN (resource id)
+# from the VRF, the L3Out's BGP protocol profile, interface profiles and
+# external EPG subnets -- the same rule as every other L3Out policy relation
+# in this file (a bare name fails at apply).
+# ---------------------------------------------------------------------------
+
+# BGP route summarization on an external EPG subnet, as its own object rather
+# than aci_l3_ext_subnet's relation attribute: that attribute is optional and
+# computed, so "" counts as unset and null as unmanaged -- either way removing
+# the intent left l3extRsSubnetToRtSumm naming a deleted policy, state
+# "missing-target" (measured twice, 2026-10-16). A resource of its own is
+# deleted when the intent goes.
+resource "aci_rest_managed" "l3out_subnet_route_summarization" {
+  for_each = { for k, sn in local.external_epg_subnets : k => sn if lookup(sn, "bgp_route_summarization_policy", null) != null }
+
+  dn         = "${aci_l3_ext_subnet.this[each.key].id}/rsSubnetToRtSumm"
+  class_name = "l3extRsSubnetToRtSumm"
+  content = {
+    tDn = aci_bgp_route_summarization.this["${each.value.tenant_name}/${each.value.bgp_route_summarization_policy}"].id
+  }
+}
+
+# NOT-SETTABLE[NS-28]: no IP SLA track list -- the route stays up whatever its next hop's reachability (BFD aside).
+resource "aci_l3out_static_route" "this" {
+  for_each = local.l3out_static_routes
+
+  fabric_node_dn = aci_logical_node_to_fabric_node.this[each.value.node_key].id
+  ip             = each.value.prefix
+  pref           = tostring(lookup(each.value, "preference", 1))
+  rt_ctrl        = try(each.value.bfd, false) ? "bfd" : "unspecified"
+  description    = lookup(each.value, "description", null)
+}
+
+resource "aci_l3out_static_route_next_hop" "this" {
+  for_each = local.l3out_static_route_next_hops
+
+  static_route_dn      = aci_l3out_static_route.this[each.value.route_key].id
+  nh_addr              = each.value.ip
+  pref                 = lookup(each.value, "preference", null) == null ? null : tostring(each.value.preference)
+  nexthop_profile_type = "prefix"
+}
+
+resource "aci_l3out_loopback_interface_profile" "this" {
+  for_each = local.l3out_loopbacks
+
+  fabric_node_dn = aci_logical_node_to_fabric_node.this[each.value.node_key].id
+  addr           = each.value.ip
+}
+
+# NOT-SETTABLE[NS-28]: no shared (virtual) secondary IP on the SVI -- only the two side addresses.
+resource "aci_l3out_vpc_member" "this" {
+  for_each = local.l3out_vpc_members
+
+  leaf_port_dn = aci_l3out_path_attachment.this[each.value.interface_key].id
+  side         = each.value.side
+  addr         = each.value.ip
+}
+
+# NOT-SETTABLE[NS-27]: BFD authentication -- the key is a secret and no sensitive variable carries it yet.
+resource "aci_l3out_bfd_interface_profile" "this" {
+  for_each = { for k, p in local.l3out_interface_profiles : k => p if lookup(p, "bfd_interface_policy", null) != null }
+
+  logical_interface_profile_dn = aci_logical_interface_profile.this[each.key].id
+  # A literal "uni/..." DN passes through, like the other interface policies.
+  relation_bfd_rs_if_pol = startswith(each.value.bfd_interface_policy, "uni/") ? each.value.bfd_interface_policy : (
+    aci_bfd_interface_policy.this["${each.value.tenant_name}/${each.value.bfd_interface_policy}"].id
+  )
+}
+
+resource "aci_bfd_interface_policy" "this" {
+  for_each = local.bfd_interface_policies
+
+  tenant_dn     = aci_tenant.this[each.value.tenant_name].id
+  name          = each.value.name
+  description   = lookup(each.value, "description", null)
+  admin_st      = lookup(each.value, "admin_state", null)
+  detect_mult   = lookup(each.value, "detect_multiplier", null) == null ? null : tostring(each.value.detect_multiplier)
+  min_rx_intvl  = lookup(each.value, "min_rx_interval", null) == null ? null : tostring(each.value.min_rx_interval)
+  min_tx_intvl  = lookup(each.value, "min_tx_interval", null) == null ? null : tostring(each.value.min_tx_interval)
+  echo_admin_st = lookup(each.value, "echo_admin_state", null)
+  echo_rx_intvl = lookup(each.value, "echo_rx_interval", null) == null ? null : tostring(each.value.echo_rx_interval)
+}
+
+resource "aci_bgp_timers" "this" {
+  for_each = local.bgp_timers_policies
+
+  tenant_dn   = aci_tenant.this[each.value.tenant_name].id
+  name        = each.value.name
+  description = lookup(each.value, "description", null)
+  ka_intvl    = lookup(each.value, "keepalive_interval", null) == null ? null : tostring(each.value.keepalive_interval)
+  hold_intvl  = lookup(each.value, "hold_interval", null) == null ? null : tostring(each.value.hold_interval)
+  # APIC stores its default stale interval (300) as the keyword "default", so
+  # sending "300" drifts on every plan (measured 2026-10-16). Send the keyword.
+  stale_intvl = lookup(each.value, "stale_interval", null) == null ? null : (
+    each.value.stale_interval == 300 ? "default" : tostring(each.value.stale_interval)
+  )
+  max_as_limit = lookup(each.value, "max_as_limit", null) == null ? null : tostring(each.value.max_as_limit)
+  gr_ctrl      = lookup(each.value, "graceful_restart_helper", null) == null ? null : (each.value.graceful_restart_helper ? "helper" : "none")
+}
+
+resource "aci_bgp_best_path_policy" "this" {
+  for_each = local.bgp_best_path_policies
+
+  tenant_dn   = aci_tenant.this[each.value.tenant_name].id
+  name        = each.value.name
+  description = lookup(each.value, "description", null)
+  ctrl        = try(each.value.as_path_multipath_relax, false) ? "asPathMultipathRelax" : "0"
+}
+
+resource "aci_bgp_route_summarization" "this" {
+  for_each = local.bgp_route_summarization_policies
+
+  tenant_dn   = aci_tenant.this[each.value.tenant_name].id
+  name        = each.value.name
+  description = lookup(each.value, "description", null)
+  ctrl        = try(each.value.as_set, false) ? ["as-set"] : []
+}
+
+resource "aci_ospf_timers" "this" {
+  for_each = local.ospf_timers_policies
+
+  tenant_dn      = aci_tenant.this[each.value.tenant_name].id
+  name           = each.value.name
+  description    = lookup(each.value, "description", null)
+  bw_ref         = lookup(each.value, "reference_bandwidth", null) == null ? null : tostring(each.value.reference_bandwidth)
+  dist           = lookup(each.value, "distance", null) == null ? null : tostring(each.value.distance)
+  max_ecmp       = lookup(each.value, "max_ecmp", null) == null ? null : tostring(each.value.max_ecmp)
+  spf_init_intvl = lookup(each.value, "spf_initial_delay", null) == null ? null : tostring(each.value.spf_initial_delay)
+  spf_hold_intvl = lookup(each.value, "spf_hold_interval", null) == null ? null : tostring(each.value.spf_hold_interval)
+  spf_max_intvl  = lookup(each.value, "spf_max_interval", null) == null ? null : tostring(each.value.spf_max_interval)
+}
+
+resource "aci_l3out_route_tag_policy" "this" {
+  for_each = local.route_tag_policies
+
+  tenant_dn   = aci_tenant.this[each.value.tenant_name].id
+  name        = each.value.name
+  description = lookup(each.value, "description", null)
+  tag         = tostring(each.value.tag)
 }
 
 # ---------------------------------------------------------------------------
@@ -1890,6 +2301,7 @@ resource "aci_attachable_access_entity_profile" "this" {
   ]
 }
 
+# NOT-SETTABLE[NS-03]: CDP/LLDP/link/STP/port-security are rendered from `policies`, but no MCP tool writes that key.
 resource "aci_leaf_access_port_policy_group" "this" {
   for_each = local.leaf_interface_policy_groups
 
@@ -1905,6 +2317,59 @@ resource "aci_leaf_access_port_policy_group" "this" {
   relation_infra_rs_l2_if_pol            = lookup(local.ipg_link_policies, each.key, null) != null ? aci_link_level_interface_policy.this[each.key].id : null
   relation_infra_rs_stp_if_pol           = lookup(local.ipg_stp_policies, each.key, null) != null ? aci_spanning_tree_interface_policy.this[each.key].id : null
   relation_infra_rs_l2_port_security_pol = lookup(local.ipg_port_security_policies, each.key, null) != null ? aci_port_security_interface_policy.this[each.key].id : null
+}
+
+# ---------------------------------------------------------------------------
+# Port-channel / vPC (2026-10-12)
+#
+# EVIDENCE: live-verified 2026-10-12 -- tests/fixtures/pc-vpc-mgmt.yaml planned
+# (each type counted), applied (28 added) and destroyed (28 destroyed) against
+# the lab APIC in an isolated state. Read back: lacpLagPol mode/min/max as
+# written; fabricExplicitGEp id 901 with nodepep-901/902; infraAccBndlGrp
+# lagT link/node with infraRsAttEntP + infraRsLacpPol formed; infraRsAccBaseGrp
+# formed to both accbundle- and accportgrp- groups. Paths stay unformed (no
+# switches). New faults: only F1298 "Node Cannot Deploy" on 901/902.
+# ---------------------------------------------------------------------------
+# NOT-SETTABLE[NS-04]: LACP member policy (port priority, fast rate) not modelled.
+resource "aci_lacp_policy" "this" {
+  for_each = local.lacp_policies
+
+  name      = each.value.name
+  mode      = lookup(each.value, "mode", null)
+  min_links = try(tostring(each.value.min_links), null)
+  max_links = try(tostring(each.value.max_links), null)
+  ctrl      = lookup(each.value, "controls", null)
+}
+
+# NOT-SETTABLE[NS-05]: vpc_domain_policy not set -- APIC's 'default' vPC domain policy applies.
+resource "aci_vpc_explicit_protection_group" "this" {
+  for_each = local.vpc_domains
+
+  name                             = each.value.name
+  switch1                          = tostring(each.value.node1)
+  switch2                          = tostring(each.value.node2)
+  vpc_explicit_protection_group_id = tostring(each.value.domain_id)
+}
+
+# NOT-SETTABLE[NS-02]: only AEP and LACP are wired; CDP/LLDP/link/MCP/STP/storm control/port security are APIC defaults.
+resource "aci_leaf_access_bundle_policy_group" "this" {
+  for_each = local.pc_vpc_policy_groups
+
+  name        = each.value.name
+  description = lookup(each.value, "description", null)
+  # lag_t: "link" = port-channel on one leaf, "node" = vPC across a pair.
+  lag_t = each.value.bundle_type == "vpc" ? "node" : "link"
+
+  relation_infra_rs_att_ent_p = (
+    lookup(each.value, "aep", null) != null
+    ? aci_attachable_access_entity_profile.this[each.value.aep].id
+    : null
+  )
+  relation_infra_rs_lacp_pol = (
+    lookup(each.value, "lacp_policy", null) != null
+    ? aci_lacp_policy.this[each.value.lacp_policy].id
+    : null
+  )
 }
 
 resource "aci_cdp_interface_policy" "this" {
@@ -1961,7 +2426,11 @@ resource "aci_access_port_selector" "xml_compatible" {
   name                      = each.value.name
   port_selector_type        = lookup(each.value, "selector_type", "range")
   relation_to_leaf_access_port_policy_group = {
-    target_dn = aci_leaf_access_port_policy_group.this[each.value.policy_group].id
+    target_dn = (
+      contains(keys(local.pc_vpc_policy_groups), each.value.policy_group)
+      ? aci_leaf_access_bundle_policy_group.this[each.value.policy_group].id
+      : aci_leaf_access_port_policy_group.this[each.value.policy_group].id
+    )
   }
 }
 
@@ -2004,19 +2473,75 @@ resource "aci_node_block" "xml_compatible" {
 }
 
 resource "aci_access_port_selector" "this" {
-  for_each                                  = local.interface_selectors
-  leaf_interface_profile_dn                 = aci_leaf_interface_profile.this[each.value.leaf_interface_profile].id
-  name                                      = each.value.name
-  port_selector_type                        = lookup(each.value, "port_selector_type", "range")
-  relation_to_leaf_access_port_policy_group = { target_dn = aci_leaf_access_port_policy_group.this[each.value.policy_group].id }
+  for_each                  = local.interface_selectors
+  leaf_interface_profile_dn = aci_leaf_interface_profile.this[each.value.leaf_interface_profile].id
+  name                      = each.value.name
+  port_selector_type        = lookup(each.value, "port_selector_type", "range")
+  relation_to_leaf_access_port_policy_group = {
+    target_dn = (
+      contains(keys(local.pc_vpc_policy_groups), each.value.policy_group)
+      ? aci_leaf_access_bundle_policy_group.this[each.value.policy_group].id
+      : aci_leaf_access_port_policy_group.this[each.value.policy_group].id
+    )
+  }
 }
 
+# NOT-SETTABLE[NS-06]: instr_imedcy and primary_encap not set -- APIC default immediacy (lazy).
 resource "aci_epg_to_static_path" "this" {
   for_each           = local.static_path_bindings
   application_epg_dn = aci_application_epg.this["${each.value.tenant_name}/${each.value.ap_name}/${each.value.epg_name}"].id
-  tdn                = "topology/pod-${each.value.pod_id}/paths-${each.value.node_id}/pathep-[eth${each.value.module}/${each.value.port}]"
-  encap              = each.value.encap
-  mode               = lookup(each.value, "mode", "regular")
+  # port: one interface; port_channel: the PC policy group on one leaf;
+  # vpc: the vPC policy group on the protection pair (lower node first).
+  tdn = (
+    try(each.value.path_type, "port") == "vpc"
+    ? "topology/pod-${lookup(each.value, "pod_id", 1)}/protpaths-${min(each.value.node_id, each.value.node_id2)}-${max(each.value.node_id, each.value.node_id2)}/pathep-[${each.value.policy_group}]"
+    : try(each.value.path_type, "port") == "port_channel"
+    ? "topology/pod-${lookup(each.value, "pod_id", 1)}/paths-${each.value.node_id}/pathep-[${each.value.policy_group}]"
+    : "topology/pod-${lookup(each.value, "pod_id", 1)}/paths-${each.value.node_id}/pathep-[eth${each.value.module}/${each.value.port}]"
+  )
+  encap = each.value.encap
+  mode  = lookup(each.value, "mode", "regular")
+}
+
+# ---------------------------------------------------------------------------
+# Node management addresses (2026-10-12)
+#
+# EVIDENCE: live-verified 2026-10-12 with the same fixture: mgmtInB encap
+# vlan-3999 with mgmtRsMgmtBD -> inb formed; mgmtRsOoBStNode (node 901) and
+# mgmtRsInBStNode (node 902) stored with addr/gw as written, unformed (no
+# switches); node-1's pre-existing OOB address untouched through apply and
+# destroy. Before the FIRST apply at any site, check the
+# APIC for existing static addresses on the same nodes (classes
+# mgmtRsOoBStNode / mgmtRsInBStNode): Terraform adopts an existing address on
+# create and REMOVES it on destroy, exactly as with any object it manages.
+# ---------------------------------------------------------------------------
+# NOT-SETTABLE[NS-08]: no in-band management contracts.
+resource "aci_node_mgmt_epg" "inband" {
+  for_each = local.inband_mgmt_epgs
+
+  type                     = "in_band"
+  management_profile_dn    = "uni/tn-mgmt/mgmtp-default"
+  name                     = each.value.name
+  encap                    = "vlan-${each.value.encap_vlan}"
+  relation_mgmt_rs_mgmt_bd = "uni/tn-mgmt/BD-${lookup(each.value, "bridge_domain", "inb")}"
+}
+
+# NOT-SETTABLE[NS-07]: v6_addr / v6_gw not modelled -- IPv4 only.
+# NOT-SETTABLE[NS-08]: no OOB/in-band management contracts or external management subnets.
+resource "aci_static_node_mgmt_address" "this" {
+  for_each = local.mgmt_static_addresses
+
+  # The OOB EPG is APIC's built-in object, referenced by DN and never
+  # created or destroyed here.
+  management_epg_dn = (
+    each.value.type == "out_of_band"
+    ? "uni/tn-mgmt/mgmtp-default/oob-default"
+    : aci_node_mgmt_epg.inband[each.value.epg].id
+  )
+  t_dn = "topology/pod-${each.value.pod_id}/node-${each.value.node_id}"
+  type = each.value.type
+  addr = each.value.address
+  gw   = lookup(each.value, "gateway", null)
 }
 
 # ---------------------------------------------------------------------------
@@ -2107,6 +2632,8 @@ resource "aci_vmm_controller" "this" {
 # requiring manual recreation to restore the pre-existing baseline. Never
 # remove `content_on_destroy` from these three resources.
 # ---------------------------------------------------------------------------
+# NOT-SETTABLE[NS-18]: NTP authentication keys and the management EPG the servers are reached through are not modelled.
+# NOT-SETTABLE[NS-22]: targets the default time policy only.
 resource "aci_rest_managed" "ntp_policy" {
   count = length(local.ntp_policy) > 0 ? 1 : 0
 
@@ -2136,6 +2663,7 @@ resource "aci_rest_managed" "ntp_policy" {
   }
 }
 
+# NOT-SETTABLE[NS-18]: DNS management EPG and IPv4/IPv6 preference are not modelled.
 resource "aci_rest_managed" "dns_profile" {
   count = length(local.dns_policy) > 0 ? 1 : 0
 
@@ -2173,6 +2701,8 @@ resource "aci_rest_managed" "dns_profile" {
   }
 }
 
+# NOT-SETTABLE[NS-19]: SNMP client groups, trap destinations and SNMPv3 users are not modelled.
+# NOT-SETTABLE[NS-22]: targets the default SNMP policy only.
 resource "aci_rest_managed" "snmp_policy" {
   count = length(local.snmp_policy) > 0 ? 1 : 0
 
@@ -2192,11 +2722,30 @@ resource "aci_rest_managed" "snmp_policy" {
   }
 }
 
+# EVIDENCE: live-verified 2026-10-13 (tests/fixtures/fabric-policies.yaml,
+# isolated state): plan stops on the precondition without the string; with it
+# the snmpCommunityP is created with the supplied name, re-plan "No changes",
+# destroy removes it. Run through mask_secrets.py the string never appears in
+# plan/apply/destroy output -- without it, the apply printed it once and the
+# destroy three times (resource ids).
+# Communities are keyed by their REFERENCE (2026-10-13); the community string
+# -- the object's name on the APIC -- comes from var.snmp_community_strings.
+# A legacy entry carrying a clear-text `name` still works so existing intent
+# does not break, but every tool now writes `ref` only. Note the string is
+# still part of the object's DN, so it appears in Terraform STATE: protect the
+# state as the credential store it is.
 resource "aci_snmp_community" "this" {
-  for_each = length(local.snmp_policy) > 0 ? { for c in lookup(local.snmp_policy, "communities", []) : c.name => c } : {}
+  for_each = length(local.snmp_policy) > 0 ? { for c in lookup(local.snmp_policy, "communities", []) : try(c.ref, c.name) => c } : {}
 
   parent_dn = "uni/fabric/snmppol-default"
-  name      = each.value.name
+  name      = try(each.value.ref, null) != null ? lookup(var.snmp_community_strings, each.value.ref, "") : each.value.name
+
+  lifecycle {
+    precondition {
+      condition     = try(each.value.ref, null) == null || contains(keys(var.snmp_community_strings), each.value.ref)
+      error_message = "SNMP community reference '${each.key}' has no string in var.snmp_community_strings -- supply it at apply time (e.g. from Vault); it is never stored in Nautobot."
+    }
+  }
 
   depends_on = [aci_rest_managed.snmp_policy]
 }
@@ -2213,6 +2762,7 @@ resource "aci_snmp_community" "this" {
 # content_on_destroy-equivalent lever, so a genuine `terraform destroy`
 # still risks the same class of incident Phase C hit -- live-verified
 # end-to-end in an isolated state before trusting this in the shared fleet.
+# NOT-SETTABLE[NS-21]: cannot delete or reset its singleton -- clearing intent leaves the last value on the APIC.
 resource "aci_coop_policy" "this" {
   count = length(local.coop_policy) > 0 ? 1 : 0
 
@@ -2220,6 +2770,7 @@ resource "aci_coop_policy" "this" {
   description = lookup(local.coop_policy, "description", null)
 }
 
+# NOT-SETTABLE[NS-21]: cannot delete or reset its singleton -- clearing intent leaves the last value on the APIC.
 resource "aci_isis_domain_policy" "this" {
   count = length(local.isis_policy) > 0 ? 1 : 0
 
@@ -2233,6 +2784,7 @@ resource "aci_isis_domain_policy" "this" {
 # direct APIC class query: 0 pre-existing instances), so ordinary
 # aci_rest_managed destroy behavior (delete the DN) is correct here, unlike
 # the singleton resources above -- no content_on_destroy needed.
+# NOT-SETTABLE[NS-23]: can only name the 'default' BGP route reflector policy -- no other is managed.
 resource "aci_rest_managed" "pod_policy_group" {
   for_each = local.pod_policy_groups
 
@@ -2254,6 +2806,62 @@ resource "aci_rest_managed" "pod_policy_group" {
         tnBgpInstPolName = child.value
       }
     }
+  }
+}
+
+# ---------------------------------------------------------------------------
+# BGP route reflector policy and pod assignment (2026-10-14).
+#
+# MP-BGP is what carries routes an L3Out learns to every other leaf: one AS
+# for the fabric, spines as route reflectors, under the default BGP instance
+# policy. A Pod Policy Group resolves to that policy (APIC creates the
+# group's rspodPGrpBGPRRP itself, resolving to 'default'), and only applies
+# once the pod selector names it.
+#
+# DNs, classes and RNs confirmed against this APIC on 2026-10-14 by direct
+# POST + read-back + DELETE, not assumed. A fresh APIC has no bgpAsP, no
+# bgpRRNodePEp and no fabricRsPodPGrp, and all three delete cleanly -- so a
+# plain delete on destroy IS the reset; no content_on_destroy.
+#
+# APIC accepts a route-reflector node that is not a registered spine with
+# HTTP 200 and then raises F1893 ("Only spine nodes can be BGP
+# Route-Reflectors") under .../rr/node-N/badselection. The generator refuses
+# non-spines by inventory role; check_apic_faults.py claims the DN.
+# ---------------------------------------------------------------------------
+
+# NOT-SETTABLE[NS-23]: the default BGP instance policy only -- no external route reflectors or domain-ID base.
+resource "aci_rest_managed" "bgp_fabric_as" {
+  count = lookup(local.bgp_route_reflector, "asn", null) != null ? 1 : 0
+
+  dn         = "uni/fabric/bgpInstP-default/as"
+  class_name = "bgpAsP"
+  content = {
+    asn = tostring(local.bgp_route_reflector.asn)
+  }
+}
+
+resource "aci_rest_managed" "bgp_route_reflector_node" {
+  for_each = local.bgp_rr_nodes
+
+  dn         = "uni/fabric/bgpInstP-default/rr/node-${each.value.node_id}"
+  class_name = "bgpRRNodePEp"
+  content = {
+    id    = tostring(each.value.node_id)
+    podId = tostring(lookup(each.value, "pod_id", 1))
+  }
+
+  depends_on = [aci_rest_managed.bgp_fabric_as]
+}
+
+# NOT-SETTABLE[NS-22]: the default pod selector (all pods) only -- no per-pod selector.
+resource "aci_rest_managed" "pod_profile_policy_group" {
+  count = lookup(local.pod_profile, "policy_group", null) != null ? 1 : 0
+
+  dn         = "uni/fabric/podprof-default/pods-default-typ-ALL/rspodPGrp"
+  class_name = "fabricRsPodPGrp"
+  content = {
+    # A reference, not a string: an undeclared group fails the plan here.
+    tDn = aci_rest_managed.pod_policy_group[local.pod_profile.policy_group].dn
   }
 }
 
@@ -2284,6 +2892,7 @@ resource "aci_rest_managed" "fault_lifecycle_policy" {
   }
 }
 
+# NOT-SETTABLE[NS-20]: syslog remote destinations (groups / sources) are not modelled.
 resource "aci_rest_managed" "syslog_system_msg" {
   count = length(local.syslog_system_msg) > 0 ? 1 : 0
 

@@ -1,0 +1,32 @@
+# BGP route reflector policy and pod assignment (2026-10-14): the fabric AS,
+# a spine route reflector, a Pod Policy Group naming the default BGP policy,
+# and that group assigned to the default pod selector (all pods).
+#
+# Everything here is absent on a fresh APIC and deletes cleanly, so destroy
+# returns uni/fabric/bgpInstP-default and uni/fabric/podprof-default to
+# exactly what they were.
+#
+# Node 1001 is a spine in Nautobot's inventory but NOT a registered switch on
+# this simulator (it has none). APIC accepts the route-reflector node with
+# HTTP 200 and then raises F1893 ("Only spine nodes can be BGP
+# Route-Reflectors") -- on this lab that fault is the floor, as
+# vnsConfIssue-missing-cdev is for L4-L7 devices. On a fabric whose spine
+# 1001 is registered it does not occur.
+#
+# EVIDENCE: live-verified 2026-10-14 in an isolated state, in two steps: AS +
+# group + assignment 3 added, rspodPGrp and rspodPGrpBGPRRP 'formed', no new
+# faults (5/5 unscoped), re-plan "No changes"; then the route-reflector node
+# 1 added -> F1893, check_apic_faults.py failed (exit 1) naming it; destroy
+# 4 destroyed -> bgpInstP-default, podprof-default and funcprof byte-identical
+# to the pre-apply snapshot, faults back to 5. See ADR-020.
+apic:
+  tenants: []
+  fabric_policies:
+    bgp_route_reflector:
+      asn: 65099
+      nodes:
+        - {node_id: 1001, pod_id: 1}
+    pod_policy_groups:
+      - {name: lcf-rr-pod-pg, bgp_route_reflector_policy: default}
+    pod_profile:
+      policy_group: lcf-rr-pod-pg

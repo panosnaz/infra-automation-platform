@@ -7,6 +7,12 @@ import copy
 
 import pynautobot
 
+from mcp_server import intent_refs
+from mcp_server.clients.nautobot_access import AccessMixin
+from mcp_server.clients.nautobot_fabric import FabricPolicyMixin
+from mcp_server.clients.nautobot_l3out_depth import L3OutDepthMixin
+from mcp_server.clients.nautobot_lifecycle import LifecycleMixin
+from mcp_server.clients.nautobot_security import SecurityGroupMixin
 from mcp_server.errors import NautobotError
 
 
@@ -24,7 +30,12 @@ def _bd_custom_fields(gateway_ip: str | None, l3outs: list[str] | None) -> dict:
     return fields
 
 
-class NautobotClient:
+class NautobotClient(LifecycleMixin, AccessMixin, FabricPolicyMixin, SecurityGroupMixin, L3OutDepthMixin):
+    """create_* methods live here; read/update/delete in LifecycleMixin
+    (clients/nautobot_lifecycle.py); port-channel/vPC and node management in
+    AccessMixin (clients/nautobot_access.py); NTP/DNS/SNMP/COOP/ISIS/fault/
+    syslog in FabricPolicyMixin (clients/nautobot_fabric.py)."""
+
     def __init__(self, url: str, token: str) -> None:
         self._url = url
         self._token = token
@@ -1031,6 +1042,13 @@ class NautobotClient:
                     f"Leaf Interface Policy Group '{name}' already exists on "
                     f"Location '{location}'"
                 )
+            # Selectors name their policy group, and main.tf resolves the name
+            # against both access-port and PC/vPC groups -- so the two may not
+            # share a name.
+            if any(g.get("name") == name for g in existing.get("pc_vpc_policy_groups") or []):
+                raise NautobotError(
+                    f"'{name}' is already a PC/vPC policy group on Location '{location_obj.name}'"
+                )
             groups.append(entry)
 
             location_obj.update(
@@ -1201,9 +1219,68 @@ class NautobotClient:
         epg_obj.update({"custom_fields": fields})
         return {"tenant": tenant, "application_profile": application_profile, "epg": epg, **update}
 
-    def create_static_path_binding(self, tenant: str, application_profile: str, epg: str, pod_id: int, node_id: int, module: int, port: int, encap: str, mode: str = "regular") -> dict:
-        paths = [{"pod_id": pod_id, "node_id": node_id, "module": module, "port": port, "encap": encap, "mode": mode}]
-        return self._update_epg_custom_fields(tenant, application_profile, epg, {"aci_static_paths": paths})
+    def create_static_path_binding(
+        self, tenant: str, application_profile: str, epg: str, pod_id: int, node_id: int,
+        encap: str, mode: str = "regular", module: int | None = None, port: int | None = None,
+        path_type: str = "port", node_id2: int | None = None, policy_group: str | None = None,
+        location: str | None = None,
+    ) -> dict:
+        """Add one static path to an EPG -- a port, a port-channel or a vPC.
+
+        Appends. The same path bound again replaces only itself (a new encap,
+        say). Until 2026-10-12 this method wrote a one-element list, so every
+        call silently unbound every earlier path of the EPG.
+        """
+        path: dict = {"pod_id": pod_id, "node_id": node_id, "encap": encap, "mode": mode}
+        if path_type == "port":
+            path.update({"module": module, "port": port})
+        else:
+            path.update({"path_type": path_type, "policy_group": policy_group})
+            if path_type == "vpc":
+                path["node_id2"] = node_id2
+            self._check_bundle_path(location, path)
+
+        tenant_obj = self._get_tenant_or_raise(tenant)
+        epg_obj = self.api.ipam.vlans.get(name=epg, tenant_id=tenant_obj.id)
+        if epg_obj is None:
+            raise NautobotError(f"EPG '{epg}' not found in tenant '{tenant}'")
+        fields = copy.deepcopy(dict(epg_obj.custom_fields or {}))
+        if fields.get("aci_application_profile") != application_profile:
+            raise NautobotError(f"EPG '{epg}' is not associated with Application Profile '{application_profile}'")
+        identity = intent_refs.static_path_identity(path)
+        paths = [p for p in fields.get("aci_static_paths") or [] if intent_refs.static_path_identity(p) != identity]
+        paths.append(path)
+        fields["aci_static_paths"] = paths
+        epg_obj.update({"custom_fields": fields})
+        return {"tenant": tenant, "application_profile": application_profile, "epg": epg,
+                "static_path": path, "aci_static_paths": paths}
+
+    def _check_bundle_path(self, location: str | None, path: dict) -> None:
+        """A PC/vPC binding names a policy group and (for vPC) a leaf pair.
+        Both must already be declared, and match -- otherwise APIC stores a
+        path that never resolves and raises no error at apply time."""
+        location_obj = self._get_location_or_raise(location)
+        fabric = dict(location_obj.custom_fields or {}).get("aci_fabric_policies") or {}
+        groups = {g.get("name"): g for g in fabric.get("pc_vpc_policy_groups") or []}
+        group = groups.get(path["policy_group"])
+        if group is None:
+            raise NautobotError(
+                f"PC/vPC policy group '{path['policy_group']}' does not exist on Location '{location_obj.name}' "
+                f"(known: {', '.join(sorted(groups)) or 'none'}) -- create it with create_pc_vpc_policy_group"
+            )
+        if group.get("bundle_type") != path["path_type"]:
+            raise NautobotError(
+                f"Policy group '{path['policy_group']}' is a {group.get('bundle_type')} group, "
+                f"but this is a {path['path_type']} binding"
+            )
+        if path["path_type"] == "vpc":
+            pair = {int(path["node_id"]), int(path["node_id2"])}
+            domains = fabric.get("vpc_domains") or []
+            if not any({int(d.get("node1", -1)), int(d.get("node2", -1))} == pair for d in domains):
+                have = ", ".join(f"{d.get('name')} ({d.get('node1')}-{d.get('node2')})" for d in domains) or "none"
+                raise NautobotError(
+                    f"No vPC domain pairs nodes {sorted(pair)} (vPC domains: {have}) -- create it with create_vpc_domain"
+                )
 
     def create_vmm_domain(
         self,
@@ -1523,6 +1600,9 @@ class NautobotClient:
 
             applied = {k: v for k, v in bindings.items() if v}
             ip.update(applied)
+            if bindings.get("bfd_interface_policy") == "":
+                ip.pop("bfd_interface_policy", None)
+                applied["bfd_interface_policy"] = ""
 
             np["interface_profiles"] = interface_profiles
             out["node_profiles"] = node_profiles

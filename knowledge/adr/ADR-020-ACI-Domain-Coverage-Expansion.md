@@ -809,6 +809,332 @@ The response note echoed `request.location`, which is `None` whenever the caller
 
 Seven new offline tests cover the resolution rules directly, including both ambiguity cases and the Catalyst-Center-style mixed-Location scenario. Test objects were removed afterwards and `terraform plan` returned to its pre-existing 2-change drift with no residue.
 
+## Lifecycle tools — read, update, delete (2026-10-12)
+
+Every ACI tool until now was a `create_*`. An agent could add intent but could not see what existed, change an attribute, or remove anything; the only way to fix a mistake was to edit raw JSON Custom Fields in the Nautobot UI. Eleven tools close that, all **live-verified** over the real MCP protocol against live Nautobot (48/48 checks, see Evidence below).
+
+| Tool | What it does |
+|---|---|
+| `list_aci_tenants` | Every tenant with VRF / BD / EPG counts, which JSON intent it carries, and its last validation status |
+| `get_tenant_intent` | Everything Nautobot holds for one tenant, with BDs named and grouped exactly as the generator names them |
+| `get_fabric_intent` | The Location's access / fabric / AAA intent plus the fabric nodes registered there |
+| `update_vrf` / `update_bridge_domain` / `update_epg` | Typed attribute changes; only the fields passed change |
+| `delete_tenant_object` | One object inside a tenant — 20 kinds, from VRF to IP SLA policy |
+| `delete_fabric_object` | One fabric-wide access / AAA object — 13 kinds |
+| `unbind_epg_contract` / `unbind_epg_domain` | Inverses of the two `bind_*` tools |
+| `delete_tenant` | A whole tenant with its VRFs, BDs and EPGs; `confirm` must repeat the name |
+
+**Design decisions:**
+
+* **Updates are typed per object, deletes take a typed `kind`.** VRF, BD and EPG attributes are flat and enumerable, so each gets its own schema with `Literal` value sets — the allowed values reach the agent in `tools/list` before it calls. A generic "set any field" update was rejected: a misspelt key is stored by Nautobot without complaint and ignored by the generator. Deletes all share one shape (find by name, refuse while referenced, remove), so two tools with a `kind` enum replace what would otherwise be ~33 near-identical tools crowding the catalogue.
+* **A delete refuses while anything references the object, and names every reference.** A dangling reference is accepted by Nautobot and reported as success, then fails the next pipeline (`PolicyReferenceError`) or plans a broken object. The rules live in `mcp_server/intent_refs.py` as pure functions — 20 tenant kinds, 13 fabric kinds — and mirror what the generator and `main.tf` resolve. Domains are checked across **every** tenant: a check scoped to one tenant passes while another tenant's EPG, L3Out or L4-L7 device still uses the domain. **When a `create_*` tool starts writing a new cross-reference, add the rule to `intent_refs.py`**, or deleting its target is allowed and breaks the next pipeline.
+* **Deletes remove every entry of a name**, not the first — several older `create_*` tools appended duplicates, and removing one would leave the object in place while reporting success.
+* **No "unset" on updates.** Removing a value from Nautobot makes Terraform *stop managing* the attribute; it does not restore the ACI default. To go back to a default, set the default value explicitly — each field's description states it.
+* **`update_bridge_domain` writes every Prefix of a multi-subnet BD.** The generator takes BD-level attributes from whichever Prefix it reads first, so updating one would make the result depend on Nautobot's row order. A scope change also strips the `-- subnet-scope:` marker from the description, because the generator honours the marker and the Custom Field together and the old marker would otherwise win.
+* **`delete_tenant` never deletes `common`, `infra` or `mgmt`** — refused by the schema *and* by the client, so no other caller bypasses it — and refuses a tenant that also owns devices or IP addresses rather than failing halfway after its VRFs are gone. It removes the tenant's own IPAM Namespace when nothing else uses it.
+* **The BD-naming rule is duplicated** in `intent_refs.bd_name_for_prefix` (the server container does not ship the generator). `tests/unit/test_bd_name_parity.py` fails if it drifts from `transformer.py`.
+
+**What deploys, and when — stated in every reply.** Nautobot's webhook fires on `tenancy.tenant` create/update only. Changes stored on the Tenant (contracts, L3Outs, route maps, L4-L7, interface policies) start a pipeline; changes to a VRF, Prefix (BD), VLAN (EPG) or Location do **not**, and reach the APIC on the next run. `delete_tenant` does not fire it either; the next run's plan shows the tenant's **destroy** and must be reviewed before the apply is approved. This was already true of the `create_*` tools for VRFs, BDs and EPGs; the new tools now say so rather than imply the change deployed.
+
+**Finding 1 — no tool error message had reached the agent since the SDK moved to 2.x.** The installed MCP SDK (2.1.1; `requirements.txt` said `mcp>=1.0.0`) sends the model only `Error executing tool <name>` for any exception that is not its own `ToolError`. `main.py` raised this project's `MCPServerError`, so every refusal, every validation message (the trunking rule, the OPA naming rule) and every "not found (known: …)" list was logged and never shown. Found because the delete refusals arrived empty. Fixed in `main.py` — anticipated failures become `ToolError` with their message; a genuine crash still reaches the agent only as its exception type (Ref-Arch §7.5) — guarded by `test_main_errors.py` (runs in the container, where the 2.x SDK is installed; it fails on the previous `main.py`). The dependency is now pinned to `mcp>=2.1,<3`, the range `main.py` actually requires.
+
+**Finding 2 — the dispatch-test rule was not being kept.** This section's catalogue had stated since 2026-09-16 that all tools had both tests; `create_contract` and `create_l3out` had no dispatch test. Both now do, and `test_every_tool_has_a_schema_test_and_a_dispatch_test` makes the rule structural (watched failing when a dispatch test is hidden).
+
+**Finding 3 — the fake hid a real 400.** The first `get_fabric_intent` filtered devices by `location_id`, which Nautobot 2.x rejects. The unit tests passed because the fake API accepted any filter name; the live run failed. The fake now refuses filters Nautobot would reject. A second live-only finding: a two-subnet BD was named twice in a refusal message (one per Prefix); references are now deduplicated.
+
+**Evidence.** Unit: `test_intent_refs.py` (both directions for every rule), `test_clients_lifecycle.py` (against an in-memory pynautobot fake that fails if a Custom Field is mutated in place before `update()` — the 2026-09-16 shallow-copy failure), schema and dispatch tests, `test_bd_name_parity.py`; each new test file was mutation-checked (deep copy removed, write moved before the refusal, scope marker kept, domain type ignored, duplicates partially removed — every mutation caught). **Live: 48/48 checks** over the real MCP protocol against live Nautobot, throwaway tenant `lifecycle-test` and fabric objects `lc-test-*`: every write read back via Nautobot REST; every update confirmed in the generator's NetAsCode output (`build_netascode_yaml` run against live Nautobot); every refusal confirmed to write nothing; the real `Isolated Lab Site` Location's Custom Fields byte-identical to a pre-test snapshot afterwards; no tenant, Prefix, VLAN, VRF or Namespace left behind. **Not applied to the APIC** — no generator or Terraform code changed; removal from intent becomes a Terraform destroy through the existing pipeline, which was not re-run here.
+
+**Lab state found during verification (not caused by this change):** the Nautobot Celery worker and beat containers (`isolated-celery-worker`, `isolated-celery-beat`) exited with code 137 four weeks earlier and had not restarted. Webhooks are delivered by the worker, so **no tenant change has been starting a pipeline**; the latest pipeline was #59 on 2026-09-14. The live test therefore triggered no pipelines.
+
+## Port-channel / vPC / node management (2026-10-12)
+
+Two of the most common day-0 needs on any customer fabric were missing: servers and switches attached over a **port-channel or vPC**, and switch **management addresses**. Both are now covered end to end — Nautobot schema, MCP tools, generator, Terraform — and **live-verified at every layer**.
+
+| Need | MCP tools | Nautobot | Terraform |
+|---|---|---|---|
+| LACP | `create_lacp_policy`, `update_lacp_policy` | `aci_fabric_policies.lacp_policies` (Location) | `aci_lacp_policy` |
+| vPC pair | `create_vpc_domain`, `update_vpc_domain` | `aci_fabric_policies.vpc_domains` | `aci_vpc_explicit_protection_group` |
+| PC / vPC bundle | `create_pc_vpc_policy_group`, `update_pc_vpc_policy_group` | `aci_fabric_policies.pc_vpc_policy_groups` | `aci_leaf_access_bundle_policy_group` (lagT link / node) |
+| Bundle on ports | existing `create_access_port_selector` / `create_interface_selector` — the selector's group now resolves to a bundle **or** an access-port group | — | `infraRsAccBaseGrp` → `accbundle-` or `accportgrp-` |
+| EPG on a PC / vPC | `create_static_path_binding(path_type=port_channel / vpc)`, `unbind_epg_static_path` | `aci_static_paths` entries carry `path_type`, `policy_group`, `node_id2` | `paths-N/pathep-[group]`, `protpaths-N1-N2/pathep-[group]` |
+| In-band mgmt EPG | `create_inband_mgmt_epg`, `update_inband_mgmt_epg` | `aci_fabric_policies.inband_mgmt_epgs` | `aci_node_mgmt_epg` (in_band) |
+| Node addresses | `create_node_mgmt_address`, `update_node_mgmt_address`, `delete_node_mgmt_address` | **native IP Address** on the switch's `mgmt0` / `inband-mgmt` interface + 3 new Custom Fields (`aci_mgmt_type`, `aci_mgmt_gateway`, `aci_mgmt_epg`, declared in `bootstrap_nautobot.py` and created in the lab **before** any write — 35 fields now) | `aci_static_node_mgmt_address` |
+
+Read is `get_fabric_intent` (now listing every node's management addresses) and `get_tenant_intent`; delete is `delete_fabric_object` with four new kinds (`lacp_policy`, `vpc_domain`, `pc_vpc_policy_group`, `inband_mgmt_epg`), each refused while referenced — a bundle while a selector or any tenant's EPG binds it, a vPC domain while a binding uses its pair, an in-band EPG while an address names it.
+
+**Design decisions:**
+
+* **Management addresses are native IP Addresses, not JSON.** Nautobot then refuses a duplicate address and ties it to the switch; the generator reads them nested under the fabric devices it already queries, so the read stays bounded to fabric switches and needs **no GraphQL filter on the new fields** — Nautobot builds GraphQL filter arguments at startup, so a filter on a field the bootstrap just created fails with "Unknown argument" until Nautobot restarts (confirmed against the lab). Over REST an IP Address **must** be given a namespace ("One of parent or namespace must be provided"); a missing parent prefix is a separate error, and only that one makes the tool create the subnet — and report that it did.
+* **Out-of-band always uses APIC's built-in `oob-default` EPG, referenced by DN and never managed** — it lives in the `mgmt` system tenant and must survive a destroy. In-band EPGs are declared and managed.
+* **ACI rules are checked before the write, not left for APIC to fault on**: a vPC pairs two different leaves, both in the DCIM inventory; a leaf is in only one vPC pair; vPC domain IDs are unique; a vPC binding needs a vPC domain for exactly that pair (either order); a binding's type must match its group; an access-port group and a bundle may not share a name (selectors resolve by name). The generator repeats every one of these (`PolicyReferenceError`) and inventory-checks a vPC's second node and both vPC domain members (`FabricInventoryError`), so intent written outside the tools is held to the same rules.
+* **Existing port bindings keep their Terraform key** (`<epg>/<node>/<module>/<port>`), so no existing binding is replaced; PC/vPC keys have their own shapes.
+
+**Fixed on the way:**
+
+1. **`create_static_path_binding` replaced the EPG's whole path list on every call** — binding a second port silently unbound the first. It now adds; the same path bound again replaces only itself.
+2. **Nine access-hierarchy tools still required `location`** (`create_access_port_profile`/`_selector`/`_block`, `create_leaf_profile`/`_selector`/`_node_block`, `create_leaf_interface_profile`, `create_interface_selector`, `create_pod_policy_group`) — the 2026-09-17 auto-resolve missed them. Now optional, guarded by `test_no_tool_requires_a_location`.
+3. **`main.py` built positional tool signatures**, so any schema with a required field after an optional one stopped the server starting ("non-default argument follows default argument") — hit twice while building this. It now builds keyword-only parameters, which MCP's keyword calls accept in any order.
+4. **`check_apic_faults.py` failed a clean apply on a fault that had already cleared.** Terraform creates a VLAN pool before its range, so APIC raises F0721 "missing Encapsulation Blocks" for that instant and clears it; the compare ran while it was still `minor`/`soaking-clearing`. A/B-probed on throwaway objects (pool → domain → AEP → bundle → selector → vPC binding, built step by step over REST: no F0721 at any step). The script now reads each fault's lifecycle and ignores `soaking-clearing` / `raised-clearing` / `retaining`; a still-`soaking` fault keeps counting.
+5. **A delete left an empty list behind** (`lacp_policies: []`) on a Location that had none before — found by the live run's snapshot comparison. Deleting the last entry now removes the key.
+
+**Evidence — live-verified at every layer:**
+
+* **MCP + Nautobot: 68/68 checks** over the real MCP protocol (throwaway switches 901/902, objects `lcv-*`): every write read back via REST; every refusal confirmed to write nothing; the generator run against live Nautobot emitting the vPC domain, bundles, all three static-path shapes and both management addresses; the real Location's intent byte-identical to a pre-test snapshot afterwards; no device, IP, prefix or tenant left. The step-1 lifecycle run was repeated after these changes: **48/48**, no regression.
+* **Terraform + APIC** (`tests/fixtures/pc-vpc-mgmt.yaml`, isolated state): plan counted per type → **`28 added`** → read back from APIC — `lacpLagPol` as written; `fabricExplicitGEp` id 901 with `nodepep-901`/`902`; bundles lagT `link`/`node` with AEP + LACP relations `formed`; selectors `formed` to both `accbundle-` and `accportgrp-`; `fvRsPathAtt` `paths-901/pathep-[pcvpc-PC]` and `protpaths-901-902/pathep-[pcvpc-vPC]` stored `unformed`; `mgmtInB` with BD `inb` `formed`; `mgmtRsOoBStNode`/`mgmtRsInBStNode` stored as written, `unformed`; node-1's own OOB address untouched → **`28 destroyed`**, every object gone, **41 faults before and after**. While applied the only new faults were F1298 "Node Cannot Deploy" on 901/902 — the switch-absence family, no configuration fault.
+* Unit: 598 server + 168 root tests; client tests against a fake that now refuses an IP with no namespace or parent using Nautobot's own error text; every new generator check mutation-tested.
+
+**Not proven, and why:** nothing forwards — a vPC never forms and no node takes its address without real leaves. Port-channel / vPC CDP, LLDP and link-level policies are not yet settable on bundles (APIC defaults apply). **Before the first apply at any real site**, check `mgmtRsOoBStNode` / `mgmtRsInBStNode` on the nodes concerned: Terraform adopts an existing static address on create and removes it on destroy.
+
+## L3Out depth (2026-10-16) — static routes, loopbacks, vPC SVI, BFD, BGP / OSPF timers, summarization, route tag
+
+The L3Out tools could build the L3Out, its nodes, routed interfaces, BGP peers and OSPF interfaces. What a production border needs beyond that was missing:
+
+* static routes;
+* loopbacks for BGP loopback peering;
+* an SVI over a vPC — the usual way to attach a pair of border leaves;
+* BFD;
+* tuned BGP and OSPF timers, BGP best-path and route summarization;
+* the route tag that stops redistribution loops in transit designs.
+
+**14 MCP tools, live-verified:**
+
+* Tenant policies: `create_bfd_interface_policy`, `create_bgp_timers_policy`, `create_bgp_best_path_policy`, `create_bgp_route_summarization_policy`, `create_ospf_timers_policy`, `create_route_tag_policy`.
+* Per node: `create_l3out_static_route` / `delete_l3out_static_route` (next hops, optional BFD) and `create_l3out_loopback` / `delete_l3out_loopback`.
+* Per interface profile: `create_l3out_vpc_svi` / `delete_l3out_vpc_svi` (side A/B addresses).
+* References: `set_l3out_bgp_policies` (BGP timers + best path on the L3Out's BGP protocol profile) and `set_external_subnet_route_summarization`.
+* Existing tools extended: `update_vrf` takes the VRF-wide BGP timers, OSPF timers and route tag; `bind_l3out_interface_profile_policies` takes BFD; `delete_tenant_object` takes the six policy kinds, each refused while a VRF, L3Out, interface profile or subnet uses it.
+
+**Storage:**
+
+* The five protocol policies: `aci_protocol_policies` on the Tenant.
+* BFD: `bfd_interface_policies` in the existing `aci_interface_policies`.
+* The VRF's references: `aci_vrf_protocol_policies` on the Nautobot VRF.
+* Everything else: inside `aci_l3outs`.
+
+Two new Custom Fields, declared in the bootstrap and created in the lab before any write; the schema is now **40**.
+
+**Probe first — the APIC's rules, not documentation:**
+
+* **BGP timers:** the hold interval must be **greater than** the keepalive ("HoldIntvl must be greater than Keepalive" — equal is rejected). A hold of 0 needs a keepalive of 0. There is **no 3× rule** (60 / 90 is accepted). An omitted timer is APIC's default (60 / 180) and the rule applies against it, so `hold=30` alone is rejected. The tool checks exactly this.
+* **Every numeric bound** in the request schemas was measured by posting the boundary values. For example BFD detect multiplier 1–50, min RX/TX 50–999 ms; OSPF reference bandwidth 1–4,000,000, max-ECMP 1–64; BGP stale 1–3600, max-AS 0–2000; route tag the full 32 bits.
+* **Every stated default** was read from tn-common's default policies.
+
+**Three defects found by the live cycle, all fixed and re-proven:**
+
+1. **Permanent drift:** APIC stores the BGP stale interval 300 — its default — as the keyword `default`, so every plan wanted to change it back. Terraform now sends `default` for 300.
+2. **Dangling VRF relations with faults:** an unset VRF relation was `null` (unmanaged). Once a policy was removed and destroyed, the VRF kept naming it, and APIC resolved OSPF timers and route tag as `mismatch-target` with **fault F0756**. The deprecated `relation_fv_rs_*` attributes were also replaced; they made the provider recompute unrelated VRF relations. The current `relation_to_*` attributes are now always written, with an **empty name** when unset — exactly what APIC stores on a fresh VRF, so a VRF without depth intent plans no change, and clearing really returns the relation to the tn-common default.
+3. **Dangling summarization:** `aci_l3_ext_subnet`'s summarization relation stayed `missing-target` whether unset was `null` or `""` (the attribute is optional+computed, so `""` counts as unset). It is now its own `aci_rest_managed` object (`rsSubnetToRtSumm`), deleted when the intent goes.
+
+**Also refused, before anything reaches the APIC:**
+
+* by the tool and the generator:
+  * a vPC SVI whose leaves no vPC domain pairs, or whose group is not a vPC group;
+  * duplicate static routes, next hops or loopbacks (they collide as Terraform keys);
+  * BGP policies on a non-BGP L3Out, where nothing would carry them.
+* by the schema: a vPC SVI's side addresses in different subnets, or identical.
+* by the generator: undeclared policy references; the vPC SVI's second leaf is checked against the fabric inventory.
+
+**Evidence:**
+
+* **MCP + Nautobot, 60/60** over the real protocol, in a throwaway tenant and a throwaway vPC domain / group:
+  * every write was read back;
+  * every rule above was refused by name, including the guarded deletes;
+  * the generator ran against live inventory;
+  * everything was cleared through the tools;
+  * the tenant was deleted and the Location was byte-identical.
+  * The five earlier live suites were re-run: 48/48, 68/68, 46/46, 30/30, 56/56.
+* **Terraform + APIC**, `tests/fixtures/l3out-depth.yaml`, isolated state, **14/14**:
+  * a VRF without depth intent plans no change;
+  * full apply, every object and relation read back `formed`, re-plan "No changes";
+  * all depth intent removed in one apply: VRF relations back to the tn-common defaults with an empty name, subnet relation gone, re-plan "No changes";
+  * destroy; faults at baseline.
+* **Simulator floor:** F1298 for each leaf given an L3Out interface, F0749 for each vPC pair (leaves 101/102 are not registered). A **control** apply with the same L3Out and none of the depth features raised the same faults.
+* **Unit:** 752 server and 217+ root tests.
+
+**Not proven:** routes, sessions or BFD actually coming up — there are no switches.
+
+**What is still not settable:**
+
+* **NS-27** — BFD authentication (the key is a secret and needs a sensitive variable) and multihop BFD.
+* **NS-28** — static-route IP SLA tracking, the shared virtual IP of a vPC SVI, OSPF route summarization, BGP address-family context policies.
+
+## Endpoint Security Groups and vzAny (2026-10-15) — NS-01 closed
+
+**Endpoint Security Groups** classify endpoints for security by *selectors* rather than by the EPG they attach through. An ESG belongs to one VRF, has its own contracts, and its members come from:
+
+* **EPG selectors** — every endpoint of an EPG;
+* **IP subnet selectors** — any endpoint whose IP falls in a host or subnet;
+* **tag selectors** — endpoints carrying a tag (key = value).
+
+**vzAny** is the VRF-wide object standing for "every EPG and ESG in this VRF": a contract on it applies to all of them, and its preferred-group switch is what makes EPG / ESG `preferred_group_member` take effect.
+
+That switch was **NS-01**: EPG preferred-group membership was stored and deployed and did nothing, because nothing could enable the VRF's preferred group. It is now `update_vrf(preferred_group=...)`, so NS-01 is closed.
+
+**10 MCP tools, live-verified:**
+
+* ESGs: `create_esg`, `update_esg`.
+* Selectors: `create_esg_epg_selector`, `create_esg_ip_subnet_selector`, `create_esg_tag_selector`, `delete_esg_selector`.
+* ESG contracts: `bind_esg_contract`, `unbind_esg_contract`.
+* vzAny contracts: `bind_vzany_contract`, `unbind_vzany_contract`.
+* Existing tools extended: `update_vrf` gains `preferred_group`; `delete_tenant_object` gains `kind='esg'`; `get_tenant_intent` returns ESGs and each VRF's preferred group and vzAny contracts.
+
+**Storage, and three new Custom Fields** (declared in the bootstrap and created in the lab before any write; the schema is now 38 fields):
+
+* `aci_endpoint_security_groups` on the Tenant (JSON, `{esgs: [...]}`, like contracts and L3Outs);
+* `aci_vrf_preferred_group` (boolean) on the Nautobot VRF;
+* `aci_vzany_contracts` (JSON, the same shape as an EPG's `aci_epg_contracts`) on the Nautobot VRF.
+
+ESG names are kept unique within the tenant (APIC only needs them unique within the application profile), so that every tool can name an ESG without its AP. An ESG in an application profile no EPG uses creates that AP.
+
+**Probe first — APIC 6.2(1g) rejects these conflicts outright.** A direct-REST probe in a throwaway tenant, before any code was trusted:
+
+| Case | APIC |
+|---|---|
+| One EPG selected by two ESGs | **HTTP 400** "both selectors point to the same EPg" |
+| ESG selecting an EPG whose BD is in another VRF | **HTTP 400** "VRF mismatch" |
+| The same IP subnet in two ESGs of one VRF | **HTTP 400** "Duplicate IP address ... in VRF" |
+| The same IP subnet in ESGs of different VRFs | accepted |
+| The same tag selector (key, value) in two ESGs of one VRF | **HTTP 400** "Property (key,value) duplicate" |
+| An ESG with no VRF | accepted — **silently bound to `common/default`** |
+
+At apply time a 400 fails the pipeline part-way through, so each conflict is refused **twice**:
+
+* **by the tool**, naming the conflicting ESG;
+* **by the generator**, which also refuses undeclared VRFs, contracts and EPGs.
+
+The VRF is a required field. The tag-selector rule was missing from the first implementation; the probe found it, and it was added test-first. Preferred-group members in a VRF whose preferred group is off produce a generator **warning** — NS-01's old trap made visible, but a legitimate intermediate state.
+
+**Deletes are guarded:**
+
+* an EPG an ESG selects cannot be deleted. EPG deletes previously checked no references at all.
+* a contract an ESG or vzAny uses cannot be deleted.
+* a VRF holding ESGs cannot be deleted.
+
+**Terraform:**
+
+* `aci_endpoint_security_group`, with its VRF and contracts as nested relations;
+* `aci_endpoint_security_group_epg_selector`, `_selector` (as `ip=='x'`) and `_tag_selector`;
+* `aci_any` **only for VRFs with vzAny intent** (decision 2026-10-15).
+
+vzAny exists for every VRF and cannot be deleted. It is managed only for VRFs whose intent mentions it, so VRFs nobody touched — and hand-made vzAny settings on them — are left alone. "Intent set" is defined so that clearing still reaches the APIC:
+
+* the generator emits `preferred_group` / `vzany` whenever the Custom Field holds a value, **even `false` or `{}`**. `unbind_vzany_contract` leaves `{}` and `update_vrf(preferred_group=false)` stores `false`, so a VRF cleared through the tools stays managed: the contracts are removed (empty lists remove relations) and the group is turned off.
+* the two halves are independent. Setting only the preferred group leaves vzAny's contracts unmanaged (null), and the reverse.
+* **NS-26:** if the intent is removed entirely (the Custom Field emptied to null by hand), Terraform only forgets vzAny and the APIC keeps the last values.
+
+**Second probe finding:** vzAny can **provide** only contracts whose scope is `context` (VRF). Any other scope is rejected with HTTP 400 ("vzAny cannot be used as provider for this contract"); **consuming** works for every scope. `bind_vzany_contract` and the generator refuse the provider case.
+
+**Evidence:**
+
+* **APIC probe** as above, tenant deleted and faults back to the baseline.
+* **MCP + Nautobot, 56/56** over the real protocol, in a throwaway tenant:
+  * every write was read back via REST, and every conflict above was refused by name;
+  * the three guarded deletes were refused;
+  * the generator ran against live Nautobot;
+  * the tenant was deleted.
+  * The lifecycle, access, fabric and route-reflector suites were re-run: 48/48, 68/68, 46/46 and 30/30.
+* **Terraform + APIC**, `tests/fixtures/esg-vzany.yaml`, isolated state:
+  * `24 added`; every value read back (ESG isolation, preferred group, shutdown, all three selector kinds, contracts; vzAny `enabled` + consumed contract on prod, `disabled` on dev); all relations `formed`; no new faults; re-plan "No changes".
+  * **Intent cleared** (preferred group off; vzAny and ESG contracts, one IP and the tag selector removed): `2 changed, 2 destroyed`, and the APIC matched. Empty relation lists *do* remove relations.
+  * `22 destroyed`, tenant gone, faults back to 5. On destroy, `aci_any` warns "not removed from apic" — vzAny goes with its VRF. That is a warning, not a failure.
+  * **Scoped vzAny, re-run 14/14:**
+    * only the VRF with intent is planned;
+    * a hand-made vzAny contract and preferred group on an untouched VRF survive the re-plan ("No changes");
+    * preferred-group-only intent turns the switch off and leaves the hand-made contract;
+    * the tools' clearing shape removes the contract and disables the group;
+    * dropping the intent entirely leaves the last values on the APIC — NS-26, proven rather than assumed;
+    * destroy 23, no new faults.
+* **Unit:** 701 server and 201 root tests.
+
+**Not proven:** traffic actually being permitted or denied by ESG contracts, or classified by selectors. There are no switches and no endpoints. Tag selectors match nothing until endpoints are tagged (NS-25).
+
+**What is still not settable:**
+
+* **NS-24** — contract masters, intra-ESG contracts, consumed contract interfaces, contract labels / match type / priority, the ESG QoS class, and contracts from tenant `common`.
+* **NS-25** — the endpoint and policy tags that tag selectors match, and selector expressions other than an IP subnet.
+* **NS-26** — handing vzAny back to APIC defaults by removing its intent entirely (clearing through the tools works).
+
+## BGP route reflector policy and pod assignment (2026-10-14) — NS-17 closed
+
+ACI's MP-BGP is what carries routes an L3Out learns to every other leaf: one AS for the whole fabric, spines as route reflectors, under the default BGP instance policy (`uni/fabric/bgpInstP-default`). Phase E created Pod Policy Groups that *name* that policy, but nothing set the policy, and nothing assigned a group to the pod — so on a fresh fabric there was no AS, and external routes stayed on the border leaf. That was NS-17 (and half of NS-22).
+
+**4 MCP tools, live-verified:** `set_bgp_route_reflector_policy` (the fabric AS), `create_bgp_route_reflector_node` / `delete_bgp_route_reflector_node` (spines, by name or node ID), `assign_pod_policy_group` (the group on the default pod selector, all pods). `reset_fabric_policy` takes `bgp_route_reflector` and `pod_profile`. Stored in the Location's `aci_fabric_policies` as `bgp_route_reflector: {asn, nodes: [{node_id, pod_id}]}` and `pod_profile: {policy_group}` — no new Custom Field.
+
+**Refused where APIC would accept it:**
+
+* **a leaf as route reflector**, by the tool (device role) and by the generator (inventory role). APIC accepts it with HTTP 200 and then raises F1893.
+* **an unknown node**, which the generator also validates against inventory.
+* **route-reflector nodes without a fabric AS**, refused by the generator.
+* **a pod assignment naming an undeclared Pod Policy Group**, refused by the tool and the generator. In Terraform the `tDn` is a resource reference, so even a hand-written YAML fails the plan.
+* **deleting a Pod Policy Group while it is assigned**, refused by a new `intent_refs` rule.
+
+**Terraform:** three `aci_rest_managed` resources:
+
+* `uni/fabric/bgpInstP-default/as` (`bgpAsP`);
+* `.../rr/node-N` (`bgpRRNodePEp`);
+* `uni/fabric/podprof-default/pods-default-typ-ALL/rspodPGrp` (`fabricRsPodPGrp`).
+
+Each DN, class and RN was **first confirmed by a direct POST, read-back and DELETE against the APIC**, not assumed. A fresh APIC has none of the three and they delete cleanly, so a plain delete on destroy *is* the reset; no `content_on_destroy` is needed. The APIC creates a Pod Policy Group's `rspodPGrpBGPRRP` itself, resolving to `default`. `check_apic_faults.py` now claims both subtrees.
+
+**Finding — F1893 is the floor on this simulator.** APIC accepts a route-reflector node with HTTP 200, then raises **F1893** under `.../rr/node-N/badselection`: *"Please verify that node N is reachable, and is not a leaf node. Only spine nodes can be BGP Route-Reflectors."* This simulator has no registered switches, so every route-reflector node raises it. It plays the same role as `vnsConfIssue-missing-cdev` does for L4-L7 devices. The probe and the fixture both reproduced it. **The fault check caught it and failed (exit 1), as designed.**
+
+**Evidence:**
+
+* **MCP + Nautobot, 30/30.**
+  * Every write was read back via REST.
+  * A leaf, an unknown node, a duplicate, a missing group and the delete of an assigned group were each refused, naming the reason.
+  * The generator ran against live Nautobot with node 1001 validated as a spine.
+  * The Location was byte-identical afterwards.
+  * The fabric, lifecycle and access suites were re-run: 46/46, 48/48 and 68/68.
+* **Terraform + APIC**, `tests/fixtures/bgp-route-reflector.yaml`, isolated state, in two steps:
+  * AS, group and assignment: `3 added`, both relations `formed`, **no new faults** (5/5 unscoped), re-plan "No changes".
+  * The route-reflector node: `1 added`, then F1893, caught by the fault check.
+  * `4 destroyed`; `bgpInstP-default`, `podprof-default` and `funcprof` were byte-identical to the pre-apply snapshot, and faults were back to 5.
+* **Unit:** 661 server and 186 root tests.
+
+**Not proven:** a clean route-reflector node on a registered spine; MP-BGP sessions forming; external routes actually being distributed. All of these need switches.
+
+**What is still not settable — NS-23:**
+
+* external route reflectors (multi-pod / remote leaf);
+* the BGP domain-ID base;
+* any BGP policy other than `default`.
+
+**NS-22** narrows to per-pod policies and pod selectors other than the default all-pods one.
+
+## Fabric-wide policy tools — NTP, DNS, SNMP, COOP, ISIS, fault lifecycle, syslog (2026-10-13)
+
+Terraform has applied these from the Location's `aci_fabric_policies` since Phases C/E/G, but nothing except a hand edit of the JSON could write them. **19 MCP tools** now do, all **live-verified** at every layer.
+
+| Policy (APIC singleton) | Tools |
+|---|---|
+| NTP (`uni/fabric/time-default`) | `set_ntp_policy`, `create_ntp_server`, `update_ntp_server`, `delete_ntp_server` |
+| DNS (`uni/fabric/dnsp-default`) | `create_dns_server`, `update_dns_server`, `delete_dns_server`, `create_dns_domain`, `update_dns_domain`, `delete_dns_domain` |
+| SNMP (`uni/fabric/snmppol-default`) | `set_snmp_policy`, `create_snmp_community`, `delete_snmp_community` |
+| COOP / ISIS | `set_coop_policy`, `set_isis_policy` |
+| Fault lifecycle / syslog (`uni/fabric/moncommon/...`) | `set_fault_lifecycle_policy`, `set_syslog_message_policy`, `set_syslog_rate_limit` |
+| Any of the above | `reset_fabric_policy` — removes the intent so Terraform hands the singleton back to APIC's default |
+
+Read is `get_fabric_intent`. Singletons are **set**, never created — they always exist on the APIC. One default DNS domain is enforced (a second default demotes the first). What none of them can set is declared per tool as **NS-17…NS-22** (BGP route reflector policy, NTP authentication and management EPG, SNMP client groups/traps/v3, syslog destinations, COOP/ISIS reset, per-pod policies).
+
+**SNMP community strings are credentials and never reach Nautobot or Git.** Nautobot stores a **reference** (`{"ref": "ro-monitoring"}`); the string arrives at apply time in the sensitive variable `snmp_community_strings`, loaded from Vault by `load-vault-creds.sh` (key `snmp_community_strings`, a JSON object). A **precondition** stops the plan if a reference has no string. A legacy clear-text `name` entry still works so existing intent does not break.
+
+**Finding — the string leaked through the resource id.** A community string is part of the `snmpCommunityP` DN, which the provider uses as the Terraform resource id, and Terraform prints ids on refresh, create and destroy. `sensitive = true` hides the value in plan diffs only. Measured: printed **once on apply and three times on destroy** — in CI that is the GitLab job log. Fixed with `platform/workflows/scripts/mask_secrets.py`, which runs a command and masks the named secret variables' values while passing the exit code through; the CI `terraform_plan`/`terraform_apply` jobs now run Terraform through it. A second live cycle printed the string **zero** times (1 masked line on apply, 1 on refresh, 3 on destroy). Its first version masked nothing on Windows — Python upper-cases `os.environ` keys there and a `dict` copy lost the case-insensitive lookup — found by the same live run, fixed, regression-tested. **The string is still in Terraform state** (it is the id): protect the state as a credential store. **Pre-existing, not new:** the CI `tfplan` artifact already contains `aci_password` in clear, as every saved plan contains its variables.
+
+**Finding — APIC's real defaults differ from the old lab's.** Read from the freshly reset APIC: COOP `compatible` (the old lab had `strict`), ISIS redistribution metric `32` (old lab: `60`). Tool descriptions and NS-21 now state the APIC defaults, not a previous lab's values.
+
+**Finding — the fault check was looking at nothing for fabric policies.** `check_apic_faults.py` scoped the compare to "[] tenants + 0 objects" and reported OK. It now claims each fabric singleton's DN when the YAML sets it, plus this week's LACP / vPC / bundle / in-band EPG objects and static management addresses (the vPC fixture's scope grew from 5 to 12 objects). The fabric runs were also checked unscoped: no new faults.
+
+**Evidence:** **MCP + Nautobot 46/46** — every write read back via REST, the generator run against live Nautobot (community emitted as reference only), every policy reset, the Location byte-identical afterwards; the step-1 and step-2 live suites re-run, 48/48 and 68/68. **Terraform + APIC**, `tests/fixtures/fabric-policies.yaml`, isolated state, twice: plan stops on the precondition without the string → `9 to add` → `9 added` → every value read back (NTP servers with preference/poll, DNS servers/domains with one default, SNMP state/contact/location and a community named with the supplied string, COOP/ISIS, fault timers, syslog) → re-plan **"No changes"** → `9 destroyed` → **all 8 singletons byte-identical to the pre-apply snapshot** (COOP and ISIS were set to their current values, because they cannot reset — they warn "cannot be deleted" on destroy). Unit: 645 server + 179 root tests.
+
+**Not proven:** nothing exercises NTP sync, DNS resolution or SNMP polling — there are no switches, and NTP/DNS have no management-EPG relation (NS-18; confirmed on the APIC: none exists after apply). The syslog message-handler value set and the rate-limit bounds are not restricted by the schema beyond what the APIC accepts.
+
+## Not-yet-settable status — declared in code (2026-10-12)
+
+Evidence levels record how far a capability is **proven**; nothing recorded what it **cannot set at all**, so a gap was invisible — the call succeeds and the attribute silently stays at an APIC default. Gaps are now declared the same way evidence is: one catalogue (`mcp_server/not_settable.py`, 16 ids NS-01…NS-16, each with what / why / what applies meanwhile / next step), declared per tool with `not_settable=` and **appended to the tool description the agent reads before calling**, marked in Terraform with `# NOT-SETTABLE[NS-xx]:`, and listed in `Evidence-Matrix.md` §6. `tests/unit/test_not_settable.py` fails if the catalogue, the 20 declaring tools, the 15 Terraform markers and the matrix disagree; it was watched failing for a removed marker and a removed declaration. Confirmed over the real MCP protocol: 20 of 88 tools carry the remark in `tools/list`, tools without gaps carry none.
+
+**One finding worth knowing on its own — NS-01.** `update_epg` sets an EPG's preferred-group membership, and it deploys, but **it has no effect**: APIC honours EPG membership only once the VRF's preferred group is enabled (vzAny `prefGrMemb`), and nothing in the platform can enable it — `main.tf` has no `aci_any` resource and `update_vrf` no field for it. Until closed, enable it on the APIC by hand.
+
 ## MCP tool catalogue — consolidated index and evidence levels (2026-09-14)
 
 The catalogue had drifted badly out of sync with the code: this ADR and the status tracker both still described 18 tools while 48 were registered, because the work that added the last 30 arrived as live-debugging commits rather than phase increments and nothing prompted a catalogue update. This section is the single consolidated index, so a reader never has to reconstruct the catalogue by grepping `tools/aci.py`. **Query the registry, not this list, if the two ever disagree** — `registry.catalogue()` is authoritative:
@@ -817,7 +1143,7 @@ The catalogue had drifted badly out of sync with the code: this ADR and the stat
 cd mcp-server && PYTHONPATH=src python -c "import mcp_server.tools.aci, mcp_server.tools.evpn, mcp_server.tools.generic; from mcp_server.tools.registry import registry; print(len(registry.catalogue()))"
 ```
 
-**65 tools: 61 `cisco_aci`, 3 `vxlan_evpn`, 1 generic.** Grouped by the phase that introduced them:
+**135 tools: 131 `cisco_aci`, 3 `vxlan_evpn`, 1 generic** (65 until 2026-10-12; 76 after the lifecycle tools; 88 after port-channel / vPC / management; 107 after the fabric-wide policies; 111 after the BGP route reflector policy; 121 after ESG / vzAny). Grouped by the phase that introduced them:
 
 | Group | Tools |
 |---|---|
@@ -836,15 +1162,21 @@ cd mcp-server && PYTHONPATH=src python -c "import mcp_server.tools.aci, mcp_serv
 | Phase J — protocol L3Out | `create_bgp_l3out`, `create_ospf_l3out`, `create_l3out_node_profile`, `create_l3out_interface_profile`, `create_l3out_interface`, `create_bgp_peer`, `create_ospf_interface`, `create_ospf_interface_policy` |
 | Fabric inventory (DCIM) | `create_fabric_device`, `create_fabric_interface` |
 | EVPN domain | `create_evpn_tenant`, `create_evpn_vrf`, `create_evpn_bridge_domain` |
+| Lifecycle — read / update / delete (2026-10-12) | `list_aci_tenants`, `get_tenant_intent`, `get_fabric_intent`, `update_vrf`, `update_bridge_domain`, `update_epg`, `delete_tenant_object`, `delete_fabric_object`, `unbind_epg_contract`, `unbind_epg_domain`, `delete_tenant` — see the Lifecycle section below |
+| Port-channel / vPC / node management (2026-10-12) | `create_lacp_policy`, `update_lacp_policy`, `create_vpc_domain`, `update_vpc_domain`, `create_pc_vpc_policy_group`, `update_pc_vpc_policy_group`, `create_inband_mgmt_epg`, `update_inband_mgmt_epg`, `create_node_mgmt_address`, `update_node_mgmt_address`, `delete_node_mgmt_address`, `unbind_epg_static_path` — see the Port-channel / vPC section below |
+| L3Out depth (2026-10-16) | `create_bfd_interface_policy`, `create_bgp_timers_policy`, `create_bgp_best_path_policy`, `create_bgp_route_summarization_policy`, `create_ospf_timers_policy`, `create_route_tag_policy`, `create_l3out_static_route`, `delete_l3out_static_route`, `create_l3out_loopback`, `delete_l3out_loopback`, `create_l3out_vpc_svi`, `delete_l3out_vpc_svi`, `set_l3out_bgp_policies`, `set_external_subnet_route_summarization` |
+| Endpoint Security Groups / vzAny (2026-10-15) | `create_esg`, `update_esg`, `create_esg_epg_selector`, `create_esg_ip_subnet_selector`, `create_esg_tag_selector`, `delete_esg_selector`, `bind_esg_contract`, `unbind_esg_contract`, `bind_vzany_contract`, `unbind_vzany_contract` |
+| BGP route reflector policy / pod assignment (2026-10-14) | `set_bgp_route_reflector_policy`, `create_bgp_route_reflector_node`, `delete_bgp_route_reflector_node`, `assign_pod_policy_group` |
+| Fabric-wide policies (2026-10-13) | `set_ntp_policy`, `create_ntp_server`, `update_ntp_server`, `delete_ntp_server`, `create_dns_server`, `update_dns_server`, `delete_dns_server`, `create_dns_domain`, `update_dns_domain`, `delete_dns_domain`, `set_snmp_policy`, `create_snmp_community`, `delete_snmp_community`, `set_coop_policy`, `set_isis_policy`, `set_fault_lifecycle_policy`, `set_syslog_message_policy`, `set_syslog_rate_limit`, `reset_fabric_policy` |
 | Generic | `show_status` |
 
 **Evidence levels — these are three different claims and must not be collapsed:**
 
-* **Live-verified over the real MCP protocol (35)** — the Phase A/B/D/F tools plus the three EVPN tools and `show_status`; see the Phase D verification note below for the 2026-09-04 session. Raised 18 → 21 on 2026-09-15 by the PBR lab apply (`create_filter`, `create_pbr_policy`, `create_pbr_contract`).
-* **Unit-tested only (32)** — every tool in the Phase A-follow-on, E, H, I, J and DCIM groups. They have never been called over the MCP protocol against live Nautobot.
+* **Live-verified over the real MCP protocol (106)** — the Phase A/B/D/F tools, the three EVPN tools, `show_status`, and (2026-10-12) the eleven lifecycle tools, the twelve port-channel / vPC / management tools, `create_static_path_binding`, (2026-10-13) the nineteen fabric-wide policy tools, (2026-10-14) the four BGP route reflector / pod assignment tools, (2026-10-15) the ten ESG / vzAny tools, and (2026-10-16) the fourteen L3Out depth tools; see the Phase D verification note below for the 2026-09-04 session. Raised 18 → 21 on 2026-09-15 by the PBR lab apply (`create_filter`, `create_pbr_policy`, `create_pbr_contract`).
+* **Unit-tested only (29)** — every tool in the Phase A-follow-on, E, H, I, J and DCIM groups not otherwise promoted. They have never been called over the MCP protocol against live Nautobot. *(Corrected 2026-10-12: this line said 32 while the registry held 30 — 35 + 32 does not make 65. Query `registry.by_evidence()` rather than trusting a hand-kept number.)*
 * **Apply-verified against the APIC** — a separate axis again, covered by the phase sections above. A tool being unit-tested says nothing about whether the Terraform it eventually drives applies cleanly.
 
-**Unit-test coverage is complete as of 2026-09-16**: all 65 tools have both a schema-validation test and a dispatch test (`mcp-server/tests/unit/`, 400 cases passing; 126 more in `tests/unit/` for the generator and the fault check). Before that date 12 tools had no tests at all — the eight Phase J protocol-L3Out tools, `create_leaf_interface_profile`, `create_interface_selector`, `create_static_path_binding`, and `show_status`, the last being the only tool in the catalogue with real branching logic — and 13 more had a dispatch test but no schema test. New tests of note: `show_status` now covers all four of its branches (tenant missing, recorded pipeline id, recorded id that no longer resolves, no id recorded yet); `create_bgp_l3out`/`create_ospf_l3out` pin the injected `protocol=` kwarg, which is the only thing distinguishing two tools that share one schema and is what `local.l3out_bgp_policies`/`l3out_ospf_policies` filter on in `main.tf`; and `create_ospf_interface_policy` asserts the schema has no field capable of carrying a raw authentication key, so an OSPF MD5 key cannot reach Nautobot or the committed YAML.
+**Unit-test coverage was stated complete on 2026-09-16, and was not.** `create_contract` and `create_l3out` had no dispatch test; nothing checked the claim, so it stood for almost a month until the lifecycle work measured it (2026-10-12). Both now have one, and `test_every_tool_has_a_schema_test_and_a_dispatch_test` in `test_registry.py` makes the rule structural — a tool without both fails the suite. What the 2026-09-16 pass did achieve (400 cases in `mcp-server/tests/unit/`, 126 in `tests/unit/`): before it, 12 tools had no tests at all — the eight Phase J protocol-L3Out tools, `create_leaf_interface_profile`, `create_interface_selector`, `create_static_path_binding`, and `show_status`, the last being the only tool in the catalogue with real branching logic — and 13 more had a dispatch test but no schema test. New tests of note: `show_status` now covers all four of its branches (tenant missing, recorded pipeline id, recorded id that no longer resolves, no id recorded yet); `create_bgp_l3out`/`create_ospf_l3out` pin the injected `protocol=` kwarg, which is the only thing distinguishing two tools that share one schema and is what `local.l3out_bgp_policies`/`l3out_ospf_policies` filter on in `main.tf`; and `create_ospf_interface_policy` asserts the schema has no field capable of carrying a raw authentication key, so an OSPF MD5 key cannot reach Nautobot or the committed YAML.
 
 **When adding a tool, add both tests.** The schema test is the one that pays for itself — it refuses bad input at the MCP boundary instead of letting the failure surface twenty minutes later in `policy_check` or `terraform plan`, which is the entire rationale for `test_invalid_tenant_name_rejected` mirroring the live OPA rule.
 

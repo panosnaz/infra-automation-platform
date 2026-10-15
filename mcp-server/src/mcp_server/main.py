@@ -17,6 +17,7 @@ import logging
 import sys
 
 from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
 from pydantic import ValidationError as PydanticValidationError
 
 # Side-effect imports: populate the registry before main() builds the
@@ -101,18 +102,32 @@ def _register_with_mcp(server: MCPServer, spec, available_clients: dict) -> None
     handler_params = set(inspect.signature(spec.handler).parameters) - {"request"}
     deps = {k: v for k, v in available_clients.items() if k in handler_params}
 
+    # Errors must be raised as the SDK's ToolError to reach the agent. The SDK
+    # (2.x) treats ANY other exception as a crash and sends the model only
+    # "Error executing tool <name>" -- so until 2026-10-12, every refusal,
+    # validation message and "not found (known: ...)" list this server
+    # produced was logged here and never shown to the agent. Found when the
+    # delete tools' refusals, which name what still references an object,
+    # arrived over MCP with no text at all.
+    #
+    # Anticipated failures (bad input; anything from errors.py, whose messages
+    # are written for the caller) pass their message through. A genuine crash
+    # still reaches the agent only as its exception type -- no internals, per
+    # Ref-Arch §7.5 -- with the traceback in the server log.
     def _tool_impl(**kwargs):  # noqa: ANN001, ANN202
         try:
             request = spec.schema(**kwargs)
         except PydanticValidationError as exc:
-            raise MCPServerError(f"Invalid input for '{spec.name}': {exc}") from exc
+            raise ToolError(f"Invalid input for '{spec.name}': {exc}") from exc
         try:
             return spec.handler(request, **deps)
-        except MCPServerError:
-            raise
+        except MCPServerError as exc:
+            raise ToolError(str(exc)) from exc
         except Exception as exc:  # noqa: BLE001 - never leak raw stack traces (Ref-Arch §7.5)
             logger.exception("Tool '%s' failed", spec.name)
-            raise MCPServerError(f"'{spec.name}' failed: {exc}") from exc
+            raise ToolError(
+                f"'{spec.name}' failed unexpectedly ({type(exc).__name__}); see the MCP server log."
+            ) from exc
 
     _tool_impl.__name__ = f"tool_{spec.name}"
 
@@ -137,10 +152,16 @@ def _register_with_mcp(server: MCPServer, spec, available_clients: dict) -> None
     # tool over the real MCP protocol.
     #
     # get_default(call_default_factory=True) resolves the factory.
+    # KEYWORD_ONLY, not POSITIONAL_OR_KEYWORD: MCP calls tools by keyword,
+    # and keyword-only parameters may mix required and defaulted fields in any
+    # order. A positional signature raises "non-default argument follows
+    # default argument" -- and stops the server starting -- whenever a schema
+    # declares a required field after an optional one, which an inherited
+    # optional base field (e.g. `location`) makes unavoidable (2026-10-12).
     params = [
         inspect.Parameter(
             field_name,
-            inspect.Parameter.POSITIONAL_OR_KEYWORD,
+            inspect.Parameter.KEYWORD_ONLY,
             annotation=field_info.annotation,
             default=(
                 inspect.Parameter.empty
@@ -152,21 +173,11 @@ def _register_with_mcp(server: MCPServer, spec, available_clients: dict) -> None
     ]
     _tool_impl.__signature__ = inspect.Signature(params)
 
-    # Surface the evidence level to the AI client that is about to call this.
-    # A tool proven only by offline unit tests may still fail the first time it
-    # touches live Nautobot, and the agent should be able to say so to the user
-    # rather than reporting confident success. Only stated when it is NOT
-    # live-verified -- no need to caveat the tools that are.
-    description = spec.description
-    if spec.evidence != "live-verified":
-        caveat = f" [EVIDENCE: {spec.evidence}"
-        if spec.evidence_note:
-            caveat += f" -- {spec.evidence_note}"
-        caveat += (
-            ". This tool has not been exercised against live infrastructure; "
-            "report that uncertainty if it fails.]"
-        )
-        description += caveat
+    # Surface the evidence level -- and anything the tool cannot set yet -- to
+    # the AI client that is about to call it, so it can tell the user rather
+    # than report confident success. Composed by ToolSpec.client_description()
+    # so it is testable without the MCP SDK.
+    description = spec.client_description()
 
     server.tool(name=spec.name, description=description)(_tool_impl)
 

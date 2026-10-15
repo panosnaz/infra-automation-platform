@@ -84,6 +84,12 @@ CUSTOM_FIELDS: list[dict] = [
     {"key": "aci_route_control", "type": "json", "content_types": ["tenancy.tenant"],
      "label": "ACI Route Control",
      "description": "Route-map match rules (rtctrlSubjP). Route maps live under aci_l3outs."},
+    {"key": "aci_protocol_policies", "type": "json", "content_types": ["tenancy.tenant"],
+     "label": "ACI Protocol Policies",
+     "description": "L3Out depth (2026-10-16): {bgp_timers_policies, bgp_best_path_policies, bgp_route_summarization_policies, ospf_timers_policies, route_tag_policies}."},
+    {"key": "aci_endpoint_security_groups", "type": "json", "content_types": ["tenancy.tenant"],
+     "label": "ACI Endpoint Security Groups",
+     "description": "ESGs (2026-10-15): {esgs: [{name, application_profile, vrf, selectors, contracts, ...}]}."},
 
     # --- dcim.location : fabric-wide objects with no tenant ----------------
     {"key": "aci_fabric_policies", "type": "json", "content_types": ["dcim.location"],
@@ -138,6 +144,16 @@ CUSTOM_FIELDS: list[dict] = [
     {"key": "aci_policy_control_enforcement_mode", "type": "text", "content_types": ["ipam.vrf"],
      "label": "ACI Policy Control Enforcement Mode",
      "description": "'enforced' or 'unenforced'. Unset means the ACI default."},
+    # 2026-10-15 -- vzAny of the VRF.
+    {"key": "aci_vrf_preferred_group", "type": "boolean", "content_types": ["ipam.vrf"],
+     "label": "ACI VRF Preferred Group",
+     "description": "Enable the VRF's preferred group (vzAny). EPG / ESG preferred-group membership has no effect without it."},
+    {"key": "aci_vrf_protocol_policies", "type": "json", "content_types": ["ipam.vrf"],
+     "label": "ACI VRF Protocol Policies",
+     "description": "L3Out depth (2026-10-16): {bgp_timers_policy, ospf_timers_policy, route_tag_policy} -- names of the tenant's policies."},
+    {"key": "aci_vzany_contracts", "type": "json", "content_types": ["ipam.vrf"],
+     "label": "ACI vzAny Contracts",
+     "description": "Contracts vzAny of this VRF provides / consumes: {provided: [...], consumed: [...]}. Applies to every EPG and ESG in the VRF."},
 
     # --- ipam.prefix : Bridge Domain attribute depth -----------------------
     {"key": "aci_bd_mac", "type": "text", "content_types": ["ipam.prefix"],
@@ -177,6 +193,21 @@ CUSTOM_FIELDS: list[dict] = [
     {"key": "aci_pod_id", "type": "integer", "content_types": ["dcim.device"],
      "label": "ACI Pod ID",
      "description": "APIC POD this node belongs to. Required for multi-pod fabrics."},
+
+    # --- ipam.ipaddress : node management addresses (2026-10-12) ------------
+    # A management address is a native Nautobot IP Address on the switch's
+    # management interface, so IPAM uniqueness and the device relationship come
+    # for free. These fields mark it as ACI management intent; an IP Address
+    # without aci_mgmt_type is ordinary IPAM and the generator ignores it.
+    {"key": "aci_mgmt_type", "type": "text", "content_types": ["ipam.ipaddress"],
+     "label": "ACI Management Type",
+     "description": "'out_of_band' or 'in_band'. Marks this IP Address as an APIC static node management address."},
+    {"key": "aci_mgmt_gateway", "type": "text", "content_types": ["ipam.ipaddress"],
+     "label": "ACI Management Gateway",
+     "description": "Default gateway for this node management address (plain IP, no mask)."},
+    {"key": "aci_mgmt_epg", "type": "text", "content_types": ["ipam.ipaddress"],
+     "label": "ACI Management EPG",
+     "description": "In-band management EPG name. Out-of-band always uses the built-in 'default' OOB EPG."},
 ]
 
 
