@@ -32,7 +32,11 @@ source platform/terraform/aci/scripts/load-vault-creds.sh    # exports TF_VAR_ac
 
 ## 2. Find the snapshot
 
-The failed pipeline's `terraform_apply` job artifact `apic-backup.json` names it (`file_name`). Artifacts are kept even when the apply fails. Or list them, newest first. Each description carries the pipeline ID and commit:
+The failed pipeline's `terraform_apply` job artifact `apic-backup.json` names it (`file_name`). Artifacts are kept even when the apply fails. A real one (lab pipeline 60):
+
+```json
+{"file_name": "ce2_platform-pre-apply-2026-10-15T11-55-28.tar.gz", "reason": "pipeline 60 f9907958", "job_details": "Success", "secure_fields_included": true}
+``` Or list them, newest first. Each description carries the pipeline ID and commit:
 
 ```bash
 python platform/workflows/scripts/apic_backup.py --list
