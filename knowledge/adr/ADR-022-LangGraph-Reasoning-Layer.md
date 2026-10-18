@@ -245,7 +245,7 @@ cd reasoning; $env:PYTHONPATH='src'
 | 65 | No changes | approving would apply nothing |
 | 70 | 1 to add | creates 1 VRF `sales/approval-demo-vrf`, NS-10 caveat |
 | 73 | 1 to add, 2 to change | creates 1 VRF, changes 2 VRFs; consistent. Later flagged **OUTDATED** once 74 planned |
-| 74 | 0 to add, 2 to change | changes 2 VRFs; nothing deleted or replaced |
+| 74 | 0 to add, 2 to change | changes 2 VRFs; nothing deleted or replaced. Approved by the user; applied 0 / 2 / 0, no new faults |
 
 **Two platform defects found by the demo** (the demo was a VRF created and a description edited, both through MCP):
 1. **Plans used the previous pipeline's YAML.** `terraform_plan` did not download `generate_nac`'s artifact (`needs:` is not transitive), so it planned the git checkout. That is the copy the previous pipeline committed.
@@ -253,7 +253,9 @@ cd reasoning; $env:PYTHONPATH='src'
    * Fixed for ACI and EVPN, with a default-on test.
    * The proof is pipeline 74: its checkout still held the demo VRF after Nautobot had dropped it, and the plan contained none of it.
 2. **`aci_vrf` never set `description`.** It hasn't since the module's first commit.
-   * Fixed. Pipeline 73/74 plans show `"" -> "<Nautobot text>"`.
+   * Fixed. Pipeline 73/74 plans show `"" -> "<Nautobot text>"`; pipeline 74 applied it with no new faults.
+
+Pipelines 59, 64, 65, 67, 70 and 73 were deleted afterwards (2026-10-19), because each still had an approvable `terraform_apply`, so their job logs are no longer available.
 
 Offline: 13 tests in `reasoning/tests/test_review.py` and 14 for the MCP tool (`test_plan_changes.py`, the dispatch and schema tests).
 

@@ -118,6 +118,7 @@ A materially different engineering problem from Phase A: these objects map to Na
   * **How it was found:** the ADR-022 `review-plan` demo. Pipeline 70 planned a new VRF with `description = (known after apply)` and no change for an edited description.
   * **The fix:** one line, plus `tests/unit/test_terraform_reads_intent.py`. With comments stripped, it asserts that the keys the generator emits for tenants, VRFs and EPGs are assigned by their resource. The comment is exactly why a text search had passed.
   * **Live plan, pipeline 74:** `aci_vrf.this["sales/Presales_VRF"]` and `["sales/SharedServices_VRF"]` both show `description "" -> "<Nautobot text>"` (`Plan: 0 to add, 2 to change`); the APIC had `descr: ""` on both, read directly.
+  * **Applied (pipeline 74, approved by the user 2026-10-19):** pre-apply backup taken, `Apply complete! Resources: 0 added, 2 changed, 0 destroyed`, ansible and pyATS passed, `verify_apic_faults` no new faults (23 before, 23 after); a direct APIC read then showed both `descr` values equal to Nautobot's.
 
 ## Phase A item 2 — Application Profiles and EPGs ✅ Complete (2026-07-29)
 
