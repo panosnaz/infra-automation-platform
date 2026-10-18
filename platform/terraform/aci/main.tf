@@ -897,8 +897,9 @@ resource "aci_tenant" "this" {
 resource "aci_vrf" "this" {
   for_each = local.vrfs
 
-  parent_dn = aci_tenant.this[each.value.tenant_name].id
-  name      = each.value.vrf_name
+  parent_dn   = aci_tenant.this[each.value.tenant_name].id
+  name        = each.value.vrf_name
+  description = lookup(each.value, "description", null)
 
   # ADR-020 Phase A item 1 -- VRF attribute depth. All three are optional+
   # computed in the CiscoDevNet/aci provider (confirmed via `terraform
