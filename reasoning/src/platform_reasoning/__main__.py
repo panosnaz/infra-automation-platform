@@ -22,6 +22,12 @@ def _args(argv: list[str] | None) -> argparse.Namespace:
     d.add_argument("--object", dest="object_name", help="Object name, e.g. BGP_L3Out, FW, Web_EPG")
     d.add_argument("--pipeline", dest="pipeline_id", type=int, help="Pipeline id; default: the tenant's last recorded one")
     d.add_argument("--mcp-url", default=os.environ.get("MCP_URL", _DEFAULT_URL))
+    d.add_argument(
+        "--environment", choices=("production", "simulator"),
+        default=os.environ.get("PLATFORM_ENVIRONMENT", "production"),
+        help="'simulator' treats the lab's known fault floors (no registered switch, no L4-L7 "
+             "device) as expected. Default 'production': they stop the diagnosis.",
+    )
     d.add_argument("--json", action="store_true", help="Print the full graph state as JSON")
     return parser.parse_args(argv)
 
@@ -29,7 +35,8 @@ def _args(argv: list[str] | None) -> argparse.Namespace:
 async def _run(args: argparse.Namespace) -> int:
     async with connect(args.mcp_url) as reader:
         state = await diagnose(
-            reader, args.tenant, args.object_name, args.pipeline_id, knowledge.load_sections()
+            reader, args.tenant, args.object_name, args.pipeline_id, knowledge.load_sections(),
+            environment=args.environment,
         )
     if args.json:
         print(json.dumps({k: v for k, v in state.items() if k != "report"}, indent=2, default=str))

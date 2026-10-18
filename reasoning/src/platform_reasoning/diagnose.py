@@ -28,6 +28,7 @@ class DiagnosisState(TypedDict, total=False):
     tenant: str
     object_name: str | None
     pipeline_id: int | None
+    environment: str
     status: dict | None
     intent: dict | None
     generated: dict | None
@@ -85,6 +86,7 @@ def build_graph(reader: Any, sections: list[knowledge.Section]):
             generated=state.get("generated"),
             report=state.get("pipeline_report"),
             errors=state.get("errors") or {},
+            environment=state.get("environment") or "production",
         )
         return {"diagnosis": asdict(diagnosis)}
 
@@ -93,7 +95,7 @@ def build_graph(reader: Any, sections: list[knowledge.Section]):
         if d.get("object_name"):
             families = analysis.classify_faults(d.get("object_faults") or [])
         else:
-            families = d.get("fault_families") or {}
+            families = {**(d.get("shared_fault_families") or {}), **(d.get("fault_families") or {})}
         found: dict[str, list[dict]] = {}
         for name in families:
             fam = analysis.family(name)
@@ -139,8 +141,10 @@ async def diagnose(
     object_name: str | None = None,
     pipeline_id: int | None = None,
     sections: list[knowledge.Section] | None = None,
+    environment: str = "production",
 ) -> DiagnosisState:
     graph = build_graph(reader, sections if sections is not None else knowledge.load_sections())
     return await graph.ainvoke(
-        {"tenant": tenant, "object_name": object_name, "pipeline_id": pipeline_id, "errors": {}}
+        {"tenant": tenant, "object_name": object_name, "pipeline_id": pipeline_id,
+         "environment": environment, "errors": {}}
     )

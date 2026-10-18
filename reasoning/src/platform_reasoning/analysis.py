@@ -41,6 +41,14 @@ KIND_KEYS: dict[str, str] = {
 }
 
 
+ENVIRONMENTS = ("production", "simulator")
+
+# This diagnosis reads only the ACI domain's jobs. Exact names, never a suffix
+# match: endswith("terraform_apply") also matched evpn_terraform_apply, and an
+# applied ACI change was reported as unapproved (review fix, 2026-10-18).
+ACI_JOBS = {"plan": "terraform_plan", "apply": "terraform_apply", "faults": "verify_apic_faults"}
+
+
 @dataclass(frozen=True)
 class FaultFamily:
     name: str
@@ -48,6 +56,11 @@ class FaultFamily:
     dn: re.Pattern | None = None
     descr: re.Pattern | None = None
     kb_terms: tuple[str, ...] = ()
+    # Where this family is EXPECTED -- a known floor rather than a problem.
+    # Every family below exists because the lab simulator registers no
+    # switch and backs no L4-L7 device; on a real fabric the same fault is a
+    # genuine problem, so it is still classified but no longer explained away.
+    expected_in: frozenset[str] = frozenset({"simulator"})
 
     def matches(self, fault: dict) -> bool:
         if self.dn is not None and self.dn.search(fault.get("dn", "")):
@@ -70,9 +83,41 @@ FAULT_FAMILIES: tuple[FaultFamily, ...] = (
         dn=re.compile(r"/(lDevVip|AbsGraph|CDev)-"),
         kb_terms=("missing-cdev", "concrete device"),
     ),
+    # Measured 2026-10-14 (ADR-020, BGP route reflector policy).
+    FaultFamily(
+        name="rr_node_not_registered_spine",
+        summary="a BGP route-reflector node is not a registered spine",
+        descr=re.compile(r"Only spine nodes can be BGP Route-Reflectors", re.IGNORECASE),
+        kb_terms=("F1893", "Only spine nodes can be BGP Route-Reflectors"),
+    ),
+    # Measured 2026-10-16 (ADR-020, L3Out depth).
+    FaultFamily(
+        name="vpc_pair_not_in_fabric",
+        summary="a vPC pair's leaves are not registered in the fabric",
+        descr=re.compile(r"Both Nodes in VPC Not in Fabric", re.IGNORECASE),
+        kb_terms=("F0749", "vPC pair"),
+    ),
 )
 
 UNEXPLAINED = "unexplained"
+
+# A tenant segment anywhere in a DN, including inside a bracketed target,
+# e.g. uni/epp/rtd-[uni/tn-sales/out-X/...]/node-101/... -> sales.
+_TENANT_IN_DN = re.compile(r"(?:^|[/\[])tn-([^/\]]+)")
+
+
+def bare_tenant(name: str) -> str:
+    """Nautobot names tenants 'ACI:<name>'; APIC DNs carry only <name>."""
+    return name[4:] if name.startswith("ACI:") else name
+
+
+def fault_tenants(dn: str) -> set[str]:
+    return set(_TENANT_IN_DN.findall(dn))
+
+
+def expected(family_name: str, environment: str) -> bool:
+    fam = family(family_name)
+    return fam is not None and environment in fam.expected_in
 
 
 @dataclass
@@ -97,6 +142,12 @@ class Diagnosis:
     generated_only: list[str] = field(default_factory=list)
     suggestions: list[str] = field(default_factory=list)
     kb_terms: list[str] = field(default_factory=list)
+    environment: str = "production"
+    # Faults with no tenant in their DN (fabric / access policies): reported,
+    # but not attributable to this tenant.
+    shared_fault_families: dict[str, list[dict]] = field(default_factory=dict)
+    # Faults in OTHER tenants: excluded from this tenant's verdict, only counted.
+    other_tenant_faults: int = 0
 
 
 def named_objects(payload: object) -> set[tuple[str, str]]:
@@ -142,19 +193,31 @@ def family(name: str) -> FaultFamily | None:
 
 
 def _fault_check(report: dict | None) -> dict | None:
-    checks = (report or {}).get("apic_fault_checks") or {}
-    return next(iter(checks.values()), None) if checks else None
+    return ((report or {}).get("apic_fault_checks") or {}).get(ACI_JOBS["faults"])
 
 
-def _terraform(report: dict | None, suffix: str) -> dict | None:
-    for name, value in ((report or {}).get("terraform") or {}).items():
-        if name.endswith(suffix):
-            return value
-    return None
+def _terraform(report: dict | None, job: str) -> dict | None:
+    return ((report or {}).get("terraform") or {}).get(job)
 
 
-def _awaiting(report: dict | None, suffix: str) -> bool:
-    return any(name.endswith(suffix) for name in (report or {}).get("awaiting_approval") or [])
+def _awaiting(report: dict | None, job: str) -> bool:
+    return job in ((report or {}).get("awaiting_approval") or [])
+
+
+def _unexpected(families: dict[str, list[dict]], environment: str) -> list[dict]:
+    """Faults that are not a known floor in this environment."""
+    return [f for name, items in families.items() if not expected(name, environment) for f in items]
+
+
+def _floor_note(names: list[str], environment: str) -> str:
+    known = [n for n in names if family(n) is not None]
+    if known and all(expected(n, environment) for n in names):
+        return f" All are known {environment} floors."
+    lab_only = [n for n in known if not expected(n, environment)]
+    if lab_only:
+        return (f" {', '.join(lab_only)} is a lab floor, not expected outside the simulator "
+                f"(environment: {environment}) -- investigate.")
+    return ""
 
 
 def analyse(
@@ -164,10 +227,16 @@ def analyse(
     generated: dict | None,
     report: dict | None,
     errors: dict[str, str] | None = None,
+    environment: str = "production",
 ) -> Diagnosis:
+    """`environment` decides whether a known fault family is a floor or a
+    problem. The default is the strict one: forgetting it can only make a
+    diagnosis stop where it might not need to, never explain a real fault away."""
+    if environment not in ENVIRONMENTS:
+        raise ValueError(f"environment must be one of {ENVIRONMENTS}, got {environment!r}")
     errors = errors or {}
     pipeline_id = ((report or {}).get("pipeline") or {}).get("id") or (generated or {}).get("pipeline_id")
-    d = Diagnosis(tenant=tenant, object_name=object_name, pipeline_id=pipeline_id)
+    d = Diagnosis(tenant=tenant, object_name=object_name, pipeline_id=pipeline_id, environment=environment)
 
     intent_objects = named_objects(intent or {})
     generated_block = (generated or {}).get("intent") or {}
@@ -235,13 +304,13 @@ def analyse(
         d.layers.append(Layer(3, "execution (GitLab)", "unknown", errors.get("report", "pipeline report unavailable")))
         d.verdict = "Cannot follow past layer 2: the pipeline report could not be read."
         return d
-    plan = _terraform(report, "terraform_plan")
-    apply = _terraform(report, "terraform_apply")
+    plan = _terraform(report, ACI_JOBS["plan"])
+    apply = _terraform(report, ACI_JOBS["apply"])
     plan_text = ""
     if plan and plan.get("plan"):
         p = plan["plan"]
         plan_text = f"plan +{p['add']} ~{p['change']} -{p['destroy']}"
-    if _awaiting(report, "terraform_apply"):
+    if _awaiting(report, ACI_JOBS["apply"]):
         d.layers.append(Layer(3, "execution (GitLab)", "stop", f"{plan_text}; terraform_apply awaits manual approval".lstrip("; ")))
         d.verdict = f"Stops at layer 3: pipeline {pipeline_id} planned the change but nobody has approved terraform_apply."
         d.suggestions.append("approve terraform_apply in GitLab, then re-run this diagnosis")
@@ -280,36 +349,56 @@ def analyse(
         d.verdict = "Reached APIC (Terraform applied), but the fault check could not verify the result."
         return d
 
+    # The fault check covers every tenant the pipeline manages plus fabric-wide
+    # objects. Split it three ways so one tenant never inherits another's
+    # faults (review fix, 2026-10-18): this tenant's, fabric-wide (no tenant in
+    # the DN -- access / fabric policies), and other tenants' (excluded).
     faults = check.get("faults") or []
-    d.fault_families = classify_faults(faults)
-    for name in d.fault_families:
-        fam = family(name)
-        d.kb_terms.extend(fam.kb_terms if fam else ())
-    d.kb_terms.extend(sorted({f["code"] for f in d.fault_families.get(UNEXPLAINED, [])}))
+    me = bare_tenant(tenant)
+    own = [f for f in faults if me in fault_tenants(f.get("dn", ""))]
+    shared = [f for f in faults if not fault_tenants(f.get("dn", ""))]
+    d.other_tenant_faults = len(faults) - len(own) - len(shared)
+    d.fault_families = classify_faults(own)
+    d.shared_fault_families = classify_faults(shared)
+    for families in (d.fault_families, d.shared_fault_families):
+        for name in families:
+            fam = family(name)
+            d.kb_terms.extend(t for t in (fam.kb_terms if fam else ()) if t not in d.kb_terms)
+    unexplained_codes = {f["code"] for fams in (d.fault_families, d.shared_fault_families) for f in fams.get(UNEXPLAINED, [])}
+    d.kb_terms.extend(sorted(unexplained_codes))
+    others = f", {d.other_tenant_faults} belong to other tenants" if d.other_tenant_faults else ""
 
     if object_name:
-        d.object_faults = [f for f in faults if dn_mentions(f.get("dn", ""), object_name)]
+        d.object_faults = [f for f in own if dn_mentions(f.get("dn", ""), object_name)]
         mine = len(d.object_faults)
         d.layers.append(Layer(4, "observed (APIC faults)", "stop" if mine else "warn",
-                              f"{len(faults)} new faults, {mine} on {object_name}"))
+                              f"{len(own)} new faults on this tenant, {mine} on {object_name}{others}"))
         if mine:
             names = sorted({classify_name(f) for f in d.object_faults})
             d.verdict = (
                 f"Stops at layer 4: APIC accepted '{object_name}' but raised {mine} fault(s) on it "
-                f"({', '.join(names)}), so it is stored and not deployed."
+                f"({', '.join(names)}), so it is stored and not deployed." + _floor_note(names, environment)
             )
         else:
             d.verdict = (
-                f"'{object_name}' reached APIC with no fault on it; the pipeline's other "
-                f"{len(faults)} new fault(s) belong to other objects."
+                f"'{object_name}' reached APIC with no fault on it; the tenant's other "
+                f"{len(own)} new fault(s) belong to other objects."
             )
     else:
-        unexplained = len(d.fault_families.get(UNEXPLAINED, []))
-        d.layers.append(Layer(4, "observed (APIC faults)", "stop" if unexplained else "warn",
-                              f"{len(faults)} new faults, {unexplained} unexplained"))
+        unexpected_own = _unexpected(d.fault_families, environment)
+        unexpected_shared = _unexpected(d.shared_fault_families, environment)
+        state = "stop" if unexpected_own else ("warn" if own or shared else "ok")
+        d.layers.append(Layer(
+            4, "observed (APIC faults)", state,
+            f"{len(own)} new faults on this tenant, {len(shared)} fabric-wide{others}; "
+            f"{len(unexpected_own) + len(unexpected_shared)} not expected in {environment}",
+        ))
+        parts = ", ".join(f"{len(v)} {k}" for k, v in d.fault_families.items()) or "none"
+        shared_text = (f"; fabric-wide, not attributable to one tenant: "
+                       + ", ".join(f"{len(v)} {k}" for k, v in d.shared_fault_families.items())) if shared else ""
         d.verdict = (
-            f"{len(faults)} new fault(s) in pipeline {pipeline_id}: "
-            + ", ".join(f"{len(v)} {k}" for k, v in d.fault_families.items())
-            + (". Investigate the unexplained ones first." if unexplained else ".")
+            f"{len(own)} new fault(s) on tenant '{me}' in pipeline {pipeline_id}: {parts}{shared_text}{others}."
+            + (" Investigate the ones not expected here first." if unexpected_own else "")
+            + _floor_note(sorted(d.fault_families), environment)
         )
     return d

@@ -130,16 +130,31 @@ flowchart TD
     K --> P[render]
 ```
 
-Faults are classified into known **families** by pattern only. What a family *means* is retrieved from the knowledge base at run time and cited by file and line, so an explanation always points at the evidence that established it rather than at text embedded in code. Two families exist today, both measured in ADR-020: **switch absence** (`Node Not Leaf` / `Node Cannot Deploy`, no registered leaf) and **L4-L7 without a concrete device** (`lDevVip` / `AbsGraph` / `CDev` faults, rooted in `vnsConfIssue-missing-cdev`). Any other fault is reported as **unexplained**, and that turns layer 4 from a warning into a stop.
+Faults are classified into known **families** by pattern only. What a family *means* is retrieved from the knowledge base at run time and cited by file and line, so an explanation always points at the evidence that established it rather than at text embedded in code. Four families exist today, all measured in ADR-020:
+
+* **switch absence:** `Node Not Leaf` / `Node Cannot Deploy`, no registered leaf;
+* **L4-L7 without a concrete device:** `lDevVip` / `AbsGraph` / `CDev` faults, rooted in `vnsConfIssue-missing-cdev`;
+* **route-reflector node not a registered spine:** F1893;
+* **vPC pair not in the fabric:** F0749.
+
+Any other fault is reported as **unexplained**.
+
+**A family is a known floor only in the environment that produces it** (`--environment`, default `production`). All four exist because the lab simulator registers no switch and backs no L4-L7 device. On a real fabric the same faults are genuine problems, so outside `simulator` they are still classified, but they **stop** the diagnosis ("a lab floor, not expected outside the simulator -- investigate"). The default is the strict one on purpose: forgetting the flag can only make a diagnosis stop where it need not, never explain a real fault away.
+
+**Faults are attributed to the tenant asked about.** The fault check covers every managed tenant plus fabric-wide objects, so a fault is counted as this tenant's when its DN names the tenant, as fabric-wide when its DN names no tenant (access and fabric policies, reported separately as not attributable), and is excluded when it names another tenant (only counted). An object's faults must be in its own tenant.
+
+**Only the ACI domain's jobs are read**, by exact name (`terraform_plan`, `terraform_apply`, `verify_apic_faults`), never the EVPN domain's `evpn_*` jobs in the same pipeline.
 
 Run it:
 
 ```powershell
 cd reasoning
 $env:PYTHONPATH = 'src'
-.venv/Scripts/python -m platform_reasoning diagnose --tenant sales --object BGP_L3Out
-.venv/Scripts/python -m platform_reasoning diagnose --tenant sales            # whole tenant
-.venv/Scripts/python -m platform_reasoning diagnose --tenant sales --pipeline 59
+# this lab is the simulator: say so, or its known floors stop every diagnosis
+.venv/Scripts/python -m platform_reasoning diagnose --tenant sales --object BGP_L3Out --environment simulator
+.venv/Scripts/python -m platform_reasoning diagnose --tenant sales --environment simulator           # whole tenant
+.venv/Scripts/python -m platform_reasoning diagnose --tenant sales --pipeline 59 --environment simulator
+# or once per shell: $env:PLATFORM_ENVIRONMENT = 'simulator'
 ```
 
 The MCP Server must be running (`docker/mcp-server`, port 8071) and include the two tools below.
@@ -167,7 +182,7 @@ One defect was found and fixed while building the test fixtures: the parsed faul
 |---|---|
 | tenant `sales`, object `BGP_L3Out` | Stops at **layer 4**: 1 fault, switch absence (F1298 on external EPG `Nexus_ExtNet`, node 101). Cites ADR-020 and the status tracker |
 | tenant `sales`, object `FW` | Stops at **layer 4**: 8 faults, all L4-L7 without a concrete device (`missing-cdev`). Cites ADR-020's measured 10-fault floor. `FW_SGT`'s faults correctly not attributed to `FW` |
-| tenant `sales`, whole tenant | 19 new faults: 9 switch absence, 10 L4-L7, **0 unexplained** — the same split the status tracker recorded by hand |
+| tenant `sales`, whole tenant | 19 new faults: 9 switch absence, 10 L4-L7, **0 unexplained** — the same split the status tracker recorded by hand. *Corrected 2026-10-18:* 5 of the 9 are fabric-wide (access policies on unregistered leaves) and not `sales`' — see Review fixes |
 | tenant `sales`, `BGP_L3Out`, pipeline 59 | Stops at **layer 3**: planned `+65`, `terraform_apply` never approved |
 | tenant `sales`, `BGP_L3OUT` (typo) | Stops at **layer 1**, suggests `BGP_L3Out` |
 | tenant `nosuchtenant` | Stops at **layer 1** after a single MCP call (conditional edge skips every other read) |
@@ -177,6 +192,23 @@ Every run reported `0 writes`. Evidence level of the workflow itself: **live-run
 **Offline tests:** 35 in `reasoning/tests/` (allowlist, payload decoding, every layer's stop condition, fault attribution, retrieval ranking, self-citation exclusion, graph routing, retry, error recording), plus parser and dispatch tests for both new tools in `mcp-server/tests/unit/` (771 passing).
 
 **A second defect, found by re-running the diagnosis after this ADR was written:** the tenant-level run began citing the status tracker's own note *about the diagnosis* as the explanation for both fault families — the tool was quoting its earlier output back as evidence. Retrieval now skips this ADR and every line that links to it.
+
+## Review fixes (2026-10-18)
+
+An independent review of the prototype found that two of its verdicts were wrong in situations pipeline 60 could not show. That pipeline held one tenant, and its EVPN jobs were skipped. Both were reproduced with constructed inputs, fixed test-first, and re-run live.
+
+| Defect | Wrong verdict it produced | Fix |
+|---|---|---|
+| Job matching by suffix: `endswith("terraform_apply")` also matched `evpn_terraform_apply` | An ACI change that had applied was reported as "nobody has approved terraform_apply" while the EVPN apply waited. The first fault check in the report, possibly EVPN's, was read as ACI's | Exact ACI job names (`ACI_JOBS`) |
+| Every fault in the pipeline counted against the tenant asked about | A fault in tenant `hr` made `sales` stop at layer 4 as "unexplained". An object's faults could come from a same-named object in another tenant | Faults split into this tenant's, fabric-wide and other tenants' |
+| Families explained a fault as a floor in every environment | On a real fabric, F1298 "Node Cannot Deploy" would be explained away as the lab's switch absence | `expected_in` per family, `--environment` with a strict default |
+| F1893 and F0749, both measured as lab floors, were unexplained | Noise: known floors made layer 4 stop | Two families, citing the ADR-020 evidence (route-reflector policy; L3Out depth control run) |
+
+Live after the fixes:
+* **Simulator, whole tenant:** `sales` has 14 new faults (4 switch absence, 10 L4-L7), and 5 more are fabric-wide. All are expected; layer 4 is a warning.
+* **Production, `BGP_L3Out`:** the same F1298 stops the diagnosis as "not expected outside the simulator".
+
+Offline: 44 reasoning tests (35 + 9).
 
 ---
 
@@ -189,6 +221,8 @@ A workflow that writes (guided build, decommission, drift correction) may not be
 3. **Human approval is an interrupt, not a step.** Plan review uses LangGraph's `interrupt`. The `terraform_apply` gate stays in GitLab; the workflow waits for it and never presses it (Decision 6).
 4. **Read-back after every write.** Each write is confirmed with `get_tenant_intent` / `get_fabric_intent` before the next, so a silently discarded write stops the workflow.
 5. **Per-workflow evidence.** Each workflow is recorded in this ADR with its own evidence level, following the CLAUDE.md Definition of Done.
+6. **Persisted Terraform state in the ACI pipeline** (added 2026-10-18). The ACI pipeline has no state backend, so every plan is "create everything" (116 on pipeline 60). A plan review would show only noise, a drift report has nothing to compare against, and a write workflow could not tell its own change from a rebuild. This is also a prerequisite for the read-only approval assistant (roadmap 2).
+7. **Nautobot webhooks are delivered** (added 2026-10-18). The Celery worker that sends them is down in this lab, so a write workflow's Nautobot changes would never start a pipeline. Decision 6 forbids the workflow from starting one itself.
 
 ---
 
@@ -197,7 +231,7 @@ A workflow that writes (guided build, decommission, drift correction) may not be
 | Order | Workflow | Writes | Status |
 |---|---|---|---|
 | 1 | Read-only deployment diagnosis | no | **Implemented, live-run** |
-| 2 | Approval assistant: summarise a pending plan (counts per resource type, every destroy, resources marked `# EVIDENCE:` or `NOT-SETTABLE`) before a human approves | no | Not started; needs a plan-content read tool |
+| 2 | Approval assistant: summarise a pending plan (counts per resource type, every destroy, resources marked `# EVIDENCE:` or `NOT-SETTABLE`) before a human approves | no | Not started; needs a plan-content read tool and Gate 6 (persisted state) |
 | 3 | Drift report: compare intent with observed state, report only, never import (ADR-001 managed state) | no | Not started; needs the live APIC read in Decision 7 |
 | 4 | Guided build (ordered MCP writes, plan review, read-back, wait for approval, verify, explain) | yes | Blocked on Gates |
 | 5 | Safe decommission (impact analysis, reverse-order unbind/delete, verify gone on every layer) | yes | Blocked on Gates |
@@ -248,7 +282,8 @@ Deferred (Decision 8). Keyword retrieval cited the correct ADR-020 sections for 
 - `get_pipeline_report` depends on the output format of `check_apic_faults.py`. A format change is reported as `unrecognised`, never as clean, but it would degrade the diagnosis until the parser is updated.
 - `generate_nac` artifacts expire after one week, so diagnosing an older pipeline reads the repository copy, flagged with a warning because it can differ from what was applied.
 - Observed state is the pipeline-time fault delta. Faults raised, or drift introduced, after the pipeline are invisible until Decision 7 is taken.
-- Only two fault families are classified. Anything else is "unexplained": correct, but it means a new fault class needs a pattern and a knowledge-base entry before it is explained.
+- Only four fault families are classified, all of them lab floors. Anything else is "unexplained": correct, but it means a new fault class needs a pattern and a knowledge-base entry before it is explained.
+- Whether a family is a floor is declared per environment, not observed. Confirming it — "is node 101 really unregistered?" — needs the live APIC read deferred in Decision 7.
 - `get_generated_intent` is ACI-only; EVPN diagnosis needs its own read tool.
 
 ---
