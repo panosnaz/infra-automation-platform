@@ -127,6 +127,7 @@ To rebuild a fabric from Nautobot (wipe the APIC, regenerate, re-apply), follow 
 - GitLab CE: `http://localhost:8929` / `http://gitlab.local:8929`, project `root/nautobot-infra-automation`
 - HashiCorp Vault: `http://localhost:8200` — root token in `docker/vault/state/vault-keys.txt` (gitignored, regenerated on each init)
 - MinIO: `http://localhost:9000`, bucket `knowledge-capture`
+- Terraform state (ACI pipeline): GitLab project 1, state `cisco_aci-lab` (Operate > Terraform states) -- written only by CI; local runs use their own state and must never point at it. It holds credentials (SNMP community strings, local-user passwords).
 
 ---
 

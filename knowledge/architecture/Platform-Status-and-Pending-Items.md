@@ -35,6 +35,17 @@ This is the **current, authoritative status tracker** for the Network Platform E
   * F1893 and F0749 got families of their own.
 
   44 offline tests. Run: `cd reasoning; $env:PYTHONPATH='src'; .venv/Scripts/python -m platform_reasoning diagnose --tenant sales --object BGP_L3Out --environment simulator`.
+- **The ACI pipeline's Terraform state now persists between runs (2026-10-18).** Until now every pipeline started from a blank state, so every plan was "create everything" (116 on pipeline 60). A real change could not be told from a rebuild, a resource removed from Nautobot was never destroyed, and drift was invisible.
+  * **Where:** GitLab's Terraform state store for project 1, state **`cisco_aci-lab`** (Operate > Terraform states).
+  * **How:** the plan and apply jobs write a `backend_override.tf` (`http` backend), locked for each plan and apply, authenticated by `CI_JOB_TOKEN`; no new secret. The backend lives only in CI, so local fixture runs keep their own state. Job containers reach GitLab at `host.docker.internal:8929`, because its configured URL is localhost.
+  * **Evidence:**
+    * Pre-flight with Terraform 1.9.8 in a container on a throwaway state: saved, re-read from a fresh workspace as "No changes", then deleted.
+    * Pipeline 62 proved the job token works; its plan then failed only because the APIC was down.
+    * **Pipeline 63 adopted the existing fabric**: plan 116 to add, 0 destroy. After the pre-apply backup it applied 116 upserts; the APIC was unchanged (268 `sales` objects, 23 faults) and `verify_apic_faults` passed. The state saved as serial 1 with 116 instances.
+    * Pipeline 64 then planned "0 to add, **1 to change**". This was a real, long-hidden drift bug: `aci_ospf_interface_policy` sent `ctrl = []`, the APIC stores `unspecified`. It was fixed, reproduced and verified in an isolated workspace, and pipeline 64 was cancelled unapplied.
+    * **Pipeline 65 planned "No changes" across all 116 resources**, and was cancelled at its gate with nothing to apply.
+  * **The state holds credentials:** SNMP community strings are part of their DNs, and local-user passwords are in it. Project membership therefore grants access to them.
+  * **After an APIC wipe:** the next plan sees the objects missing and re-creates them, so the rebuild runbook still works.
 - **Configuration backup before every apply (2026-10-17).** The `terraform_apply` job runs `platform/workflows/scripts/apic_backup.py --create` first: an APIC snapshot, waited on until it completes, recorded in the artifact `apic-backup.json`, newest 20 kept. Fail-closed: no snapshot, no apply. **Finding:** APIC 6.2 refuses *every* configuration export, with or without secure fields, until a global AES passphrase exists. A 32-character passphrase was generated into Vault (`apic_export_passphrase` in `secret/lab/platform`, exported by `load-vault-creds.sh`) and enabled on the lab APIC with `--enable-encryption`, which refuses to overwrite an existing key (that would orphan earlier backups); fault F4674 cleared. **Live:**
   * backup ~6 s, `Success`, secure fields included;
   * retention `--keep 2` deleted the oldest snapshot from the APIC;

@@ -221,7 +221,7 @@ A workflow that writes (guided build, decommission, drift correction) may not be
 3. **Human approval is an interrupt, not a step.** Plan review uses LangGraph's `interrupt`. The `terraform_apply` gate stays in GitLab; the workflow waits for it and never presses it (Decision 6).
 4. **Read-back after every write.** Each write is confirmed with `get_tenant_intent` / `get_fabric_intent` before the next, so a silently discarded write stops the workflow.
 5. **Per-workflow evidence.** Each workflow is recorded in this ADR with its own evidence level, following the CLAUDE.md Definition of Done.
-6. **Persisted Terraform state in the ACI pipeline** (added 2026-10-18). The ACI pipeline has no state backend, so every plan is "create everything" (116 on pipeline 60). A plan review would show only noise, a drift report has nothing to compare against, and a write workflow could not tell its own change from a rebuild. This is also a prerequisite for the read-only approval assistant (roadmap 2).
+6. **Persisted Terraform state in the ACI pipeline** (added 2026-10-18). **Met the same day:** the state is GitLab-managed (`cisco_aci-lab`). Pipeline 63 adopted the existing fabric, and pipeline 65 planned "No changes" across all 116 resources. Without it every plan was "create everything" (116 on pipeline 60): a plan review would show only noise, a drift report would have nothing to compare against, and a write workflow could not tell its own change from a rebuild. It was also a prerequisite for the read-only approval assistant (roadmap 2).
 7. **Nautobot webhooks are delivered** (added 2026-10-18). The Celery worker that sends them is down in this lab, so a write workflow's Nautobot changes would never start a pipeline. Decision 6 forbids the workflow from starting one itself.
 
 ---
@@ -231,7 +231,7 @@ A workflow that writes (guided build, decommission, drift correction) may not be
 | Order | Workflow | Writes | Status |
 |---|---|---|---|
 | 1 | Read-only deployment diagnosis | no | **Implemented, live-run** |
-| 2 | Approval assistant: summarise a pending plan (counts per resource type, every destroy, resources marked `# EVIDENCE:` or `NOT-SETTABLE`) before a human approves | no | Not started; needs a plan-content read tool and Gate 6 (persisted state) |
+| 2 | Approval assistant: summarise a pending plan (counts per resource type, every destroy, resources marked `# EVIDENCE:` or `NOT-SETTABLE`) before a human approves | no | Not started; needs a plan-content read tool. Gate 6 (persisted state) met 2026-10-18 |
 | 3 | Drift report: compare intent with observed state, report only, never import (ADR-001 managed state) | no | Not started; needs the live APIC read in Decision 7 |
 | 4 | Guided build (ordered MCP writes, plan review, read-back, wait for approval, verify, explain) | yes | Blocked on Gates |
 | 5 | Safe decommission (impact analysis, reverse-order unbind/delete, verify gone on every layer) | yes | Blocked on Gates |
