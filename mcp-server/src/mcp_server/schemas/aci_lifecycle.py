@@ -40,6 +40,15 @@ class GetFabricIntentRequest(BaseModel):
     location: str | None = _LOCATION_FIELD
 
 
+class GetGeneratedIntentRequest(BaseModel):
+    tenant: str = Field(description="Tenant name, e.g. 'ACI:sales' or 'sales'.")
+    pipeline_id: int | None = Field(
+        default=None,
+        gt=0,
+        description="GitLab pipeline id. Omit to use the most recent pipeline that actually ran jobs.",
+    )
+
+
 # ---------------------------------------------------------------------------
 # Update. Every field except the identifiers is optional and means "leave
 # unchanged" when omitted; at least one must be given.

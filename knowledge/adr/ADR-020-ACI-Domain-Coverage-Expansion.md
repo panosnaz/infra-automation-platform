@@ -1143,7 +1143,7 @@ The catalogue had drifted badly out of sync with the code: this ADR and the stat
 cd mcp-server && PYTHONPATH=src python -c "import mcp_server.tools.aci, mcp_server.tools.evpn, mcp_server.tools.generic; from mcp_server.tools.registry import registry; print(len(registry.catalogue()))"
 ```
 
-**135 tools: 131 `cisco_aci`, 3 `vxlan_evpn`, 1 generic** (65 until 2026-10-12; 76 after the lifecycle tools; 88 after port-channel / vPC / management; 107 after the fabric-wide policies; 111 after the BGP route reflector policy; 121 after ESG / vzAny). Grouped by the phase that introduced them:
+**137 tools: 132 `cisco_aci`, 3 `vxlan_evpn`, 2 generic** (65 until 2026-10-12; 76 after the lifecycle tools; 88 after port-channel / vPC / management; 107 after the fabric-wide policies; 111 after the BGP route reflector policy; 121 after ESG / vzAny; 135 after L3Out depth). Grouped by the phase that introduced them:
 
 | Group | Tools |
 |---|---|
@@ -1168,11 +1168,12 @@ cd mcp-server && PYTHONPATH=src python -c "import mcp_server.tools.aci, mcp_serv
 | Endpoint Security Groups / vzAny (2026-10-15) | `create_esg`, `update_esg`, `create_esg_epg_selector`, `create_esg_ip_subnet_selector`, `create_esg_tag_selector`, `delete_esg_selector`, `bind_esg_contract`, `unbind_esg_contract`, `bind_vzany_contract`, `unbind_vzany_contract` |
 | BGP route reflector policy / pod assignment (2026-10-14) | `set_bgp_route_reflector_policy`, `create_bgp_route_reflector_node`, `delete_bgp_route_reflector_node`, `assign_pod_policy_group` |
 | Fabric-wide policies (2026-10-13) | `set_ntp_policy`, `create_ntp_server`, `update_ntp_server`, `delete_ntp_server`, `create_dns_server`, `update_dns_server`, `delete_dns_server`, `create_dns_domain`, `update_dns_domain`, `delete_dns_domain`, `set_snmp_policy`, `create_snmp_community`, `delete_snmp_community`, `set_coop_policy`, `set_isis_policy`, `set_fault_lifecycle_policy`, `set_syslog_message_policy`, `set_syslog_rate_limit`, `reset_fabric_policy` |
-| Generic | `show_status` |
+| Diagnosis reads for the reasoning layer (2026-10-17, [ADR-022](ADR-022-LangGraph-Reasoning-Layer.md)) | `get_generated_intent` (the NetAsCode block a pipeline's Terraform consumed) |
+| Generic | `show_status`, `get_pipeline_report` (2026-10-17, ADR-022: jobs, Terraform summary, parsed APIC fault delta) |
 
 **Evidence levels — these are three different claims and must not be collapsed:**
 
-* **Live-verified over the real MCP protocol (106)** — the Phase A/B/D/F tools, the three EVPN tools, `show_status`, and (2026-10-12) the eleven lifecycle tools, the twelve port-channel / vPC / management tools, `create_static_path_binding`, (2026-10-13) the nineteen fabric-wide policy tools, (2026-10-14) the four BGP route reflector / pod assignment tools, (2026-10-15) the ten ESG / vzAny tools, and (2026-10-16) the fourteen L3Out depth tools; see the Phase D verification note below for the 2026-09-04 session. Raised 18 → 21 on 2026-09-15 by the PBR lab apply (`create_filter`, `create_pbr_policy`, `create_pbr_contract`).
+* **Live-verified over the real MCP protocol (108)** — the Phase A/B/D/F tools, the three EVPN tools, `show_status`, and (2026-10-12) the eleven lifecycle tools, the twelve port-channel / vPC / management tools, `create_static_path_binding`, (2026-10-13) the nineteen fabric-wide policy tools, (2026-10-14) the four BGP route reflector / pod assignment tools, (2026-10-15) the ten ESG / vzAny tools, (2026-10-16) the fourteen L3Out depth tools, and (2026-10-17) `get_pipeline_report` / `get_generated_intent` (16/16 checks against GitLab, each cross-checked by a direct read; read-only, so no APIC apply applies); see the Phase D verification note below for the 2026-09-04 session. Raised 18 → 21 on 2026-09-15 by the PBR lab apply (`create_filter`, `create_pbr_policy`, `create_pbr_contract`).
 * **Unit-tested only (29)** — every tool in the Phase A-follow-on, E, H, I, J and DCIM groups not otherwise promoted. They have never been called over the MCP protocol against live Nautobot. *(Corrected 2026-10-12: this line said 32 while the registry held 30 — 35 + 32 does not make 65. Query `registry.by_evidence()` rather than trusting a hand-kept number.)*
 * **Apply-verified against the APIC** — a separate axis again, covered by the phase sections above. A tool being unit-tested says nothing about whether the Terraform it eventually drives applies cleanly.
 

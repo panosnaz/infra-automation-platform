@@ -1775,6 +1775,7 @@ from mcp_server.schemas.aci_lifecycle import (  # noqa: E402
     DeleteTenantObjectRequest,
     DeleteTenantRequest,
     GetFabricIntentRequest,
+    GetGeneratedIntentRequest,
     GetTenantIntentRequest,
     ListAciTenantsRequest,
     UnbindEpgContractRequest,
@@ -1789,6 +1790,7 @@ from mcp_server.tools.aci_lifecycle import (  # noqa: E402
     delete_tenant,
     delete_tenant_object,
     get_fabric_intent,
+    get_generated_intent,
     get_tenant_intent,
     list_aci_tenants,
     unbind_epg_contract,
@@ -1850,6 +1852,71 @@ def test_get_fabric_intent_passes_an_unset_location_through_for_auto_resolution(
     fake = _Recorder()
     get_fabric_intent(GetFabricIntentRequest(), nautobot=fake)
     assert fake.calls == [("get_fabric_intent", {"args": (None,)})]
+
+
+_GENERATED_YAML = """\
+apic:
+  tenants:
+  - name: sales
+    vrfs:
+    - name: Presales_VRF
+  - name: finance
+"""
+
+
+class _GeneratedGitLab:
+    def __init__(self, jobs, artifact=None, repo_file=None):
+        self._jobs, self._artifact, self._repo_file = jobs, artifact, repo_file
+        self.calls: list[tuple] = []
+
+    def pipeline(self, pipeline_id):
+        return {"id": pipeline_id, "ref": "main", "status": "failed"}
+
+    def latest_run_pipeline(self):
+        return {"id": 60, "ref": "main", "status": "failed"}
+
+    def pipeline_jobs(self, pipeline_id):
+        return self._jobs
+
+    def job_artifact_file(self, job_id, path):
+        self.calls.append(("job_artifact_file", job_id, path))
+        return self._artifact
+
+    def repository_file(self, path, ref):
+        self.calls.append(("repository_file", path, ref))
+        return self._repo_file
+
+
+def test_get_generated_intent_reads_the_artifact_terraform_consumed():
+    """An "ACI:" prefixed Nautobot name must find the bare name the generator writes."""
+    gitlab = _GeneratedGitLab([{"id": 989, "name": "generate_nac", "status": "success"}], artifact=_GENERATED_YAML)
+
+    result = get_generated_intent(GetGeneratedIntentRequest(tenant="ACI:sales", pipeline_id=60), gitlab=gitlab)
+
+    assert gitlab.calls == [("job_artifact_file", 989, "platform/netascode/aci/tenants.yaml")]
+    assert result["tenant_present"] is True
+    assert result["intent"]["vrfs"] == [{"name": "Presales_VRF"}]
+    assert result["tenants_in_file"] == ["sales", "finance"]
+    assert "warning" not in result
+
+
+def test_get_generated_intent_falls_back_to_the_repository_and_says_so():
+    """The committed copy can predate the run, so the fallback must be flagged."""
+    gitlab = _GeneratedGitLab([{"id": 989, "name": "generate_nac", "status": "failed"}], repo_file=_GENERATED_YAML)
+
+    result = get_generated_intent(GetGeneratedIntentRequest(tenant="sales"), gitlab=gitlab)
+
+    assert gitlab.calls == [("repository_file", "platform/netascode/aci/tenants.yaml", "main")]
+    assert "may differ" in result["warning"]
+
+
+def test_get_generated_intent_reports_a_tenant_the_generator_did_not_emit():
+    gitlab = _GeneratedGitLab([{"id": 989, "name": "generate_nac", "status": "success"}], artifact=_GENERATED_YAML)
+
+    result = get_generated_intent(GetGeneratedIntentRequest(tenant="ACI:hr", pipeline_id=60), gitlab=gitlab)
+
+    assert result["tenant_present"] is False
+    assert result["intent"] is None
 
 
 def test_update_vrf_passes_only_what_the_request_holds():

@@ -1,0 +1,24 @@
+[project]
+name = "platform-reasoning"
+version = "0.1.0"
+description = "LangGraph reasoning layer for the Network Platform Engineering Platform (ADR-022). Prototype: read-only deployment diagnosis over the MCP Server."
+requires-python = ">=3.11"
+dependencies = [
+    "langgraph>=1.2,<2",
+    "mcp>=2.3,<3",
+    "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+pythonpath = ["src"]
+testpaths = ["tests"]

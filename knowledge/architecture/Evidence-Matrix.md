@@ -6,7 +6,7 @@ domain: platform
 status: active
 tags: [status, evidence, testing]
 owner: platform-engineering-team
-last_updated: 2026-10-16
+last_updated: 2026-10-17
 ---
 
 # Evidence Matrix
@@ -23,7 +23,7 @@ Three evidence levels, defined in [`mcp-server/src/mcp_server/tools/registry.py`
 | `plan-verified` | The Terraform it drives produces a clean plan against the real APIC. | That the resource is actually produced or valid — a clean plan validates against the provider schema only, never live APIC state (see the OSPF fixture note below). |
 | `live-verified` | Exercised for real — over the MCP protocol against live Nautobot, and/or a genuine Terraform apply + destroy with the APIC fault delta checked. | That it is fault-free forever, or that the current session's containers are up right now — this records a session that *happened*, not a live health check. |
 
-**Live counts** (`registry.by_evidence()`, re-confirmed 2026-10-16): 135 tools total — **106 live-verified, 0 plan-verified, 29 unit-tested**. If these numbers drift from what's below, `mcp-server/tests/unit/test_registry.py::test_live_verified_tools_match_the_documented_count` will fail — that test is the drift guard.
+**Live counts** (`registry.by_evidence()`, re-confirmed 2026-10-17): 137 tools total — **108 live-verified, 0 plan-verified, 29 unit-tested**. If these numbers drift from what's below, `mcp-server/tests/unit/test_registry.py::test_live_verified_tools_match_the_documented_count` will fail — that test is the drift guard.
 
 **What cannot be set at all** — as opposed to how far it is proven — is §6, with one ID per gap.
 
@@ -31,9 +31,9 @@ Three evidence levels, defined in [`mcp-server/src/mcp_server/tools/registry.py`
 
 ---
 
-## 1. MCP Tools — all 135
+## 1. MCP Tools — all 137
 
-### Live-verified (106)
+### Live-verified (108)
 
 | # | Tool | Domain | Evidence note |
 |---|---|---|---|
@@ -143,6 +143,8 @@ Three evidence levels, defined in [`mcp-server/src/mcp_server/tools/registry.py`
 | 104 | `delete_l3out_vpc_svi` | cisco_aci | 2026-10-16, over the real MCP protocol against live Nautobot (60/60 checks). Terraform: `tests/fixtures/l3out-depth.yaml`, 14/14 -- applied and read back from APIC, re-plan "No changes", all depth intent removed in one apply with nothing left dangling, destroyed |
 | 105 | `set_l3out_bgp_policies` | cisco_aci | 2026-10-16, over the real MCP protocol against live Nautobot (60/60 checks); an empty string clears, and the clearing reaches the APIC. Terraform: `tests/fixtures/l3out-depth.yaml`, 14/14 -- applied and read back from APIC, re-plan "No changes", all depth intent removed in one apply with nothing left dangling, destroyed |
 | 106 | `set_external_subnet_route_summarization` | cisco_aci | 2026-10-16, over the real MCP protocol against live Nautobot (60/60 checks); an empty string clears; the relation is its own object so removal reaches the APIC. Terraform: `tests/fixtures/l3out-depth.yaml`, 14/14 -- applied and read back from APIC, re-plan "No changes", all depth intent removed in one apply with nothing left dangling, destroyed |
+| 136 | `get_pipeline_report` | generic | 2026-10-17, read-only, over the real MCP protocol against the lab GitLab (16/16 checks, each cross-checked by a direct GitLab read with the same `read_api` token): pipeline 60's apply 116/0/0 and all 20 job statuses matched; 19/19 faults parsed with DN and description, matching the raw `verify_apic_faults` log; pipeline 59's unapproved `terraform_apply` reported as awaiting approval. Added for [ADR-022](../adr/ADR-022-LangGraph-Reasoning-Layer.md); numbered after the catalogue rather than renumbering the unit-tested rows |
+| 137 | `get_generated_intent` | cisco_aci | 2026-10-17, read-only, same 16/16 run: tenant `sales` from pipeline 60 identical to the raw `generate_nac` artifact; `ACI:sales` resolves to the generator's bare name; pipeline 59, whose artifact had expired (1-week retention), fell back to the repository copy **with a warning**; an absent tenant reports `tenant_present: false`. Added for ADR-022 |
 
 ### Unit-tested only (29) — reason stated per tool, not as a group
 

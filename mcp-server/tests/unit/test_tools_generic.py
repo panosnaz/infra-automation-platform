@@ -157,3 +157,104 @@ def test_show_status_tolerates_a_tenant_with_no_custom_fields_key():
         "last_pipeline_url": None,
         "last_validated_at": None,
     }
+
+
+# ---------------------------------------------------------------------------
+# get_pipeline_report
+# ---------------------------------------------------------------------------
+
+from mcp_server.schemas.generic import GetPipelineReportRequest  # noqa: E402
+from mcp_server.tools.generic import get_pipeline_report  # noqa: E402
+
+
+class _FakePipelineGitLab:
+    """Serves one pipeline, its jobs and their logs; records what was read."""
+
+    def __init__(self, pipeline=None, jobs=(), traces=None, latest=None):
+        self._pipeline = pipeline
+        self._jobs = list(jobs)
+        self._traces = traces or {}
+        self._latest = latest
+        self.calls: list[tuple[str, object]] = []
+
+    def pipeline(self, pipeline_id):
+        self.calls.append(("pipeline", pipeline_id))
+        return self._pipeline
+
+    def latest_run_pipeline(self):
+        self.calls.append(("latest_run_pipeline", None))
+        return self._latest
+
+    def pipeline_jobs(self, pipeline_id):
+        self.calls.append(("pipeline_jobs", pipeline_id))
+        return self._jobs
+
+    def job_trace(self, job_id):
+        self.calls.append(("job_trace", job_id))
+        return self._traces[job_id]
+
+
+def _job(job_id, name, status, stage="x"):
+    return {"id": job_id, "name": name, "stage": stage, "status": status, "web_url": f"u/{job_id}"}
+
+
+def test_get_pipeline_report_parses_terraform_and_fault_check_logs():
+    """Pipeline 60's real shape: apply succeeded with 116 resources, and the
+    fault check failed. Both facts must reach the caller -- reporting only the
+    green apply is the exact mistake the fault check exists to prevent."""
+    gitlab = _FakePipelineGitLab(
+        pipeline={"id": 60, "status": "failed"},
+        jobs=[
+            _job(995, "terraform_plan", "success"),
+            _job(998, "terraform_apply", "success"),
+            _job(1003, "verify_apic_faults", "failed"),
+        ],
+        traces={
+            995: "Plan: 116 to add, 0 to change, 0 to destroy.",
+            998: "Apply complete! Resources: 116 added, 0 changed, 0 destroyed.",
+            1003: (
+                "FAIL: this deployment introduced 1 new fault(s) under managed tenant(s) ['sales']:\n"
+                "  [minor (soaking)] F0764  uni/tn-sales/lDevVip-FW/fault-F0764\n"
+                "      L4-L7 Devices configuration FW for tenant sales is invalid.\n"
+            ),
+        },
+    )
+
+    result = get_pipeline_report(GetPipelineReportRequest(pipeline_id=60), gitlab=gitlab)
+
+    assert result["terraform"]["terraform_plan"]["plan"] == {"add": 116, "change": 0, "destroy": 0}
+    assert result["terraform"]["terraform_apply"]["apply"]["added"] == 116
+    check = result["apic_fault_checks"]["verify_apic_faults"]
+    assert check["status"] == "new_faults"
+    assert check["job_status"] == "failed"
+    assert check["faults"][0]["dn"] == "uni/tn-sales/lDevVip-FW/fault-F0764"
+
+
+def test_get_pipeline_report_lists_manual_jobs_and_does_not_read_unfinished_logs():
+    """A manual terraform_apply means nothing has been applied yet. Its log
+    does not exist, so it must not be fetched."""
+    gitlab = _FakePipelineGitLab(
+        pipeline={"id": 59, "status": "manual"},
+        jobs=[_job(1, "terraform_plan", "success"), _job(2, "terraform_apply", "manual")],
+        traces={1: "Plan: 2 to add, 0 to change, 0 to destroy."},
+    )
+
+    result = get_pipeline_report(GetPipelineReportRequest(pipeline_id=59), gitlab=gitlab)
+
+    assert result["awaiting_approval"] == ["terraform_apply"]
+    assert ("job_trace", 2) not in gitlab.calls
+    assert "terraform_apply" not in result["terraform"]
+
+
+def test_get_pipeline_report_without_an_id_uses_the_latest_run_pipeline():
+    gitlab = _FakePipelineGitLab(latest={"id": 60, "status": "failed"})
+
+    get_pipeline_report(GetPipelineReportRequest(), gitlab=gitlab)
+
+    assert gitlab.calls[0] == ("latest_run_pipeline", None)
+
+
+def test_get_pipeline_report_unknown_pipeline():
+    gitlab = _FakePipelineGitLab(pipeline=None)
+    result = get_pipeline_report(GetPipelineReportRequest(pipeline_id=12345), gitlab=gitlab)
+    assert result == {"found": False, "pipeline_id": 12345}

@@ -194,15 +194,20 @@ def test_live_verified_tools_match_the_documented_count():
     121 -> 135 and live 92 -> 106 on 2026-10-16: the fourteen L3Out depth
     tools, 60/60 live MCP checks plus a 14/14 Terraform cycle (apply, re-plan,
     intent removal, destroy) against the lab APIC.
+
+    135 -> 137 and live 106 -> 108 on 2026-10-17: get_pipeline_report and
+    get_generated_intent, the read-only tools ADR-022's diagnosis workflow
+    needs. 16/16 live MCP checks, each cross-checked against a direct GitLab
+    read. Read-only, so there is no APIC apply to run.
     """
     import mcp_server.tools.aci  # noqa: F401
     import mcp_server.tools.evpn  # noqa: F401
     import mcp_server.tools.generic  # noqa: F401
     from mcp_server.tools.registry import registry
 
-    assert len(registry.by_evidence("live-verified")) == 106
+    assert len(registry.by_evidence("live-verified")) == 108
     assert len(registry.by_evidence("unit-tested")) == 29
-    assert len(registry.catalogue()) == 135
+    assert len(registry.catalogue()) == 137
 
 
 def test_live_verified_tools_carry_a_note_saying_how():

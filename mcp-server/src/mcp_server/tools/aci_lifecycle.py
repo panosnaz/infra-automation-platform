@@ -17,13 +17,18 @@ Imported by tools/aci.py, so importing the ACI tools registers these too.
 """
 from __future__ import annotations
 
+import yaml
+
+from mcp_server.clients.gitlab import GitLabClient
 from mcp_server.clients.nautobot import NautobotClient
+from mcp_server.intent_refs import bare_tenant_name
 from mcp_server.clients.nautobot_lifecycle import DEPLOY_NOT_TRIGGERED as _DEPLOY_OBJECT
 from mcp_server.schemas.aci_lifecycle import (
     DeleteFabricObjectRequest,
     DeleteTenantObjectRequest,
     DeleteTenantRequest,
     GetFabricIntentRequest,
+    GetGeneratedIntentRequest,
     GetTenantIntentRequest,
     ListAciTenantsRequest,
     UnbindEpgContractRequest,
@@ -100,6 +105,69 @@ def get_tenant_intent(request: GetTenantIntentRequest, *, nautobot: NautobotClie
 )
 def get_fabric_intent(request: GetFabricIntentRequest, *, nautobot: NautobotClient) -> dict:
     return nautobot.get_fabric_intent(request.location)
+
+
+_GENERATED_PATH = "platform/netascode/aci/tenants.yaml"
+_GENERATE_JOB = "generate_nac"
+
+
+@registry.register(
+    name="get_generated_intent",
+    domain="cisco_aci",
+    description=(
+        "Read-only. Return the NetAsCode YAML block for one tenant exactly as a pipeline's "
+        "generate_nac job produced it -- the file Terraform actually consumed, which is NOT "
+        "always what Nautobot holds (the generator skips, renames and drops things). Compare "
+        "with get_tenant_intent to find where an object disappears between Nautobot and "
+        "Terraform."
+    ),
+    schema=GetGeneratedIntentRequest,
+    evidence="live-verified",
+    evidence_note=(
+        "2026-10-17, over the real MCP protocol against the lab GitLab (16/16 checks with "
+        "get_pipeline_report): tenant 'sales' from pipeline 60 is identical to the raw "
+        "generate_nac artifact; 'ACI:sales' resolves to the generator's bare name; pipeline 59, "
+        "whose artifact had expired (1-week retention), fell back to the repository copy with "
+        "a warning; an absent tenant reports tenant_present false."
+    ),
+)
+def get_generated_intent(request: GetGeneratedIntentRequest, *, gitlab: GitLabClient) -> dict:
+    if request.pipeline_id is None:
+        pipeline = gitlab.latest_run_pipeline()
+    else:
+        pipeline = gitlab.pipeline(request.pipeline_id)
+    if pipeline is None:
+        return {"found": False, "reason": f"pipeline {request.pipeline_id} not found"}
+
+    generate = next((j for j in gitlab.pipeline_jobs(pipeline["id"]) if j["name"] == _GENERATE_JOB), None)
+    text, source, warning = None, None, None
+    if generate is not None and generate["status"] == "success":
+        text = gitlab.job_artifact_file(generate["id"], _GENERATED_PATH)
+        source = f"artifact of job {generate['id']} ({_GENERATE_JOB}), the file this pipeline's Terraform consumed"
+    if text is None:
+        # The committed copy can predate the run: generate_nac commits its output
+        # in a separate [skip ci] commit after the pipeline's own sha.
+        text = gitlab.repository_file(_GENERATED_PATH, pipeline["ref"])
+        source = f"repository file at the head of {pipeline['ref']}"
+        warning = f"pipeline {pipeline['id']} has no {_GENERATE_JOB} artifact; this copy may differ from what it applied"
+    if text is None:
+        return {"found": False, "pipeline_id": pipeline["id"], "reason": f"{_GENERATED_PATH} not found"}
+
+    apic = (yaml.safe_load(text) or {}).get("apic") or {}
+    tenants = apic.get("tenants") or []
+    wanted = {request.tenant, bare_tenant_name(request.tenant)}
+    block = next((t for t in tenants if t.get("name") in wanted), None)
+    result = {
+        "found": True,
+        "pipeline_id": pipeline["id"],
+        "source": source,
+        "tenants_in_file": [t.get("name") for t in tenants],
+        "tenant_present": block is not None,
+        "intent": block,
+    }
+    if warning:
+        result["warning"] = warning
+    return result
 
 
 # ---------------------------------------------------------------------------

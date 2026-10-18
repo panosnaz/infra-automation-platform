@@ -15,6 +15,8 @@ last_updated: 2026-07-28
 
 **Status:** Approved design — LangGraph itself deferred to a later phase
 
+> **Update (2026-10-17):** the first LangGraph workflow — a read-only deployment diagnosis — is built in `reasoning/` and was run against the lab. [ADR-022](../adr/ADR-022-LangGraph-Reasoning-Layer.md) records how the layer reaches state (MCP tools only, no credentials), what it may write (nothing yet), and the gates before any write workflow. The read-only boundary drawn in §3 below is now enforced in code.
+
 **Owner:** Platform Engineering Team
 
 **Date:** 2026-07-28

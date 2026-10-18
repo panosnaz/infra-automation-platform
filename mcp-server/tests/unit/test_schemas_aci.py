@@ -1742,6 +1742,7 @@ from mcp_server.schemas.aci_lifecycle import (  # noqa: E402
     DeleteTenantObjectRequest,
     DeleteTenantRequest,
     GetFabricIntentRequest,
+    GetGeneratedIntentRequest,
     GetTenantIntentRequest,
     ListAciTenantsRequest,
     UnbindEpgContractRequest,
@@ -1756,6 +1757,15 @@ def test_read_requests_accept_their_minimal_input():
     ListAciTenantsRequest()
     assert GetTenantIntentRequest(tenant="ACI:sales").tenant == "ACI:sales"
     assert GetFabricIntentRequest().location is None
+
+
+def test_get_generated_intent_requires_a_tenant_and_a_positive_pipeline_id():
+    assert GetGeneratedIntentRequest(tenant="sales").pipeline_id is None
+    assert GetGeneratedIntentRequest(tenant="sales", pipeline_id=60).pipeline_id == 60
+    with pytest.raises(ValidationError):
+        GetGeneratedIntentRequest()
+    with pytest.raises(ValidationError):
+        GetGeneratedIntentRequest(tenant="sales", pipeline_id=0)
 
 
 def test_get_tenant_intent_requires_a_tenant():
