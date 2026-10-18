@@ -2010,9 +2010,13 @@ resource "aci_ospf_interface_policy" "this" {
   dead_intvl  = lookup(each.value, "dead_interval", null)
   cost        = lookup(each.value, "cost", null)
   prio        = lookup(each.value, "priority", null)
-  ctrl = compact([
+  # With no flag set, APIC stores ctrl as "unspecified". Sending an empty list
+  # drifted on every plan ([] -> ["unspecified"]), hidden until the pipeline
+  # kept its state between runs (found by the first two runs with persisted
+  # state, 2026-10-18).
+  ctrl = length(compact([try(each.value.passive ? "passive" : null, null)])) > 0 ? compact([
     try(each.value.passive ? "passive" : null, null),
-  ])
+  ]) : ["unspecified"]
   description = lookup(each.value, "description", null)
 }
 
