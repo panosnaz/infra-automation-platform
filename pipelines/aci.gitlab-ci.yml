@@ -75,14 +75,20 @@ policy_check:
 
 terraform_plan:
   extends: ".terraform_plan"
-  needs: ["policy_check"]
+  # generate_nac listed too: needs: is not transitive, and without it this job
+  # reads the git checkout's NETASCODE_YAML -- the PREVIOUS pipeline's output
+  # (tests/unit/test_pipeline_needs.py).
+  needs: ["policy_check", "generate_nac"]
   variables:
     <<: *aci_job_vars
     NAUTOBOT_URL: "http://host.docker.internal:8080"
 
 terraform_apply:
   extends: ".terraform_apply"
-  needs: ["terraform_plan"]
+  # generate_nac listed too: needs: is not transitive, and without it this job
+  # reads the git checkout's NETASCODE_YAML -- the PREVIOUS pipeline's output
+  # (tests/unit/test_pipeline_needs.py).
+  needs: ["terraform_plan", "generate_nac"]
   variables:
     <<: *aci_job_vars
     NAUTOBOT_URL: "http://host.docker.internal:8080"
@@ -91,14 +97,20 @@ terraform_apply:
 
 ansible_configure:
   extends: ".ansible_configure"
-  needs: ["terraform_apply"]
+  # generate_nac listed too: needs: is not transitive, and without it this job
+  # reads the git checkout's NETASCODE_YAML -- the PREVIOUS pipeline's output
+  # (tests/unit/test_pipeline_needs.py).
+  needs: ["terraform_apply", "generate_nac"]
   variables:
     <<: *aci_job_vars
     NAUTOBOT_URL: "http://host.docker.internal:8080"
 
 pyats_verify:
   extends: ".pyats_verify"
-  needs: ["ansible_configure"]
+  # generate_nac listed too: needs: is not transitive, and without it this job
+  # reads the git checkout's NETASCODE_YAML -- the PREVIOUS pipeline's output
+  # (tests/unit/test_pipeline_needs.py).
+  needs: ["ansible_configure", "generate_nac"]
   variables:
     <<: *aci_job_vars
     NAUTOBOT_URL: "http://host.docker.internal:8080"

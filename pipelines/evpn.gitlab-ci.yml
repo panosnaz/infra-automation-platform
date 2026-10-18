@@ -101,7 +101,10 @@ evpn_terraform_plan:
     - . pipelines/scripts/load-vault-evpn-tf-creds.sh
   script:
     - pipelines/scripts/cml-terraform-run.sh "VXLAN-EVPN-MultiSite" "jump-host" "." "${TERRAFORM_DIR}" "plan"
-  needs: ["evpn_lab_connectivity_check"]
+  # generate_nac listed too: needs: is not transitive, and without it this job
+  # reads the git checkout's NETASCODE_YAML -- the PREVIOUS pipeline's output
+  # (tests/unit/test_pipeline_needs.py).
+  needs: ["evpn_lab_connectivity_check", "evpn_generate_nac"]
   variables: *evpn_job_vars
   # Same jump-host lock as evpn_lab_connectivity_check above (found during a
   # post-wiring audit -- these custom jobs don't extend .terraform_plan, so
@@ -124,7 +127,10 @@ evpn_terraform_apply:
     - . pipelines/scripts/load-vault-evpn-tf-creds.sh
   script:
     - pipelines/scripts/cml-terraform-run.sh "VXLAN-EVPN-MultiSite" "jump-host" "." "${TERRAFORM_DIR}" "apply"
-  needs: ["evpn_terraform_plan"]
+  # generate_nac listed too: needs: is not transitive, and without it this job
+  # reads the git checkout's NETASCODE_YAML -- the PREVIOUS pipeline's output
+  # (tests/unit/test_pipeline_needs.py).
+  needs: ["evpn_terraform_plan", "evpn_generate_nac"]
   variables: *evpn_job_vars
   environment:
     name: "lab"
@@ -144,7 +150,10 @@ evpn_ansible_configure:
   script:
     - pipelines/scripts/cml-provision-py-env.sh "VXLAN-EVPN-MultiSite" "jump-host"
     - pipelines/scripts/cml-ansible-run.sh "VXLAN-EVPN-MultiSite" "jump-host" "." "${ANSIBLE_DIR}" "verify-fabric.yml"
-  needs: ["evpn_terraform_apply"]
+  # generate_nac listed too: needs: is not transitive, and without it this job
+  # reads the git checkout's NETASCODE_YAML -- the PREVIOUS pipeline's output
+  # (tests/unit/test_pipeline_needs.py).
+  needs: ["evpn_terraform_apply", "evpn_generate_nac"]
   variables: *evpn_job_vars
   resource_group: "evpn-jump-host-${CI_ENVIRONMENT_NAME}"
 
@@ -164,7 +173,10 @@ evpn_pyats_verify:
     - . tests/pyats/evpn/scripts/load-vault-env.sh
   script:
     - pipelines/scripts/cml-verify-fabric-run.sh "VXLAN-EVPN-MultiSite" "jump-host" "tests/pyats/evpn/verify_fabric_features.py"
-  needs: ["evpn_ansible_configure"]
+  # generate_nac listed too: needs: is not transitive, and without it this job
+  # reads the git checkout's NETASCODE_YAML -- the PREVIOUS pipeline's output
+  # (tests/unit/test_pipeline_needs.py).
+  needs: ["evpn_ansible_configure", "evpn_generate_nac"]
   variables: *evpn_job_vars
   resource_group: "evpn-jump-host-${CI_ENVIRONMENT_NAME}"
 
