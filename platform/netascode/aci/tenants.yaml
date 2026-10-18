@@ -5,9 +5,11 @@ apic:
       plan
     vrfs:
     - name: Presales_VRF
-      description: Presales consumer VRF
+      description: 'approval demo edit -- original: Presales consumer VRF'
     - name: SharedServices_VRF
       description: Shared services VRF for route leaking scenario
+    - name: approval-demo-vrf
+      description: approval assistant demo -- safe to delete
     bridge_domains:
     - name: Presales_BD
       unicast_routing: true
