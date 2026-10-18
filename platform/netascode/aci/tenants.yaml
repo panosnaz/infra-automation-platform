@@ -9,7 +9,7 @@ apic:
     - name: SharedServices_VRF
       description: Shared services VRF for route leaking scenario
     - name: approval-demo-vrf
-      description: approval assistant demo -- safe to delete
+      description: approval demo v2 -- after the fix
     bridge_domains:
     - name: Presales_BD
       unicast_routing: true
