@@ -45,6 +45,12 @@ variables:
   NAUTOBOT_URL: "http://host.docker.internal:8080"
   MINIO_KNOWLEDGE_BUCKET: "knowledge-capture"
   MINIO_KNOWLEDGE_KEY: "aci/deployments.jsonl"
+  # Persisted Terraform state (common.gitlab-ci.yml .terraform_state). Named
+  # explicitly rather than derived, so no include order can rename it.
+  TF_STATE_NAME: "cisco_aci-lab"
+  # GitLab's configured URL is localhost; job containers reach it here (the
+  # same address the runner clones from).
+  GITLAB_INTERNAL_API_URL: "http://host.docker.internal:8929/api/v4"
 
 generate_nac:
   extends: ".generate_nac"

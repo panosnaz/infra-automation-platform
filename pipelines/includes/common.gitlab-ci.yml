@@ -71,6 +71,35 @@ stages:
   script:
     - python3 platform/workflows/scripts/policy_check.py "${NETASCODE_YAML}" "${POLICY_DOMAIN}"
 
+# Persisted Terraform state (2026-10-18, ADR-022 Gate 6). Until now every
+# pipeline started from a blank state, so every plan was "create everything"
+# (116 on pipeline 60): a real change could not be told from a rebuild, a
+# resource removed from Nautobot was never destroyed, and drift could not be
+# seen. State now lives in GitLab's own Terraform state store for this
+# project -- one state per domain + environment (cisco_aci-lab), locked for
+# the duration of each plan / apply, readable under Operate > Terraform states.
+#
+# The backend is declared HERE, as a generated backend_override.tf, not in the
+# module: local runs (fixture tests in an isolated workspace) keep their own
+# local state and can never touch the pipeline's.
+#
+# GITLAB_INTERNAL_API_URL: GitLab's configured URL is localhost, which a job
+# container cannot reach; the domain pipeline sets the address the runner
+# itself uses. CI_JOB_TOKEN authenticates -- no new secret.
+#
+# The state holds credentials (an SNMP community string is part of its DN;
+# local-user passwords). GitLab stores it encrypted, readable by project
+# members only -- treat project membership as access to those credentials.
+.terraform_state:
+  script:
+    - printf 'terraform {\n  backend "http" {}\n}\n' > backend_override.tf
+    - export TF_STATE_NAME="${TF_STATE_NAME:-${POLICY_DOMAIN}-${CI_ENVIRONMENT_NAME}}"
+    - export TF_HTTP_ADDRESS="${GITLAB_INTERNAL_API_URL:-${CI_API_V4_URL}}/projects/${CI_PROJECT_ID}/terraform/state/${TF_STATE_NAME}"
+    - export TF_HTTP_LOCK_ADDRESS="${TF_HTTP_ADDRESS}/lock" TF_HTTP_UNLOCK_ADDRESS="${TF_HTTP_ADDRESS}/lock"
+    - export TF_HTTP_LOCK_METHOD=POST TF_HTTP_UNLOCK_METHOD=DELETE TF_HTTP_RETRY_WAIT_MIN=5
+    - export TF_HTTP_USERNAME=gitlab-ci-token TF_HTTP_PASSWORD="${CI_JOB_TOKEN}"
+    - echo "[state] Terraform state ${TF_STATE_NAME} in GitLab project ${CI_PROJECT_ID}"
+
 .terraform_plan:
   stage: plan
   image: "python:3.12-slim"
@@ -81,6 +110,7 @@ stages:
     - . "${TERRAFORM_DIR}/scripts/load-vault-creds.sh"
   script:
     - cd "${TERRAFORM_DIR}"
+    - !reference [.terraform_state, script]
     - terraform init -input=false
     # Through mask_secrets.py: an SNMP community string is part of its APIC DN,
     # which Terraform prints as the resource id on refresh/create/destroy --
@@ -115,7 +145,10 @@ stages:
     # refuses every export without it. Keeps the newest 20 snapshots.
     - python3 "${CI_PROJECT_DIR}/platform/workflows/scripts/apic_backup.py" --create "${CI_PROJECT_DIR}/apic-backup.json" --reason "pipeline ${CI_PIPELINE_ID} ${CI_COMMIT_SHORT_SHA}"
     - cd "${TERRAFORM_DIR}"
+    - !reference [.terraform_state, script]
     - terraform init -input=false
+    # Applies the exact saved plan against the persisted state; if anything
+    # changed the state since the plan job, Terraform refuses the stale plan.
     - python3 "${CI_PROJECT_DIR}/platform/workflows/scripts/mask_secrets.py" --env TF_VAR_snmp_community_strings -- terraform apply -input=false -auto-approve -lock-timeout=60s tfplan
   resource_group: "terraform-${POLICY_DOMAIN}-${CI_ENVIRONMENT_NAME}"
   # Milestone 1: a plain manual gate proves the Approval stage's mechanics.
