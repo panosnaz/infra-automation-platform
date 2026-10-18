@@ -199,15 +199,19 @@ def test_live_verified_tools_match_the_documented_count():
     get_generated_intent, the read-only tools ADR-022's diagnosis workflow
     needs. 16/16 live MCP checks, each cross-checked against a direct GitLab
     read. Read-only, so there is no APIC apply to run.
+
+    137 -> 138 and live 108 -> 109 on 2026-10-18: get_plan_changes, the
+    read-only tool behind ADR-022's review-plan workflow, checked live against
+    the plan job logs of pipelines 63, 64, 65, 70 and 73.
     """
     import mcp_server.tools.aci  # noqa: F401
     import mcp_server.tools.evpn  # noqa: F401
     import mcp_server.tools.generic  # noqa: F401
     from mcp_server.tools.registry import registry
 
-    assert len(registry.by_evidence("live-verified")) == 108
+    assert len(registry.by_evidence("live-verified")) == 109
     assert len(registry.by_evidence("unit-tested")) == 29
-    assert len(registry.catalogue()) == 137
+    assert len(registry.catalogue()) == 138
 
 
 def test_live_verified_tools_carry_a_note_saying_how():

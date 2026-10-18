@@ -86,6 +86,103 @@ def parse_terraform(lines: list[str]) -> dict:
     return result
 
 
+# --- plan content (get_plan_changes, 2026-10-18) -----------------------------------
+
+_PLAN_ACTIONS_START = "Terraform will perform the following actions:"
+_RESOURCE_LINE_RE = re.compile(
+    r"^\s*# (?P<address>\S+) (?P<verb>will be created|will be updated in-place|will be destroyed|"
+    r"must be replaced|will be read during apply|has changed|has been deleted)$"
+)
+_ACTIONS = {
+    "will be created": "create", "will be updated in-place": "update", "will be destroyed": "delete",
+    "must be replaced": "replace", "will be read during apply": "read",
+}
+_DRIFT = {"has changed": "changed", "has been deleted": "deleted"}
+_ADDRESS_RE = re.compile(r'^(?P<resource>[a-z0-9_]+\.[A-Za-z0-9_-]+)(?:\[(?P<key>.+)\])?$')
+
+
+def _split_address(address: str) -> dict:
+    m = _ADDRESS_RE.match(address)
+    resource = m.group("resource") if m else address.split("[", 1)[0]
+    key = (m.group("key") if m else None) or ""
+    return {"resource": resource, "type": resource.split(".", 1)[0], "key": key.strip('"')}
+
+
+def parse_plan_changes(lines: list[str]) -> dict:
+    """Every resource a terraform_plan trace will create / update / delete /
+    replace, and any drift Terraform noticed while refreshing.
+
+    Terraform prints "changed outside of Terraform" notes BEFORE the action
+    list; those are drift, not part of the plan. The parsed actions are
+    counted the way Terraform counts them (a replace is one add plus one
+    destroy) and compared with its own "Plan:" line, so a list this parser
+    only partly understood is flagged rather than presented as complete.
+    """
+    changes: list[dict] = []
+    drift: list[dict] = []
+    in_actions = False
+    for line in lines:
+        if line.strip() == _PLAN_ACTIONS_START:
+            in_actions = True
+            continue
+        m = _RESOURCE_LINE_RE.match(line)
+        if not m:
+            continue
+        address, verb = m.group("address"), m.group("verb")
+        parts = _split_address(address)
+        if verb in _DRIFT:
+            drift.append({"address": address, "type": parts["type"], "key": parts["key"], "kind": _DRIFT[verb]})
+        elif in_actions:
+            changes.append({"address": address, **parts, "action": _ACTIONS[verb]})
+
+    summary = parse_terraform(lines).get("plan")
+    actions = [c["action"] for c in changes]
+    counted = {
+        "add": actions.count("create") + actions.count("replace"),
+        "change": actions.count("update"),
+        "destroy": actions.count("delete") + actions.count("replace"),
+    }
+    return {"summary": summary, "counted": counted, "consistent": summary is not None and summary == counted,
+            "changes": changes, "drift": drift}
+
+
+# [ \t]*, not \s*: in MULTILINE mode \s also eats newlines, and a match would
+# then start on the blank line above the comment.
+_MARKER_RE = re.compile(r"^[ \t]*# (?:EVIDENCE:|NOT-SETTABLE\[NS-\d+\]:)", re.MULTILINE)
+_NEXT_RESOURCE_RE = re.compile(r'^resource "(?P<type>[a-z0-9_]+)" "(?P<name>[^"]+)"', re.MULTILINE)
+_NS_ID_RE = re.compile(r"NOT-SETTABLE\[(NS-\d+)\]")
+
+
+def parse_resource_markers(main_tf: str) -> dict[str, dict]:
+    """`# EVIDENCE:` notes and `# NOT-SETTABLE[NS-xx]:` ids per resource
+    ("type.name"), each attached to the next resource block below it -- the
+    same rule tests/unit/test_not_settable.py applies. Only resources that
+    carry a marker are returned."""
+    markers: dict[str, dict] = {}
+    for m in _MARKER_RE.finditer(main_tf):
+        nxt = _NEXT_RESOURCE_RE.search(main_tf, m.end())
+        if nxt is None:
+            continue
+        entry = markers.setdefault(f"{nxt.group('type')}.{nxt.group('name')}", {"not_settable": [], "evidence": []})
+        line_end = main_tf.find("\n", m.start())
+        line = main_tf[m.start():line_end if line_end != -1 else len(main_tf)]
+        if ns := _NS_ID_RE.search(line):
+            if ns.group(1) not in entry["not_settable"]:
+                entry["not_settable"].append(ns.group(1))
+            continue
+        # EVIDENCE: the note runs over the following comment lines.
+        text, pos = [line.split("EVIDENCE:", 1)[1].strip()], line_end + 1
+        while 0 < pos < len(main_tf):
+            end = main_tf.find("\n", pos)
+            nxt_line = main_tf[pos:end if end != -1 else len(main_tf)].strip()
+            if not nxt_line.startswith("#") or _MARKER_RE.match(nxt_line) or "NOT-SETTABLE[" in nxt_line:
+                break
+            text.append(nxt_line.lstrip("#").strip())
+            pos = end + 1 if end != -1 else len(main_tf)
+        entry["evidence"].append(" ".join(t for t in text if t))
+    return markers
+
+
 class GitLabClient:
     def __init__(self, url: str, token: str, project_id: str) -> None:
         self._url = url
@@ -157,6 +254,16 @@ class GitLabClient:
             if p.status != "skipped":
                 return {"id": p.id, "status": p.status, "web_url": p.web_url, "ref": p.ref, "sha": p.sha}
         return None
+
+    def recent_run_pipelines(self, limit: int = 20) -> list[dict]:
+        """Newest pipelines that ran jobs (not the generator's [skip ci] ones), newest first."""
+        project = self._project()
+        try:
+            pipelines = project.pipelines.list(per_page=limit, order_by="id", sort="desc", get_all=False)
+        except Exception as exc:  # noqa: BLE001
+            raise GitLabError(f"GitLab pipeline listing failed: {exc}") from exc
+        return [{"id": p.id, "status": p.status, "web_url": p.web_url, "ref": p.ref, "sha": p.sha}
+                for p in pipelines if p.status != "skipped"]
 
     def pipeline_jobs(self, pipeline_id: int) -> list[dict]:
         project = self._project()

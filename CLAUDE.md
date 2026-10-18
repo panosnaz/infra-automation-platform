@@ -94,7 +94,7 @@ To rebuild a fabric from Nautobot (wipe the APIC, regenerate, re-apply), follow 
 | Path | Purpose |
 |---|---|
 | `platform/python/` | Generator: Nautobot GraphQL → NetAsCode YAML |
-| `reasoning/` | LangGraph reasoning layer ([ADR-022](knowledge/adr/ADR-022-LangGraph-Reasoning-Layer.md)) — an MCP client with no credentials; today one read-only workflow, deployment diagnosis. Own venv: `reasoning/.venv` |
+| `reasoning/` | LangGraph reasoning layer ([ADR-022](knowledge/adr/ADR-022-LangGraph-Reasoning-Layer.md)) — an MCP client with no credentials; today two read-only workflows, deployment diagnosis and plan review (`review-plan`, a plain-words summary of a pending plan before approval). Own venv: `reasoning/.venv` |
 | `platform/terraform/aci/` | Terraform ACI module |
 | `platform/ansible/aci/` | Ansible Day-2 playbooks |
 | `platform/netascode/aci/` | Generated NetAsCode YAML — committed by the `generate_nac` CI job, not gitignored |

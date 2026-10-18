@@ -2279,3 +2279,14 @@ def test_reference_setters():
         SetL3OutBgpPoliciesRequest(tenant="t", l3out="o")
     assert SetL3OutBgpPoliciesRequest(tenant="t", l3out="o", bgp_timers_policy="").bgp_timers_policy == ""
     SetExternalSubnetRouteSummarizationRequest(tenant="t", l3out="o", external_epg="e", ip="10.9.0.0/16", policy="")
+
+
+# --- get_plan_changes (2026-10-18) ---------------------------------------------------
+
+def test_get_plan_changes_request_takes_an_optional_positive_pipeline_id():
+    from mcp_server.schemas.aci_lifecycle import GetPlanChangesRequest
+
+    assert GetPlanChangesRequest().pipeline_id is None
+    assert GetPlanChangesRequest(pipeline_id=65).pipeline_id == 65
+    with pytest.raises(ValidationError):
+        GetPlanChangesRequest(pipeline_id=0)

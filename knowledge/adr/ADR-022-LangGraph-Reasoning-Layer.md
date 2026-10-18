@@ -212,6 +212,53 @@ Offline: 44 reasoning tests (35 + 9).
 
 ---
 
+# Workflow 3 — Approval Assistant, `review-plan` (implemented 2026-10-18)
+
+Before a human approves `terraform_apply`, it says in plain words what the pending plan will do. Read-only, deterministic, one MCP call; it approves nothing (Decision 6).
+
+```
+read_plan (get_plan_changes) ──► summarise ──► END
+```
+
+What the approver is told, in this order:
+* **Outdated, first.** Is this plan OUTDATED? It is when a newer pipeline on the same branch has planned since. GitLab's pipeline cancel does not cancel a waiting manual job, so an older pipeline stays approvable and would apply an outdated plan. This was found live: pipeline 64 stayed approvable after 65 had planned.
+* **What changes.** What the plan creates, changes, DELETES and REPLACES, by object type and name.
+* **Caveats.** The module's own caveats on the resources that change: `# EVIDENCE:` notes and NOT-SETTABLE ids with their titles. They are read from `main.tf` at the exact commit the pipeline ran.
+* **Drift** that Terraform noticed while refreshing.
+* **Whether the list adds up** to Terraform's own Plan line. If it does not, the headline says so and sends the approver to the job log.
+
+The MCP tool `get_plan_changes` parses the plan job's log, which `mask_secrets.py` has already masked. The client allowlist admits only tools named `get_` / `list_` / `show_`, and a test enforces that.
+
+Run (the selection defaults to the newest pipeline awaiting approval):
+
+```powershell
+cd reasoning; $env:PYTHONPATH='src'
+.venv/Scripts/python -m platform_reasoning review-plan                 # or --pipeline N, --json
+```
+
+**Live-verified 2026-10-18** against the lab GitLab, each result checked against the plan job's log:
+
+| Pipeline | Plan job log | `review-plan` said |
+|---|---|---|
+| 63 | 116 to add (state adoption) | creates 116, by type; consistent |
+| 64 | 1 to change (OSPF drift) | **OUTDATED**, superseded by 65 |
+| 65 | No changes | approving would apply nothing |
+| 70 | 1 to add | creates 1 VRF `sales/approval-demo-vrf`, NS-10 caveat |
+| 73 | 1 to add, 2 to change | creates 1 VRF, changes 2 VRFs; consistent. Later flagged **OUTDATED** once 74 planned |
+| 74 | 0 to add, 2 to change | changes 2 VRFs; nothing deleted or replaced |
+
+**Two platform defects found by the demo** (the demo was a VRF created and a description edited, both through MCP):
+1. **Plans used the previous pipeline's YAML.** `terraform_plan` did not download `generate_nac`'s artifact (`needs:` is not transitive), so it planned the git checkout. That is the copy the previous pipeline committed.
+   * Pipeline 67 validated the new VRF and planned "No changes".
+   * Fixed for ACI and EVPN, with a default-on test.
+   * The proof is pipeline 74: its checkout still held the demo VRF after Nautobot had dropped it, and the plan contained none of it.
+2. **`aci_vrf` never set `description`.** It hasn't since the module's first commit.
+   * Fixed. Pipeline 73/74 plans show `"" -> "<Nautobot text>"`.
+
+Offline: 13 tests in `reasoning/tests/test_review.py` and 14 for the MCP tool (`test_plan_changes.py`, the dispatch and schema tests).
+
+---
+
 # Gates — prerequisites before any write workflow
 
 A workflow that writes (guided build, decommission, drift correction) may not be built until all of these hold:
@@ -231,7 +278,7 @@ A workflow that writes (guided build, decommission, drift correction) may not be
 | Order | Workflow | Writes | Status |
 |---|---|---|---|
 | 1 | Read-only deployment diagnosis | no | **Implemented, live-run** |
-| 2 | Approval assistant: summarise a pending plan (counts per resource type, every destroy, resources marked `# EVIDENCE:` or `NOT-SETTABLE`) before a human approves | no | Not started; needs a plan-content read tool. Gate 6 (persisted state) met 2026-10-18 |
+| 2 | Approval assistant: summarise a pending plan (counts per resource type, every destroy, resources marked `# EVIDENCE:` or `NOT-SETTABLE`) before a human approves | no | **Implemented, live-run (2026-10-18)**: `review-plan`, Workflow 3 above |
 | 3 | Drift report: compare intent with observed state, report only, never import (ADR-001 managed state) | no | Not started; needs the live APIC read in Decision 7 |
 | 4 | Guided build (ordered MCP writes, plan review, read-back, wait for approval, verify, explain) | yes | Blocked on Gates |
 | 5 | Safe decommission (impact analysis, reverse-order unbind/delete, verify gone on every layer) | yes | Blocked on Gates |

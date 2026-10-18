@@ -19,16 +19,18 @@ from __future__ import annotations
 
 import yaml
 
-from mcp_server.clients.gitlab import GitLabClient
+from mcp_server.clients.gitlab import GitLabClient, clean_trace, parse_plan_changes, parse_resource_markers
 from mcp_server.clients.nautobot import NautobotClient
 from mcp_server.intent_refs import bare_tenant_name
 from mcp_server.clients.nautobot_lifecycle import DEPLOY_NOT_TRIGGERED as _DEPLOY_OBJECT
+from mcp_server.not_settable import NOT_SETTABLE
 from mcp_server.schemas.aci_lifecycle import (
     DeleteFabricObjectRequest,
     DeleteTenantObjectRequest,
     DeleteTenantRequest,
     GetFabricIntentRequest,
     GetGeneratedIntentRequest,
+    GetPlanChangesRequest,
     GetTenantIntentRequest,
     ListAciTenantsRequest,
     UnbindEpgContractRequest,
@@ -167,6 +169,103 @@ def get_generated_intent(request: GetGeneratedIntentRequest, *, gitlab: GitLabCl
     }
     if warning:
         result["warning"] = warning
+    return result
+
+
+_PLAN_JOB = "terraform_plan"
+_APPLY_JOB = "terraform_apply"
+_MODULE_PATH = "platform/terraform/aci/main.tf"
+
+
+def _superseded_by(gitlab: GitLabClient, pipeline: dict) -> int | None:
+    """The nearest newer pipeline on the same branch whose ACI plan succeeded.
+
+    GitLab's pipeline cancel does not cancel a manual job that is waiting
+    (found live 2026-10-18: pipelines 64 and 65 stayed approvable after a
+    cancel), so an older pipeline can still be approved after a newer one
+    planned -- and approving it would apply an outdated plan."""
+    newer = sorted((p for p in gitlab.recent_run_pipelines()
+                    if p["id"] > pipeline["id"] and p.get("ref") == pipeline.get("ref")), key=lambda p: p["id"])
+    for candidate in newer:
+        if any(j["name"] == _PLAN_JOB and j["status"] == "success" for j in gitlab.pipeline_jobs(candidate["id"])):
+            return candidate["id"]
+    return None
+
+
+@registry.register(
+    name="get_plan_changes",
+    domain="cisco_aci",
+    description=(
+        "Read-only. Before approving a pipeline's terraform_apply: every resource its plan will "
+        "create, update, DELETE or REPLACE (from the plan job's log, secrets masked), anything "
+        "Terraform found changed outside it (drift), and for each changed resource the module's "
+        "own caveats -- `# EVIDENCE:` notes (not fully proven) and NOT-SETTABLE ids with their "
+        "titles -- read from main.tf at the exact commit the pipeline ran. `consistent` is false "
+        "when the parsed list does not add up to Terraform's own Plan line: then read the job log. "
+        "This tool never approves anything."
+    ),
+    schema=GetPlanChangesRequest,
+    evidence="live-verified",
+    evidence_note=(
+        "2026-10-18, over the real MCP protocol against the lab GitLab, each result checked "
+        "against the plan job's own log: pipeline 63 (116 creates, consistent), 64 (flagged "
+        "superseded by 65), 65 (no changes), 70 (1 VRF create, NS-10 caveat) and 73 (1 create + "
+        "2 in-place VRF updates, consistent with 'Plan: 1 to add, 2 to change'); the default "
+        "selection picked the newest pipeline awaiting approval each time. Read-only: no APIC "
+        "apply to run."
+    ),
+)
+def get_plan_changes(request: GetPlanChangesRequest, *, gitlab: GitLabClient) -> dict:
+    pipeline, jobs = None, []
+    if request.pipeline_id is not None:
+        pipeline = gitlab.pipeline(request.pipeline_id)
+        if pipeline is None:
+            return {"found": False, "reason": f"pipeline {request.pipeline_id} not found"}
+        jobs = gitlab.pipeline_jobs(pipeline["id"])
+    else:
+        candidates = gitlab.recent_run_pipelines()
+        for candidate in candidates:
+            candidate_jobs = gitlab.pipeline_jobs(candidate["id"])
+            if any(j["name"] == _APPLY_JOB and j["status"] == "manual" for j in candidate_jobs):
+                pipeline, jobs = candidate, candidate_jobs
+                break
+        if pipeline is None:
+            if not candidates:
+                return {"found": False, "reason": "no pipeline has run"}
+            pipeline = candidates[0]
+            jobs = gitlab.pipeline_jobs(pipeline["id"])
+
+    by_name = {j["name"]: j for j in jobs}  # exact ACI job names -- never evpn_*
+    plan_job, apply_job = by_name.get(_PLAN_JOB), by_name.get(_APPLY_JOB)
+    result = {
+        "found": True,
+        "pipeline": {k: pipeline.get(k) for k in ("id", "status", "ref", "sha", "web_url")},
+        "plan_job": {k: plan_job[k] for k in ("id", "status")} if plan_job else None,
+        "apply_job": {k: apply_job[k] for k in ("id", "status")} if apply_job else None,
+        "awaiting_approval": bool(apply_job and apply_job["status"] == "manual"),
+        "superseded_by": _superseded_by(gitlab, pipeline),
+    }
+    if plan_job is None or plan_job["status"] != "success":
+        result["reason"] = (f"{_PLAN_JOB} {'did not run' if plan_job is None else plan_job['status']} "
+                            "-- there is no plan to summarise")
+        return result
+
+    result.update(parse_plan_changes(clean_trace(gitlab.job_trace(plan_job["id"]))))
+
+    # The module's caveats as of the commit this pipeline ran, not today's copy.
+    module = gitlab.repository_file(_MODULE_PATH, pipeline["sha"])
+    if module is None:
+        result["markers"] = {}
+        result["warning"] = f"{_MODULE_PATH} not readable at {pipeline['sha'][:8]}: caveats unknown, not absent"
+    else:
+        changed = {c["resource"] for c in result["changes"]}
+        markers = {k: v for k, v in parse_resource_markers(module).items() if k in changed}
+        for entry in markers.values():
+            entry["not_settable"] = [
+                {"id": ns, "title": NOT_SETTABLE[ns].title if ns in NOT_SETTABLE else "(no longer in the catalogue)"}
+                for ns in entry["not_settable"]
+            ]
+        result["markers"] = markers
     return result
 
 

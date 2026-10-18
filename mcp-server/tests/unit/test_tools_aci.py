@@ -2331,3 +2331,106 @@ def test_bfd_binding_can_be_cleared_but_not_set_to_default():
     assert BindL3OutInterfaceProfilePoliciesRequest(**base, bfd_interface_policy="").bfd_interface_policy == ""
     with pytest.raises(ValidationError):
         BindL3OutInterfaceProfilePoliciesRequest(**base, bfd_interface_policy="default")
+
+
+# --- get_plan_changes (2026-10-18) ---------------------------------------------------
+
+from mcp_server.schemas.aci_lifecycle import GetPlanChangesRequest  # noqa: E402
+from mcp_server.tools.aci_lifecycle import get_plan_changes  # noqa: E402
+
+_PLAN_LOG = """\
+2026-10-18T19:00:00.000001Z 01O Terraform will perform the following actions:
+2026-10-18T19:00:00.000002Z 01O   # aci_vrf.this["sales/approval-demo"] will be created
+2026-10-18T19:00:00.000003Z 01O   # aci_contract.this["sales/old_ct"] will be destroyed
+2026-10-18T19:00:00.000004Z 01O Plan: 1 to add, 0 to change, 1 to destroy.
+"""
+_MODULE = '''\
+# NOT-SETTABLE[NS-10]: further VRF attributes not modelled.
+resource "aci_vrf" "this" {
+}
+# NOT-SETTABLE[NS-11]: renaming.
+resource "aci_bridge_domain" "this" {
+}
+'''
+
+
+class _PlanGitLab:
+    """Three pipelines, newest first: 72 waits on the EVPN apply only, 71 waits on
+    the ACI apply, 70 is older. Records every call."""
+
+    def __init__(self, plan_status="success", module=_MODULE):
+        self.plan_status, self.module = plan_status, module
+        self.calls: list[tuple] = []
+        self._jobs = {
+            72: [{"id": 720, "name": "terraform_plan", "status": "success"},
+                 {"id": 721, "name": "terraform_apply", "status": "success"},
+                 {"id": 722, "name": "evpn_terraform_apply", "status": "manual"}],
+            71: [{"id": 710, "name": "terraform_plan", "status": plan_status},
+                 {"id": 711, "name": "terraform_apply", "status": "manual"}],
+            70: [{"id": 700, "name": "terraform_plan", "status": "success"}],
+        }
+
+    def recent_run_pipelines(self):
+        return [{"id": p, "status": "manual", "ref": "main", "sha": f"sha{p}", "web_url": f"u/{p}"} for p in (72, 71, 70)]
+
+    def pipeline(self, pipeline_id):
+        return {"id": pipeline_id, "status": "manual", "ref": "main", "sha": f"sha{pipeline_id}", "web_url": "u"}
+
+    def pipeline_jobs(self, pipeline_id):
+        return self._jobs.get(pipeline_id, [])
+
+    def job_trace(self, job_id):
+        self.calls.append(("job_trace", job_id))
+        return _PLAN_LOG
+
+    def repository_file(self, path, ref):
+        self.calls.append(("repository_file", path, ref))
+        return self.module
+
+
+def test_get_plan_changes_picks_the_pipeline_whose_aci_apply_awaits_approval():
+    """72 has an EVPN apply waiting, not the ACI one -- it must be skipped."""
+    gitlab = _PlanGitLab()
+    result = get_plan_changes(GetPlanChangesRequest(), gitlab=gitlab)
+    assert result["pipeline"]["id"] == 71 and result["awaiting_approval"] is True
+    assert [(c["action"], c["key"]) for c in result["changes"]] == [("create", "sales/approval-demo"), ("delete", "sales/old_ct")]
+    assert result["consistent"] is True
+
+
+def test_get_plan_changes_reads_the_module_at_the_pipelines_own_commit():
+    gitlab = _PlanGitLab()
+    result = get_plan_changes(GetPlanChangesRequest(pipeline_id=71), gitlab=gitlab)
+    assert ("repository_file", "platform/terraform/aci/main.tf", "sha71") in gitlab.calls
+    assert result["markers"] == {"aci_vrf.this": {"evidence": [], "not_settable": [
+        {"id": "NS-10", "title": result["markers"]["aci_vrf.this"]["not_settable"][0]["title"]}]}}
+    assert "aci_bridge_domain.this" not in result["markers"], "only resources that change carry their caveats"
+    assert result["markers"]["aci_vrf.this"]["not_settable"][0]["title"].startswith("Further VRF")
+
+
+def test_get_plan_changes_does_not_summarise_a_plan_that_did_not_succeed():
+    gitlab = _PlanGitLab(plan_status="failed")
+    result = get_plan_changes(GetPlanChangesRequest(pipeline_id=71), gitlab=gitlab)
+    assert "there is no plan to summarise" in result["reason"]
+    assert "changes" not in result and gitlab.calls == []
+
+
+def test_unreadable_module_means_caveats_unknown_not_absent():
+    result = get_plan_changes(GetPlanChangesRequest(pipeline_id=71), gitlab=_PlanGitLab(module=None))
+    assert result["markers"] == {} and "caveats unknown, not absent" in result["warning"]
+
+
+def test_an_older_pipeline_is_flagged_as_superseded_by_a_newer_plan():
+    """Live finding 2026-10-18: GitLab's pipeline cancel does not cancel a
+    waiting manual job, so pipeline 64 stayed approvable after 65 planned the
+    same branch. Approving 64 would apply an outdated plan."""
+    gitlab = _PlanGitLab()
+    result = get_plan_changes(GetPlanChangesRequest(pipeline_id=70), gitlab=gitlab)
+    assert result["superseded_by"] == 71
+
+
+def test_the_newest_plan_is_not_superseded_and_an_older_waiting_one_is():
+    """71 waits for approval, but 72 planned (and applied) the same branch
+    after it: 71's plan is outdated even though it is the one waiting."""
+    gitlab = _PlanGitLab()
+    assert get_plan_changes(GetPlanChangesRequest(pipeline_id=72), gitlab=gitlab)["superseded_by"] is None
+    assert get_plan_changes(GetPlanChangesRequest(), gitlab=gitlab)["superseded_by"] == 72

@@ -1,4 +1,5 @@
-"""python -m platform_reasoning diagnose --tenant sales [--object BGP_L3Out] [--pipeline 60]"""
+"""python -m platform_reasoning diagnose --tenant sales [--object BGP_L3Out] [--pipeline 60]
+python -m platform_reasoning review-plan [--pipeline 66]"""
 from __future__ import annotations
 
 import argparse
@@ -7,7 +8,7 @@ import json
 import os
 import sys
 
-from platform_reasoning import knowledge
+from platform_reasoning import knowledge, review
 from platform_reasoning.diagnose import diagnose
 from platform_reasoning.mcp_reader import ToolCallFailed, connect
 
@@ -21,23 +22,31 @@ def _args(argv: list[str] | None) -> argparse.Namespace:
     d.add_argument("--tenant", required=True, help="Tenant name, e.g. sales or ACI:sales")
     d.add_argument("--object", dest="object_name", help="Object name, e.g. BGP_L3Out, FW, Web_EPG")
     d.add_argument("--pipeline", dest="pipeline_id", type=int, help="Pipeline id; default: the tenant's last recorded one")
-    d.add_argument("--mcp-url", default=os.environ.get("MCP_URL", _DEFAULT_URL))
     d.add_argument(
         "--environment", choices=("production", "simulator"),
         default=os.environ.get("PLATFORM_ENVIRONMENT", "production"),
         help="'simulator' treats the lab's known fault floors (no registered switch, no L4-L7 "
              "device) as expected. Default 'production': they stop the diagnosis.",
     )
-    d.add_argument("--json", action="store_true", help="Print the full graph state as JSON")
+    r = sub.add_parser("review-plan", help="Read-only: what will this pipeline's apply change, in plain words?")
+    r.add_argument("--pipeline", dest="pipeline_id", type=int,
+                   help="Pipeline id; default: the newest whose ACI terraform_apply waits for approval")
+    for p in (d, r):
+        p.add_argument("--mcp-url", default=os.environ.get("MCP_URL", _DEFAULT_URL))
+        p.add_argument("--json", action="store_true", help="Print the full graph state as JSON")
     return parser.parse_args(argv)
 
 
 async def _run(args: argparse.Namespace) -> int:
-    async with connect(args.mcp_url) as reader:
-        state = await diagnose(
-            reader, args.tenant, args.object_name, args.pipeline_id, knowledge.load_sections(),
-            environment=args.environment,
-        )
+    if args.command == "review-plan":
+        async with connect(args.mcp_url, required=review.REQUIRED_TOOLS) as reader:
+            state = await review.review(reader, args.pipeline_id)
+    else:
+        async with connect(args.mcp_url) as reader:
+            state = await diagnose(
+                reader, args.tenant, args.object_name, args.pipeline_id, knowledge.load_sections(),
+                environment=args.environment,
+            )
     if args.json:
         print(json.dumps({k: v for k, v in state.items() if k != "report"}, indent=2, default=str))
     else:
@@ -50,7 +59,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         return asyncio.run(_run(args))
     except ToolCallFailed as exc:
-        print(f"diagnosis aborted: {exc}", file=sys.stderr)
+        print(f"{args.command} aborted: {exc}", file=sys.stderr)
         return 2
     except OSError as exc:
         print(f"MCP Server unreachable at {args.mcp_url}: {exc}", file=sys.stderr)

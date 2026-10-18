@@ -21,6 +21,7 @@ READ_ONLY_TOOLS: frozenset[str] = frozenset({
     "get_fabric_intent",
     "get_generated_intent",
     "get_pipeline_report",
+    "get_plan_changes",
 })
 
 # The diagnosis cannot run without these; checked once at connect time.
@@ -79,12 +80,13 @@ def _payload(result: Any) -> dict:
 
 
 @asynccontextmanager
-async def connect(url: str) -> AsyncIterator[McpReader]:
+async def connect(url: str, required: frozenset[str] = REQUIRED_TOOLS) -> AsyncIterator[McpReader]:
+    """`required`: the tools the calling workflow cannot run without."""
     async with streamable_http_client(url) as (read, write):
         async with ClientSession(read, write) as session:
             await session.initialize()
             listed = await session.list_tools()
-            missing = REQUIRED_TOOLS - {t.name for t in listed.tools}
+            missing = required - {t.name for t in listed.tools}
             if missing:
                 raise ToolCallFailed(
                     "list_tools",

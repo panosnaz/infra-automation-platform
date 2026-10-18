@@ -49,6 +49,15 @@ class GetGeneratedIntentRequest(BaseModel):
     )
 
 
+class GetPlanChangesRequest(BaseModel):
+    pipeline_id: int | None = Field(
+        default=None,
+        gt=0,
+        description="GitLab pipeline id. Omit to use the newest pipeline whose ACI terraform_apply is waiting "
+                    "for approval -- the moment this is meant for -- or, if none waits, the newest that ran.",
+    )
+
+
 # ---------------------------------------------------------------------------
 # Update. Every field except the identifiers is optional and means "leave
 # unchanged" when omitted; at least one must be given.
