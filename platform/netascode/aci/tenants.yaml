@@ -272,9 +272,9 @@ apic:
           - shared-security
         - ip: 172.16.1.0/30
           scope:
+          - import-security
           - shared-rtctrl
           - shared-security
-          - import-security
         consumed_contracts:
         - FileServices_Ct
         route_control_profiles:
@@ -426,6 +426,13 @@ apic:
     pod_policy_groups:
     - name: Pod_PG
       bgp_route_reflector_policy: default
+    bgp_route_reflector:
+      asn: 65001
+      nodes:
+      - pod_id: 1
+        node_id: 1001
+    pod_profile:
+      policy_group: Pod_PG
   access_policies:
     physical_domains:
     - name: Sales_PhyDom
@@ -477,6 +484,15 @@ apic:
           from_card: 1
           from_port: 10
         policy_group: Host_Access_IPG
+        selector_type: range
+      - name: Ext_Catalyst
+        blocks:
+        - name: blk1
+          to_card: 1
+          to_port: 1
+          from_card: 1
+          from_port: 1
+        policy_group: ExtL3_IPG
         selector_type: range
     leaf_profiles:
     - name: Leaf101_SwProf
