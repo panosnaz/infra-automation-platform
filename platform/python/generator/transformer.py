@@ -829,6 +829,9 @@ def _build_fabric_and_access_policies(
     lacp_policies: list[dict[str, Any]] = []
     vpc_domains: list[dict[str, Any]] = []
     pc_vpc_policy_groups: list[dict[str, Any]] = []
+    # Named CDP / LLDP interface policies that access-port groups select (2026-10-30).
+    cdp_interface_policies: list[dict[str, Any]] = []
+    lldp_interface_policies: list[dict[str, Any]] = []
     vmm_domains: list[dict[str, Any]] = []
     pod_policy_groups: list[dict[str, Any]] = []
     ntp: dict[str, Any] = {}
@@ -856,6 +859,8 @@ def _build_fabric_and_access_policies(
         lacp_policies.extend(data.get("lacp_policies") or [])
         vpc_domains.extend(data.get("vpc_domains") or [])
         pc_vpc_policy_groups.extend(data.get("pc_vpc_policy_groups") or [])
+        cdp_interface_policies.extend(data.get("cdp_interface_policies") or [])
+        lldp_interface_policies.extend(data.get("lldp_interface_policies") or [])
         vmm_domains.extend(data.get("vmm_domains") or [])
         pod_policy_groups.extend(data.get("pod_policy_groups") or [])
         # POD-wide policies are singletons -- last Location with the field
@@ -929,6 +934,10 @@ def _build_fabric_and_access_policies(
         access_policies["vpc_domains"] = vpc_domains
     if pc_vpc_policy_groups:
         access_policies["pc_vpc_policy_groups"] = pc_vpc_policy_groups
+    if cdp_interface_policies:
+        access_policies["cdp_interface_policies"] = cdp_interface_policies
+    if lldp_interface_policies:
+        access_policies["lldp_interface_policies"] = lldp_interface_policies
     for key in ("leaf_interface_profiles", "interface_selectors", "access_port_profiles", "leaf_profiles"):
         values = []
         for location in locations:
@@ -1426,6 +1435,16 @@ def _validate_access_references(data: dict[str, Any]) -> None:
 
     for name in sorted(access_groups & set(bundles)):
         problems.append(f"'{name}' is both an access-port and a PC/vPC policy group -- selectors resolve groups by name")
+    # Named CDP / LLDP policies (2026-10-30). An unresolved name would leave
+    # the relation on the APIC default with no error anywhere.
+    for key, label in (("cdp", "CDP"), ("lldp", "LLDP")):
+        declared = {p.get("name") for p in access.get(f"{key}_interface_policies", [])}
+        for group in access.get("leaf_interface_policy_groups", []):
+            ref = group.get(f"{key}_policy")
+            if ref and ref not in declared:
+                problems.append(f"leaf interface policy group '{group.get('name')}' uses undeclared {label} interface policy '{ref}'")
+            if ref and (group.get("policies") or {}).get(key) is not None:
+                problems.append(f"leaf interface policy group '{group.get('name')}' has both a named {label} policy and an inline one")
     for name, group in bundles.items():
         if group.get("aep") and group["aep"] not in aeps:
             problems.append(f"PC/vPC policy group '{name}' uses undeclared AEP '{group['aep']}'")

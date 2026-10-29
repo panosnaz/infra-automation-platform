@@ -13,8 +13,10 @@ from __future__ import annotations
 
 from mcp_server.clients.nautobot import NautobotClient
 from mcp_server.schemas.aci_access import (
+    CreateCdpInterfacePolicyRequest,
     CreateInbandMgmtEpgRequest,
     CreateLacpPolicyRequest,
+    CreateLldpInterfacePolicyRequest,
     CreateNodeMgmtAddressRequest,
     CreatePcVpcPolicyGroupRequest,
     CreateVpcDomainRequest,
@@ -22,6 +24,7 @@ from mcp_server.schemas.aci_access import (
     UnbindEpgStaticPathRequest,
     UpdateInbandMgmtEpgRequest,
     UpdateLacpPolicyRequest,
+    UpdateLeafInterfacePolicyGroupRequest,
     UpdateNodeMgmtAddressRequest,
     UpdatePcVpcPolicyGroupRequest,
     UpdateVpcDomainRequest,
@@ -103,6 +106,43 @@ def create_pc_vpc_policy_group(request: CreatePcVpcPolicyGroupRequest, *, nautob
 def update_pc_vpc_policy_group(request: UpdatePcVpcPolicyGroupRequest, *, nautobot: NautobotClient) -> dict:
     return nautobot.update_pc_vpc_policy_group(request.location, request.name, request.aep,
                                                request.lacp_policy, request.description)
+
+
+# --- CDP / LLDP interface policies (2026-10-30) -------------------------------------
+
+def _register_ifpol(name: str, schema, description: str, not_settable: tuple[str, ...] = ()):
+    return registry.register(name=name, domain="cisco_aci", description=description, schema=schema,
+                             not_settable=not_settable)
+
+
+@_register_ifpol("create_cdp_interface_policy", CreateCdpInterfacePolicyRequest,
+                 "Create a named CDP interface policy (Fabric > Access Policies > Policies > Interface > CDP "
+                 "Interface), e.g. 'Enable_CDP'. Select it on an access-port policy group with "
+                 "update_leaf_interface_policy_group(cdp_policy=...). A group without one uses APIC's 'default' "
+                 "CDP policy, which is disabled.")
+def create_cdp_interface_policy(request: CreateCdpInterfacePolicyRequest, *, nautobot: NautobotClient) -> dict:
+    return nautobot.create_cdp_interface_policy(request.location, request.name, request.admin_state,
+                                                request.description)
+
+
+@_register_ifpol("create_lldp_interface_policy", CreateLldpInterfacePolicyRequest,
+                 "Create a named LLDP interface policy (Fabric > Access Policies > Policies > Interface > LLDP "
+                 "Interface), e.g. 'Enable_LLDP' with receive and transmit enabled. Select it on an access-port "
+                 "policy group with update_leaf_interface_policy_group(lldp_policy=...).")
+def create_lldp_interface_policy(request: CreateLldpInterfacePolicyRequest, *, nautobot: NautobotClient) -> dict:
+    return nautobot.create_lldp_interface_policy(request.location, request.name, request.receive_state,
+                                                 request.transmit_state, request.description)
+
+
+@_register_ifpol("update_leaf_interface_policy_group", UpdateLeafInterfacePolicyGroupRequest,
+                 "Change an existing leaf access-port policy group: its AEP, CDP policy or LLDP policy. Only the "
+                 "fields passed change; an empty string removes a reference and returns that slot to the APIC "
+                 "default. Each policy must already exist.",
+                 not_settable=("NS-03",))
+def update_leaf_interface_policy_group(request: UpdateLeafInterfacePolicyGroupRequest, *,
+                                       nautobot: NautobotClient) -> dict:
+    return nautobot.update_leaf_interface_policy_group(request.location, request.name, request.aep,
+                                                       request.cdp_policy, request.lldp_policy)
 
 
 # --- Management -------------------------------------------------------------------

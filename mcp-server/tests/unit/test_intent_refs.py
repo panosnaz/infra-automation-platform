@@ -363,3 +363,12 @@ def test_unused_l3out_depth_policies_have_no_references():
                  "bgp_route_summarization_policy", "ospf_timers_policy", "route_tag_policy"):
         assert r.tenant_references(kind, "unused", _L3D_CF, vrfs=_L3D_VRFS) == []
         assert kind in r.TENANT_JSON_KINDS
+
+
+# --- CDP / LLDP interface policies (2026-10-30) -----------------------------------
+
+@pytest.mark.parametrize("kind,key", [("cdp_interface_policy", "cdp_policy"), ("lldp_interface_policy", "lldp_policy")])
+def test_cdp_and_lldp_policy_references_are_found(kind, key):
+    cf = {"aci_fabric_policies": {"leaf_interface_policy_groups": [{"name": "ExtL3_IPG", key: "P"}, {"name": "Other"}]}}
+    assert r.fabric_references(kind, "P", cf) == [f"leaf interface policy group 'ExtL3_IPG' uses this {kind.split('_')[0].upper()} policy"]
+    assert r.fabric_references(kind, "Unused", cf) == []

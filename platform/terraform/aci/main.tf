@@ -582,6 +582,12 @@ locals {
   # still plan-validated only because no apply has been ATTEMPTED -- see
   # Platform-Status-and-Pending-Items.md and ADR-020's 2026-09-14
   # correction.
+  # Named CDP / LLDP interface policies (2026-10-30), selected by a group's
+  # `cdp_policy` / `lldp_policy`. Preferred over the inline `policies` block
+  # below, which names its policy after the group and cannot be shared.
+  cdp_interface_policies  = { for p in lookup(lookup(local.nac.apic, "access_policies", {}), "cdp_interface_policies", []) : p.name => p }
+  lldp_interface_policies = { for p in lookup(lookup(local.nac.apic, "access_policies", {}), "lldp_interface_policies", []) : p.name => p }
+
   ipg_cdp_policies = {
     for g in lookup(lookup(local.nac.apic, "access_policies", {}), "leaf_interface_policy_groups", []) :
     g.name => merge(lookup(g, "policies", {}).cdp, { ipg_name = g.name })
@@ -1955,8 +1961,14 @@ resource "aci_l3out_bgp_external_policy" "this" {
   l3_outside_dn = aci_l3_outside.this[each.key].id
 }
 
+# bgpProtP only when the L3Out names a timers or best-path policy (2026-10-30):
+# without one the APIC default BGP timers apply, and the change owner wants no
+# empty profile created. Every BGP L3Out used to get one.
 resource "aci_l3out_bgp_protocol_profile" "this" {
-  for_each                = local.l3out_bgp_policies
+  for_each = {
+    for k, l in local.l3out_bgp_policies : k => l
+    if lookup(l, "bgp_timers_policy", null) != null || lookup(l, "bgp_best_path_policy", null) != null
+  }
   logical_node_profile_dn = one([for k, p in local.l3out_node_profiles : aci_logical_node_profile.this[k].id if startswith(k, "${each.key}/")])
 
   # L3Out depth (2026-10-16): this L3Out's BGP timers and best-path policy.
@@ -2317,8 +2329,14 @@ resource "aci_leaf_access_port_policy_group" "this" {
     ? aci_attachable_access_entity_profile.this[each.value.aep].id
     : null
   )
-  relation_infra_rs_cdp_if_pol           = lookup(local.ipg_cdp_policies, each.key, null) != null ? aci_cdp_interface_policy.this[each.key].id : null
-  relation_infra_rs_lldp_if_pol          = lookup(local.ipg_lldp_policies, each.key, null) != null ? aci_lldp_interface_policy.this[each.key].id : null
+  relation_infra_rs_cdp_if_pol = (
+    lookup(each.value, "cdp_policy", null) != null ? aci_cdp_interface_policy.named[each.value.cdp_policy].id
+    : lookup(local.ipg_cdp_policies, each.key, null) != null ? aci_cdp_interface_policy.this[each.key].id : null
+  )
+  relation_infra_rs_lldp_if_pol = (
+    lookup(each.value, "lldp_policy", null) != null ? aci_lldp_interface_policy.named[each.value.lldp_policy].id
+    : lookup(local.ipg_lldp_policies, each.key, null) != null ? aci_lldp_interface_policy.this[each.key].id : null
+  )
   relation_infra_rs_l2_if_pol            = lookup(local.ipg_link_policies, each.key, null) != null ? aci_link_level_interface_policy.this[each.key].id : null
   relation_infra_rs_stp_if_pol           = lookup(local.ipg_stp_policies, each.key, null) != null ? aci_spanning_tree_interface_policy.this[each.key].id : null
   relation_infra_rs_l2_port_security_pol = lookup(local.ipg_port_security_policies, each.key, null) != null ? aci_port_security_interface_policy.this[each.key].id : null
@@ -2375,6 +2393,22 @@ resource "aci_leaf_access_bundle_policy_group" "this" {
     ? aci_lacp_policy.this[each.value.lacp_policy].id
     : null
   )
+}
+
+# EVIDENCE: unit-tested -- named CDP / LLDP interface policies (2026-10-30).
+resource "aci_cdp_interface_policy" "named" {
+  for_each    = local.cdp_interface_policies
+  name        = each.value.name
+  admin_state = lookup(each.value, "admin_state", null)
+  description = lookup(each.value, "description", null)
+}
+
+resource "aci_lldp_interface_policy" "named" {
+  for_each       = local.lldp_interface_policies
+  name           = each.value.name
+  receive_state  = lookup(each.value, "receive_state", null)
+  transmit_state = lookup(each.value, "transmit_state", null)
+  description    = lookup(each.value, "description", null)
 }
 
 resource "aci_cdp_interface_policy" "this" {

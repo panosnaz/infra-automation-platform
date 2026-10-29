@@ -2290,3 +2290,38 @@ def test_get_plan_changes_request_takes_an_optional_positive_pipeline_id():
     assert GetPlanChangesRequest(pipeline_id=65).pipeline_id == 65
     with pytest.raises(ValidationError):
         GetPlanChangesRequest(pipeline_id=0)
+
+
+# ---------------------------------------------------------------------------
+# CDP / LLDP interface policies (2026-10-30).
+# ---------------------------------------------------------------------------
+
+from mcp_server.schemas.aci_access import (  # noqa: E402
+    CreateCdpInterfacePolicyRequest,
+    CreateLldpInterfacePolicyRequest,
+    UpdateLeafInterfacePolicyGroupRequest,
+)
+
+
+def test_cdp_and_lldp_policy_states_are_restricted():
+    assert CreateCdpInterfacePolicyRequest(name="Enable_CDP").admin_state == "enabled"
+    lldp = CreateLldpInterfacePolicyRequest(name="Enable_LLDP")
+    assert (lldp.receive_state, lldp.transmit_state) == ("enabled", "enabled")
+    with pytest.raises(ValidationError):
+        CreateCdpInterfacePolicyRequest(name="C", admin_state="on")
+    with pytest.raises(ValidationError):
+        CreateLldpInterfacePolicyRequest(name="L", transmit_state="yes")
+
+
+def test_cdp_and_lldp_policy_names_follow_aci_rules():
+    """'Enable LLDP' (with a space) is not a valid ACI name."""
+    with pytest.raises(ValidationError, match="not a valid ACI object name"):
+        CreateLldpInterfacePolicyRequest(name="Enable LLDP")
+    with pytest.raises(ValidationError, match="not a valid ACI object name"):
+        CreateCdpInterfacePolicyRequest(name="Enable CDP")
+
+
+def test_policy_group_update_needs_a_change():
+    with pytest.raises(ValidationError, match="nothing to update"):
+        UpdateLeafInterfacePolicyGroupRequest(name="ExtL3_IPG")
+    UpdateLeafInterfacePolicyGroupRequest(name="ExtL3_IPG", lldp_policy="")  # "" clears: a change

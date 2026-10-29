@@ -202,6 +202,62 @@ class AccessMixin:
             )
 
     # ------------------------------------------------------------------
+    # CDP / LLDP interface policies, selected by access-port policy groups
+    # (2026-10-30). Named and reusable, like LACP policies; main.tf prefers a
+    # group's named reference over its older inline `policies` block.
+    # ------------------------------------------------------------------
+
+    def create_cdp_interface_policy(self, location, name, admin_state="enabled", description="") -> dict:
+        entry = {"name": name, "admin_state": admin_state}
+        if description:
+            entry["description"] = description
+        with _nautobot_errors(f"CDP interface policy '{name}'"):
+            return self._add_named(location, "cdp_interface_policies", entry, "CDP interface policy")
+
+    def create_lldp_interface_policy(self, location, name, receive_state="enabled", transmit_state="enabled",
+                                     description="") -> dict:
+        entry = {"name": name, "receive_state": receive_state, "transmit_state": transmit_state}
+        if description:
+            entry["description"] = description
+        with _nautobot_errors(f"LLDP interface policy '{name}'"):
+            return self._add_named(location, "lldp_interface_policies", entry, "LLDP interface policy")
+
+    def update_leaf_interface_policy_group(self, location, name, aep=None, cdp_policy=None, lldp_policy=None) -> dict:
+        """Only the fields passed change; an empty string removes the reference,
+        which returns that slot to the APIC default policy."""
+        changes = {"aep": aep, "cdp_policy": cdp_policy, "lldp_policy": lldp_policy}
+        checks = {
+            "aep": ("aeps", "AEP", "create_aep"),
+            "cdp_policy": ("cdp_interface_policies", "CDP interface policy", "create_cdp_interface_policy"),
+            "lldp_policy": ("lldp_interface_policies", "LLDP interface policy", "create_lldp_interface_policy"),
+        }
+        with _nautobot_errors(f"leaf interface policy group '{name}'"):
+            location_obj, fields, fabric = self._fabric(location)
+            group = self._require_named(fabric, "leaf_interface_policy_groups", name,
+                                        "Leaf interface policy group", location_obj)
+            for key, value in changes.items():
+                if not value:
+                    continue
+                list_key, label, tool = checks[key]
+                if self._named(fabric, list_key, value) is None:
+                    raise NautobotError(f"{label} '{value}' does not exist -- create it with {tool} first")
+                inline = key.split("_")[0]
+                if inline in ("cdp", "lldp") and (group.get("policies") or {}).get(inline) is not None:
+                    raise NautobotError(
+                        f"'{name}' already has an inline {inline.upper()} policy in its `policies` block; "
+                        "a group gets one CDP and one LLDP relation, so remove that first"
+                    )
+            applied = {k: v for k, v in changes.items() if v is not None}
+            for key, value in applied.items():
+                if value == "":
+                    group.pop(key, None)
+                else:
+                    group[key] = value
+            location_obj.update({"custom_fields": fields})
+            return {"location": location_obj.name, "leaf_interface_policy_group": group, "changed": applied,
+                    "deploy": _DEPLOY_LOCATION}
+
+    # ------------------------------------------------------------------
     # In-band management EPG (in tenant mgmt)
     # ------------------------------------------------------------------
 

@@ -145,6 +145,9 @@ FABRIC_KINDS: dict[str, tuple[str, str]] = {
     "vpc_domain": ("aci_fabric_policies", "vpc_domains"),
     "pc_vpc_policy_group": ("aci_fabric_policies", "pc_vpc_policy_groups"),
     "inband_mgmt_epg": ("aci_fabric_policies", "inband_mgmt_epgs"),
+    # CDP / LLDP interface policies (2026-10-30).
+    "cdp_interface_policy": ("aci_fabric_policies", "cdp_interface_policies"),
+    "lldp_interface_policy": ("aci_fabric_policies", "lldp_interface_policies"),
 }
 
 # Fabric kinds whose references live in tenants (EPG static paths, domains),
@@ -473,6 +476,12 @@ def fabric_references(
         for group in _list(fabric, "pc_vpc_policy_groups"):
             if group.get("lacp_policy") == name:
                 refs.append(f"PC/vPC policy group '{group.get('name')}' uses this LACP policy")
+
+    elif kind in ("cdp_interface_policy", "lldp_interface_policy"):
+        key = kind.split("_")[0]
+        for group in _list(fabric, "leaf_interface_policy_groups"):
+            if group.get(f"{key}_policy") == name:
+                refs.append(f"leaf interface policy group '{group.get('name')}' uses this {key.upper()} policy")
 
     elif kind == "vpc_domain":
         domain = next((d for d in _list(fabric, "vpc_domains") if d.get("name") == name), None)

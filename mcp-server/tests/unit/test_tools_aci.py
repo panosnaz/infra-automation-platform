@@ -2434,3 +2434,33 @@ def test_the_newest_plan_is_not_superseded_and_an_older_waiting_one_is():
     gitlab = _PlanGitLab()
     assert get_plan_changes(GetPlanChangesRequest(pipeline_id=72), gitlab=gitlab)["superseded_by"] is None
     assert get_plan_changes(GetPlanChangesRequest(), gitlab=gitlab)["superseded_by"] == 72
+
+
+# ---------------------------------------------------------------------------
+# CDP / LLDP interface policies (2026-10-30).
+# ---------------------------------------------------------------------------
+
+from mcp_server.schemas.aci_access import (  # noqa: E402
+    CreateCdpInterfacePolicyRequest,
+    CreateLldpInterfacePolicyRequest,
+    UpdateLeafInterfacePolicyGroupRequest,
+)
+from mcp_server.tools.aci_access import (  # noqa: E402
+    create_cdp_interface_policy,
+    create_lldp_interface_policy,
+    update_leaf_interface_policy_group,
+)
+
+
+@pytest.mark.parametrize("tool,request_obj,method,expected_args", [
+    (create_cdp_interface_policy, CreateCdpInterfacePolicyRequest(name="Enable_CDP"),
+     "create_cdp_interface_policy", (None, "Enable_CDP", "enabled", "")),
+    (create_lldp_interface_policy, CreateLldpInterfacePolicyRequest(name="L", transmit_state="disabled", description="rx only"),
+     "create_lldp_interface_policy", (None, "L", "enabled", "disabled", "rx only")),
+    (update_leaf_interface_policy_group, UpdateLeafInterfacePolicyGroupRequest(name="ExtL3_IPG", lldp_policy="Enable_LLDP"),
+     "update_leaf_interface_policy_group", (None, "ExtL3_IPG", None, None, "Enable_LLDP")),
+])
+def test_cdp_lldp_tool_dispatch(tool, request_obj, method, expected_args):
+    fake = _Recorder()
+    tool(request_obj, nautobot=fake)
+    assert fake.calls == [(method, {"args": expected_args})]

@@ -128,6 +128,41 @@ class UpdatePcVpcPolicyGroupRequest(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# CDP / LLDP interface policies and the access-port policy group (2026-10-30)
+# ---------------------------------------------------------------------------
+
+AdminState = Literal["enabled", "disabled"]
+
+
+class CreateCdpInterfacePolicyRequest(_Named):
+    name: str = Field(description="CDP interface policy name, e.g. 'Enable_CDP'. No spaces: ACI names allow letters, digits, _ . : -")
+    admin_state: AdminState = Field(default="enabled", description="CDP on the port. APIC's own 'default' policy is disabled.")
+    description: str = ""
+    location: str | None = _LOCATION
+
+
+class CreateLldpInterfacePolicyRequest(_Named):
+    name: str = Field(description="LLDP interface policy name, e.g. 'Enable_LLDP'. No spaces: ACI names allow letters, digits, _ . : -")
+    receive_state: AdminState = Field(default="enabled", description="LLDP receive (rx).")
+    transmit_state: AdminState = Field(default="enabled", description="LLDP transmit (tx).")
+    description: str = ""
+    location: str | None = _LOCATION
+
+
+class UpdateLeafInterfacePolicyGroupRequest(BaseModel):
+    name: str = Field(description="Existing leaf access-port policy group, e.g. 'ExtL3_IPG'.")
+    aep: str | None = Field(default=None, description="Existing AEP. Empty string removes it.")
+    cdp_policy: str | None = Field(default=None, description="Existing CDP interface policy (create_cdp_interface_policy). Empty string returns the group to the APIC default policy.")
+    lldp_policy: str | None = Field(default=None, description="Existing LLDP interface policy (create_lldp_interface_policy). Empty string returns the group to the APIC default policy.")
+    location: str | None = _LOCATION
+
+    @model_validator(mode="after")
+    def _something_changes(self):
+        _require_a_change(self, {"name", "location"})
+        return self
+
+
+# ---------------------------------------------------------------------------
 # Management
 # ---------------------------------------------------------------------------
 

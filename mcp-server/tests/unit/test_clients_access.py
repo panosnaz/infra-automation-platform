@@ -6,6 +6,7 @@ refusal is checked to have written nothing.
 """
 from __future__ import annotations
 
+import copy
 from types import SimpleNamespace
 
 import pytest
@@ -285,3 +286,73 @@ def test_deleting_the_last_entry_removes_the_key_too(lab):
     lab.client.create_lacp_policy(None, "L", "active")
     lab.client.delete_fabric_object("lacp_policy", "L")
     assert "lacp_policies" not in _fabric(lab)
+
+
+# --- CDP / LLDP interface policies (2026-10-30) ----------------------------------------
+
+def test_cdp_and_lldp_policies_are_stored_and_a_duplicate_refused(lab):
+    lab.client.create_cdp_interface_policy(None, "Enable_CDP", "enabled")
+    lab.client.create_lldp_interface_policy(None, "Enable_LLDP", "enabled", "enabled")
+    assert _fabric(lab)["cdp_interface_policies"] == [{"name": "Enable_CDP", "admin_state": "enabled"}]
+    assert _fabric(lab)["lldp_interface_policies"] == [
+        {"name": "Enable_LLDP", "receive_state": "enabled", "transmit_state": "enabled"}
+    ]
+    with pytest.raises(NautobotError, match="already exists"):
+        lab.client.create_cdp_interface_policy(None, "Enable_CDP", "disabled")
+
+
+def test_a_policy_group_selects_cdp_and_lldp_policies_by_name(lab):
+    lab.client.create_cdp_interface_policy(None, "Enable_CDP", "enabled")
+    lab.client.create_lldp_interface_policy(None, "Enable_LLDP", "enabled", "enabled")
+    lab.client.update_leaf_interface_policy_group(None, "Access_IPG", cdp_policy="Enable_CDP", lldp_policy="Enable_LLDP")
+    assert _fabric(lab)["leaf_interface_policy_groups"] == [
+        {"name": "Access_IPG", "aep": "AEP1", "cdp_policy": "Enable_CDP", "lldp_policy": "Enable_LLDP"}
+    ]
+
+
+def test_an_empty_string_returns_the_group_to_the_apic_default(lab):
+    lab.client.create_cdp_interface_policy(None, "Enable_CDP", "enabled")
+    lab.client.update_leaf_interface_policy_group(None, "Access_IPG", cdp_policy="Enable_CDP")
+    lab.client.update_leaf_interface_policy_group(None, "Access_IPG", cdp_policy="")
+    assert _fabric(lab)["leaf_interface_policy_groups"] == [{"name": "Access_IPG", "aep": "AEP1"}]
+
+
+@pytest.mark.parametrize("changes,message", [
+    ({"cdp_policy": "Nope"}, "CDP interface policy 'Nope' does not exist"),
+    ({"lldp_policy": "Nope"}, "LLDP interface policy 'Nope' does not exist"),
+    ({"aep": "Nope"}, "AEP 'Nope' does not exist"),
+])
+def test_a_policy_group_refuses_an_unknown_reference_and_writes_nothing(lab, changes, message):
+    before = [dict(g) for g in _fabric(lab)["leaf_interface_policy_groups"]]
+    with pytest.raises(NautobotError, match=message):
+        lab.client.update_leaf_interface_policy_group(None, "Access_IPG", **changes)
+    assert _fabric(lab)["leaf_interface_policy_groups"] == before
+
+
+def test_updating_an_unknown_policy_group_is_refused(lab):
+    with pytest.raises(NautobotError, match="Leaf interface policy group 'Ghost' not found"):
+        lab.client.update_leaf_interface_policy_group(None, "Ghost", aep="AEP1")
+
+
+def test_a_named_policy_cannot_be_combined_with_the_groups_inline_one(lab):
+    """main.tf would otherwise render two relations for one slot."""
+    lab.client.create_cdp_interface_policy(None, "Enable_CDP", "enabled")
+    fields = copy.deepcopy(lab.loc.custom_fields)
+    fields["aci_fabric_policies"]["leaf_interface_policy_groups"][0]["policies"] = {"cdp": {"enabled": True}}
+    lab.loc.update({"custom_fields": fields})
+    with pytest.raises(NautobotError, match="already has an inline CDP policy"):
+        lab.client.update_leaf_interface_policy_group(None, "Access_IPG", cdp_policy="Enable_CDP")
+
+
+@pytest.mark.parametrize("kind,create", [
+    ("cdp_interface_policy", lambda c: c.create_cdp_interface_policy(None, "P", "enabled")),
+    ("lldp_interface_policy", lambda c: c.create_lldp_interface_policy(None, "P", "enabled", "enabled")),
+])
+def test_a_cdp_or_lldp_policy_in_use_cannot_be_deleted(lab, kind, create):
+    create(lab.client)
+    lab.client.update_leaf_interface_policy_group(None, "Access_IPG", **{kind.split("_")[0] + "_policy": "P"})
+    with pytest.raises(NautobotError, match="leaf interface policy group 'Access_IPG' uses this"):
+        lab.client.delete_fabric_object(kind, "P")
+    lab.client.update_leaf_interface_policy_group(None, "Access_IPG", **{kind.split("_")[0] + "_policy": ""})
+    lab.client.delete_fabric_object(kind, "P")
+    assert kind.replace("_policy", "_policies") not in _fabric(lab)

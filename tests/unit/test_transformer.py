@@ -2266,3 +2266,50 @@ def test_duplicate_static_routes_and_loopbacks_are_refused():
 def test_the_vpc_interfaces_second_node_is_checked_against_inventory():
     with pytest.raises(FabricInventoryError, match="node 102 referenced by tenant 'sales' L3Out 'out' interface profile 'ifp'"):
         _l3d_build(devices=[_device("leaf101", 101)])
+
+
+# ---------------------------------------------------------------------------
+# CDP / LLDP interface policies (2026-10-30)
+# ---------------------------------------------------------------------------
+
+_IFPOL = {
+    "aeps": [{"name": "EXTERNAL_SWITCH_AAEP"}],
+    "cdp_interface_policies": [{"name": "Enable_CDP", "admin_state": "enabled"}],
+    "lldp_interface_policies": [{"name": "Enable_LLDP", "receive_state": "enabled", "transmit_state": "enabled"}],
+    "leaf_interface_policy_groups": [
+        {"name": "ExtL3_IPG", "aep": "EXTERNAL_SWITCH_AAEP", "lldp_policy": "Enable_LLDP"},
+        {"name": "Host_Access_IPG", "cdp_policy": "Enable_CDP"},
+    ],
+}
+
+
+def test_cdp_and_lldp_policies_are_emitted_and_groups_keep_their_references():
+    access = _build(access=_IFPOL)["apic"]["access_policies"]
+    assert access["cdp_interface_policies"] == [{"name": "Enable_CDP", "admin_state": "enabled"}]
+    assert access["lldp_interface_policies"] == [
+        {"name": "Enable_LLDP", "receive_state": "enabled", "transmit_state": "enabled"}
+    ]
+    groups = {g["name"]: g for g in access["leaf_interface_policy_groups"]}
+    assert groups["ExtL3_IPG"]["lldp_policy"] == "Enable_LLDP"
+    assert groups["Host_Access_IPG"]["cdp_policy"] == "Enable_CDP"
+
+
+def test_cdp_and_lldp_keys_are_absent_when_unset():
+    """The negative case: a fabric with no interface policies gets no new key,
+    and a group that names none keeps no reference -- so the APIC default applies."""
+    access = _build(access={"aeps": [{"name": "A"}], "leaf_interface_policy_groups": [{"name": "G", "aep": "A"}]})
+    access = access["apic"]["access_policies"]
+    assert "cdp_interface_policies" not in access
+    assert "lldp_interface_policies" not in access
+    assert access["leaf_interface_policy_groups"] == [{"name": "G", "aep": "A"}]
+
+
+@pytest.mark.parametrize("patch,message", [
+    ({"leaf_interface_policy_groups": [{"name": "G", "lldp_policy": "Missing"}]}, "undeclared LLDP interface policy 'Missing'"),
+    ({"leaf_interface_policy_groups": [{"name": "G", "cdp_policy": "Missing"}]}, "undeclared CDP interface policy 'Missing'"),
+    ({"leaf_interface_policy_groups": [{"name": "G", "cdp_policy": "Enable_CDP", "policies": {"cdp": {"enabled": True}}}]},
+     "both a named CDP policy and an inline one"),
+])
+def test_cdp_and_lldp_references_must_resolve(patch, message):
+    with pytest.raises(PolicyReferenceError, match=message):
+        _build(access=_IFPOL, extra=patch)
