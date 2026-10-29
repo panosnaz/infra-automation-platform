@@ -264,17 +264,13 @@ apic:
         subnets:
         - ip: 172.16.200.200/32
           scope:
-          - import-security
+          - export-rtctrl
         - ip: 172.16.100.100/32
           scope:
           - import-security
-          - shared-rtctrl
-          - shared-security
         - ip: 172.16.1.0/30
           scope:
           - import-security
-          - shared-rtctrl
-          - shared-security
         consumed_contracts:
         - FileServices_Ct
         route_control_profiles:
