@@ -40,10 +40,10 @@ NOT_SETTABLE: dict[str, Gap] = {
         "Named, shared interface-policy tools and matching fields on create/update_pc_vpc_policy_group.",
     ),
     "NS-03": Gap(
-        "Interface policies on an access-port policy group through MCP: CDP, LLDP, link level, STP, port security",
-        "Terraform already renders these from the group's `policies` key, but create_leaf_interface_policy_group only accepts a name and an AEP.",
+        "Interface policies on an access-port policy group through MCP: link level, STP, port security (CDP and LLDP are settable since 2026-10-30)",
+        "Named CDP / LLDP policies have tools and update_leaf_interface_policy_group selects them; link level, STP and port security are still rendered only from the group's inline `policies` key, which no tool writes.",
         "Settable only by editing the aci_fabric_policies JSON by hand; otherwise APIC defaults apply.",
-        "Expose `policies` on create_leaf_interface_policy_group plus an update tool.",
+        "Named link-level / STP / port-security policy tools, selected by update_leaf_interface_policy_group.",
     ),
     "NS-04": Gap(
         "LACP member policy: per-port priority and fast/normal LACPDU rate",

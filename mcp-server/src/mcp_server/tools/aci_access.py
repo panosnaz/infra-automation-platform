@@ -110,9 +110,20 @@ def update_pc_vpc_policy_group(request: UpdatePcVpcPolicyGroupRequest, *, nautob
 
 # --- CDP / LLDP interface policies (2026-10-30) -------------------------------------
 
+_LIVE_IFPOL = (
+    "2026-10-30. Over the real MCP protocol against live Nautobot: Enable_LLDP and Enable_CDP created, "
+    "ExtL3_IPG -> Enable_LLDP and Host_Access_IPG -> Enable_CDP selected, each read back via "
+    "get_fabric_intent; an unknown policy, an unknown group, a name with a space, an empty update and "
+    "deleting an in-use policy all refused with intent byte-identical. Generator run against live "
+    "Nautobot. Applied by pipeline 82 (2 added, 2 changed, 1 destroyed) and read back from the APIC: "
+    "lldpIfPol rx/tx enabled, cdpIfPol enabled, both infraRs*IfPol relations formed; no new faults "
+    "(25 before, 25 after). Production intent, so not destroyed."
+)
+
+
 def _register_ifpol(name: str, schema, description: str, not_settable: tuple[str, ...] = ()):
     return registry.register(name=name, domain="cisco_aci", description=description, schema=schema,
-                             not_settable=not_settable)
+                             evidence="live-verified", evidence_note=_LIVE_IFPOL, not_settable=not_settable)
 
 
 @_register_ifpol("create_cdp_interface_policy", CreateCdpInterfacePolicyRequest,

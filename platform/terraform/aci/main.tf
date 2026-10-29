@@ -2318,7 +2318,7 @@ resource "aci_attachable_access_entity_profile" "this" {
   ]
 }
 
-# NOT-SETTABLE[NS-03]: CDP/LLDP/link/STP/port-security are rendered from `policies`, but no MCP tool writes that key.
+# NOT-SETTABLE[NS-03]: link/STP/port-security are rendered only from `policies`, which no MCP tool writes (CDP/LLDP: named policies).
 resource "aci_leaf_access_port_policy_group" "this" {
   for_each = local.leaf_interface_policy_groups
 
@@ -2395,7 +2395,9 @@ resource "aci_leaf_access_bundle_policy_group" "this" {
   )
 }
 
-# EVIDENCE: unit-tested -- named CDP / LLDP interface policies (2026-10-30).
+# EVIDENCE: live-verified 2026-10-30 (apply, not destroyed -- production intent):
+# pipeline 82 created Enable_LLDP / Enable_CDP and repointed ExtL3_IPG /
+# Host_Access_IPG; read back from APIC, relations formed, faults 25 -> 25.
 resource "aci_cdp_interface_policy" "named" {
   for_each    = local.cdp_interface_policies
   name        = each.value.name
