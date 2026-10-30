@@ -56,6 +56,10 @@ class Rec:
         self.snapshot = copy.deepcopy(self.custom_fields)
         return True
 
+    def __iter__(self):
+        # dict(record) works on a pynautobot Record; the create_* methods return it.
+        return iter({k: v for k, v in vars(self).items() if not k.startswith("_")}.items())
+
     def delete(self):
         self.deleted = True
         self._store.remove(self)
@@ -84,8 +88,10 @@ class Endpoint:
         ids, a fresh id assigned, and Nautobot's own validation for IPs."""
         if self._kind == "ip_addresses":
             self._api._validate_ip(attrs)
+        # On a VRF-prefix assignment `prefix` is a related object, not the CIDR string it is on a Prefix.
+        fk_fields = _FK_FIELDS | ({"prefix"} if self._kind == "vrf_prefix_assignments" else set())
         for key in list(attrs):
-            if key in _FK_FIELDS and isinstance(attrs[key], (str, int)):
+            if key in fk_fields and isinstance(attrs[key], (str, int)):
                 attrs[key] = SimpleNamespace(id=attrs[key])
         attrs.setdefault("id", f"{self._kind or 'rec'}-{next(_ids)}")
         rec = self.add(**attrs)
@@ -128,7 +134,7 @@ class FakeApi:
         e = lambda kind=None: Endpoint(self, kind)  # noqa: E731
         self.tenancy = SimpleNamespace(tenants=e())
         self.ipam = SimpleNamespace(
-            vrfs=e(), prefixes=e("prefixes"), vlans=e(), vrf_prefix_assignments=e(),
+            vrfs=e(), prefixes=e("prefixes"), vlans=e(), vrf_prefix_assignments=e("vrf_prefix_assignments"),
             ip_addresses=e("ip_addresses"), namespaces=e(), ip_address_to_interface=e("ip_address_to_interface"),
         )
         self.dcim = SimpleNamespace(devices=e(), locations=e(), interfaces=e("interfaces"))

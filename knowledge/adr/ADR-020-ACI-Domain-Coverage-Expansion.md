@@ -803,6 +803,24 @@ The provider's non-deprecated attribute names are used (2.20.0 deprecates `admin
 
 `aci_l3out_bgp_protocol_profile` was created for every BGP L3Out, so `BGP_L3Out`'s node profile `L101` always carried an empty `bgpProtP`. The change owner's rule: create it only when BGP timers (or a best-path policy) differ from the default; otherwise the APIC default timers apply without it. It is now rendered only when the L3Out names a `bgp_timers_policy` or `bgp_best_path_policy`, and `tests/unit/test_terraform_reads_intent.py` guards the condition. Pipeline 82 destroyed the empty profile; the BGP peer `172.16.1.6` is unaffected.
 
+## Bridge-domain subnet tools (2026-10-30)
+
+Built for a colleague demonstration: add a pervasive gateway to an existing bridge domain, show that the same request against a bridge domain that does not exist is refused, then revert. Three gaps stood in the way:
+
+| Gap | Before | Now |
+|---|---|---|
+| Unknown BD | `create_bridge_domain` never looks for the BD, so a misspelt name (`dummy_bd`) silently became a new bridge domain | `add_bridge_domain_subnet` refuses, writes nothing, and names the BDs that exist |
+| One subnet out | `delete_tenant_object(kind='bridge_domain')` deletes every Prefix of the BD, i.e. the whole BD | `remove_bridge_domain_subnet` removes one Prefix; refuses the last one (that is a BD delete) |
+| EPG on an unknown BD | `create_epg` stored it; only `terraform plan` failed, as an invalid index into `aci_bridge_domain.this` | `create_epg` refuses before writing (the check `update_epg` already had) |
+
+A subnet is a Prefix whose description names the BD; the generator merges them (see the 2026-09-04 DB_BD incident). `add_bridge_domain_subnet` takes the VRF and namespace from the BD's existing subnets rather than from the caller, and refuses an overlap with another BD subnet in that VRF, or a BD declared `no-subnet`. The gateway must be a host address with a prefix length.
+
+**The removal moves BD-level settings first.** The generator takes a BD-level Custom Field (L3Outs, MAC, ARP flooding, ...) from whichever Prefix sets it, and `DB_BD`'s `OSPF_L3Out` association lives on `10.0.3.0/24` alone. Deleting that Prefix would silently drop the association from the whole BD, so a setting that no remaining subnet carries is copied to one first (L3Outs are unioned) and reported as `carried_over`. A tenant intent field that still mentions the removed network (a match rule, a PBR policy) is reported as `still_mentioned_in`, not refused: it is not a dangling reference to the generator.
+
+**Deployment:** a Prefix change does not fire the tenant webhook, so neither tool starts a pipeline. The change reaches the APIC on the next run (any tenant change, or a manual run), after the apply approval. Both tools say so in their result.
+
+**Evidence: live-verified** over the real MCP protocol against live Nautobot (`Evidence-Matrix.md` rows 142-143). Six refusals left prefixes, VLANs and VRF assignments byte-identical; adding `10.0.5.254/24` to `DB_BD` produced exactly one more subnet in the generator output, and removing it restored Nautobot and the generator output byte for byte. The carry-over path is unit-tested only, because exercising it live means removing a production subnet. Not applied to the APIC: no generator or Terraform code changed, and multi-subnet BDs were already applied by pipeline 78. The new `create_epg` refusal was checked the same way (`dummy_bd`, nothing written).
+
 ## Location resolution: removing an environment fact from the code (2026-09-17)
 
 Eight schemas defaulted `location` to `"ACI-Lab"`. That Location does not exist in this lab, whose Location is `Isolated Lab Site`, so eight tools failed at their documented default.
@@ -1180,7 +1198,7 @@ The catalogue had drifted badly out of sync with the code: this ADR and the stat
 cd mcp-server && PYTHONPATH=src python -c "import mcp_server.tools.aci, mcp_server.tools.evpn, mcp_server.tools.generic; from mcp_server.tools.registry import registry; print(len(registry.catalogue()))"
 ```
 
-**141 tools: 136 `cisco_aci`, 3 `vxlan_evpn`, 2 generic** (65 until 2026-10-12; 76 after the lifecycle tools; 88 after port-channel / vPC / management; 107 after the fabric-wide policies; 111 after the BGP route reflector policy; 121 after ESG / vzAny; 135 after L3Out depth; 137 after the diagnosis reads; 138 after `get_plan_changes`). Grouped by the phase that introduced them:
+**143 tools: 138 `cisco_aci`, 3 `vxlan_evpn`, 2 generic** (65 until 2026-10-12; 76 after the lifecycle tools; 88 after port-channel / vPC / management; 107 after the fabric-wide policies; 111 after the BGP route reflector policy; 121 after ESG / vzAny; 135 after L3Out depth; 137 after the diagnosis reads; 138 after `get_plan_changes`; 141 after CDP / LLDP). Grouped by the phase that introduced them:
 
 | Group | Tools |
 |---|---|
@@ -1202,6 +1220,7 @@ cd mcp-server && PYTHONPATH=src python -c "import mcp_server.tools.aci, mcp_serv
 | Lifecycle — read / update / delete (2026-10-12) | `list_aci_tenants`, `get_tenant_intent`, `get_fabric_intent`, `update_vrf`, `update_bridge_domain`, `update_epg`, `delete_tenant_object`, `delete_fabric_object`, `unbind_epg_contract`, `unbind_epg_domain`, `delete_tenant` — see the Lifecycle section below |
 | Port-channel / vPC / node management (2026-10-12) | `create_lacp_policy`, `update_lacp_policy`, `create_vpc_domain`, `update_vpc_domain`, `create_pc_vpc_policy_group`, `update_pc_vpc_policy_group`, `create_inband_mgmt_epg`, `update_inband_mgmt_epg`, `create_node_mgmt_address`, `update_node_mgmt_address`, `delete_node_mgmt_address`, `unbind_epg_static_path` — see the Port-channel / vPC section below |
 | CDP / LLDP interface policies (2026-10-30) | `create_cdp_interface_policy`, `create_lldp_interface_policy`, `update_leaf_interface_policy_group` |
+| Bridge-domain subnets (2026-10-30) | `add_bridge_domain_subnet`, `remove_bridge_domain_subnet` (see the Bridge-domain subnet tools section) |
 | L3Out depth (2026-10-16) | `create_bfd_interface_policy`, `create_bgp_timers_policy`, `create_bgp_best_path_policy`, `create_bgp_route_summarization_policy`, `create_ospf_timers_policy`, `create_route_tag_policy`, `create_l3out_static_route`, `delete_l3out_static_route`, `create_l3out_loopback`, `delete_l3out_loopback`, `create_l3out_vpc_svi`, `delete_l3out_vpc_svi`, `set_l3out_bgp_policies`, `set_external_subnet_route_summarization` |
 | Endpoint Security Groups / vzAny (2026-10-15) | `create_esg`, `update_esg`, `create_esg_epg_selector`, `create_esg_ip_subnet_selector`, `create_esg_tag_selector`, `delete_esg_selector`, `bind_esg_contract`, `unbind_esg_contract`, `bind_vzany_contract`, `unbind_vzany_contract` |
 | BGP route reflector policy / pod assignment (2026-10-14) | `set_bgp_route_reflector_policy`, `create_bgp_route_reflector_node`, `delete_bgp_route_reflector_node`, `assign_pod_policy_group` |
@@ -1211,7 +1230,7 @@ cd mcp-server && PYTHONPATH=src python -c "import mcp_server.tools.aci, mcp_serv
 
 **Evidence levels — these are three different claims and must not be collapsed:**
 
-* **Live-verified over the real MCP protocol (112)** — the Phase A/B/D/F tools, the three EVPN tools, `show_status`, and (2026-10-12) the eleven lifecycle tools, the twelve port-channel / vPC / management tools, `create_static_path_binding`, (2026-10-13) the nineteen fabric-wide policy tools, (2026-10-14) the four BGP route reflector / pod assignment tools, (2026-10-15) the ten ESG / vzAny tools, (2026-10-16) the fourteen L3Out depth tools, and (2026-10-17) `get_pipeline_report` / `get_generated_intent` (16/16 checks against GitLab, each cross-checked by a direct read; read-only, so no APIC apply applies), and (2026-10-18) `get_plan_changes` (checked against the plan job logs of pipelines 63, 64, 65, 70 and 73); see the Phase D verification note below for the 2026-09-04 session. Raised 18 → 21 on 2026-09-15 by the PBR lab apply (`create_filter`, `create_pbr_policy`, `create_pbr_contract`).
+* **Live-verified over the real MCP protocol (114)** — the Phase A/B/D/F tools, the three EVPN tools, `show_status`, and (2026-10-12) the eleven lifecycle tools, the twelve port-channel / vPC / management tools, `create_static_path_binding`, (2026-10-13) the nineteen fabric-wide policy tools, (2026-10-14) the four BGP route reflector / pod assignment tools, (2026-10-15) the ten ESG / vzAny tools, (2026-10-16) the fourteen L3Out depth tools, and (2026-10-17) `get_pipeline_report` / `get_generated_intent` (16/16 checks against GitLab, each cross-checked by a direct read; read-only, so no APIC apply applies), and (2026-10-18) `get_plan_changes` (checked against the plan job logs of pipelines 63, 64, 65, 70 and 73), (2026-10-30) the three CDP / LLDP tools and `add_bridge_domain_subnet` / `remove_bridge_domain_subnet`; see the Phase D verification note below for the 2026-09-04 session. Raised 18 → 21 on 2026-09-15 by the PBR lab apply (`create_filter`, `create_pbr_policy`, `create_pbr_contract`).
 * **Unit-tested only (29)** — every tool in the Phase A-follow-on, E, H, I, J and DCIM groups not otherwise promoted. They have never been called over the MCP protocol against live Nautobot. *(Corrected 2026-10-12: this line said 32 while the registry held 30 — 35 + 32 does not make 65. Query `registry.by_evidence()` rather than trusting a hand-kept number.)*
 * **Apply-verified against the APIC** — a separate axis again, covered by the phase sections above. A tool being unit-tested says nothing about whether the Terraform it eventually drives applies cleanly.
 

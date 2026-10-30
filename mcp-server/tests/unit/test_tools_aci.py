@@ -1783,9 +1783,13 @@ from mcp_server.schemas.aci_lifecycle import (  # noqa: E402
     UpdateBridgeDomainRequest,
     UpdateEpgRequest,
     UpdateVrfRequest,
+    AddBridgeDomainSubnetRequest,
+    RemoveBridgeDomainSubnetRequest,
 )
 from mcp_server.tools.aci import create_contract, create_l3out  # noqa: E402
 from mcp_server.tools.aci_lifecycle import (  # noqa: E402
+    add_bridge_domain_subnet,
+    remove_bridge_domain_subnet,
     delete_fabric_object,
     delete_tenant,
     delete_tenant_object,
@@ -2464,3 +2468,34 @@ def test_cdp_lldp_tool_dispatch(tool, request_obj, method, expected_args):
     fake = _Recorder()
     tool(request_obj, nautobot=fake)
     assert fake.calls == [(method, {"args": expected_args})]
+
+
+def test_add_bridge_domain_subnet_dispatch():
+    fake = _Recorder(returns={"add_bridge_domain_subnet": {"added": "10.0.5.0/24"}})
+    result = add_bridge_domain_subnet(
+        AddBridgeDomainSubnetRequest(tenant="sales", bridge_domain="DB_BD", gateway_ip="10.0.5.254/24"),
+        nautobot=fake)
+    assert fake.calls == [("add_bridge_domain_subnet", {
+        "tenant": "sales", "bridge_domain": "DB_BD", "gateway_ip": "10.0.5.254/24",
+        "subnet_scope": "private", "description": "",
+    })]
+    assert result == {"added": "10.0.5.0/24"}
+
+
+def test_add_bridge_domain_subnet_warns_about_a_public_subnet():
+    """public alone advertises nothing: the BD also needs an L3Out."""
+    fake = _Recorder(returns={"add_bridge_domain_subnet": {"deploy": "x"}})
+    result = add_bridge_domain_subnet(
+        AddBridgeDomainSubnetRequest(tenant="sales", bridge_domain="DB_BD", gateway_ip="10.0.5.254/24",
+                                     subnet_scope="public"), nautobot=fake)
+    assert "L3Out" in result["deploy"]
+
+
+def test_remove_bridge_domain_subnet_dispatch():
+    fake = _Recorder()
+    remove_bridge_domain_subnet(
+        RemoveBridgeDomainSubnetRequest(tenant="sales", bridge_domain="DB_BD", gateway_ip="10.0.5.254/24"),
+        nautobot=fake)
+    assert fake.calls == [("remove_bridge_domain_subnet", {
+        "tenant": "sales", "bridge_domain": "DB_BD", "gateway_ip": "10.0.5.254/24",
+    })]

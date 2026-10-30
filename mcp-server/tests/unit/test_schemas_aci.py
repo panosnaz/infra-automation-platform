@@ -1750,6 +1750,8 @@ from mcp_server.schemas.aci_lifecycle import (  # noqa: E402
     UpdateBridgeDomainRequest,
     UpdateEpgRequest,
     UpdateVrfRequest,
+    AddBridgeDomainSubnetRequest,
+    RemoveBridgeDomainSubnetRequest,
 )
 
 
@@ -2325,3 +2327,20 @@ def test_policy_group_update_needs_a_change():
     with pytest.raises(ValidationError, match="nothing to update"):
         UpdateLeafInterfacePolicyGroupRequest(name="ExtL3_IPG")
     UpdateLeafInterfacePolicyGroupRequest(name="ExtL3_IPG", lldp_policy="")  # "" clears: a change
+
+
+@pytest.mark.parametrize("cls", ["AddBridgeDomainSubnetRequest", "RemoveBridgeDomainSubnetRequest"])
+def test_bd_subnet_requests_take_a_host_gateway_with_a_prefix_length(cls):
+    model = {"AddBridgeDomainSubnetRequest": AddBridgeDomainSubnetRequest,
+             "RemoveBridgeDomainSubnetRequest": RemoveBridgeDomainSubnetRequest}[cls]
+    assert model(tenant="sales", bridge_domain="DB_BD", gateway_ip="10.0.5.254/24").gateway_ip == "10.0.5.254/24"
+    for bad, why in (("10.0.5.254", "prefix length"), ("10.0.5.0/24", "network address"),
+                     ("10.0.5.255/24", "broadcast"), ("10.0.5.300/24", "not an IP")):
+        with pytest.raises(ValidationError, match=why):
+            model(tenant="sales", bridge_domain="DB_BD", gateway_ip=bad)
+
+
+def test_add_bd_subnet_scope_value_set_and_default():
+    assert AddBridgeDomainSubnetRequest(tenant="t", bridge_domain="bd", gateway_ip="10.0.5.254/24").subnet_scope == "private"
+    with pytest.raises(ValidationError):
+        AddBridgeDomainSubnetRequest(tenant="t", bridge_domain="bd", gateway_ip="10.0.5.254/24", subnet_scope="external")

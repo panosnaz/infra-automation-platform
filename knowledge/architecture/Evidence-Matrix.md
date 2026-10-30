@@ -23,7 +23,7 @@ Three evidence levels, defined in [`mcp-server/src/mcp_server/tools/registry.py`
 | `plan-verified` | The Terraform it drives produces a clean plan against the real APIC. | That the resource is actually produced or valid — a clean plan validates against the provider schema only, never live APIC state (see the OSPF fixture note below). |
 | `live-verified` | Exercised for real — over the MCP protocol against live Nautobot, and/or a genuine Terraform apply + destroy with the APIC fault delta checked. | That it is fault-free forever, or that the current session's containers are up right now — this records a session that *happened*, not a live health check. |
 
-**Live counts** (`registry.by_evidence()`, re-confirmed 2026-10-30): 141 tools total — **112 live-verified, 0 plan-verified, 29 unit-tested**. If these numbers drift from what's below, `mcp-server/tests/unit/test_registry.py::test_live_verified_tools_match_the_documented_count` will fail — that test is the drift guard.
+**Live counts** (`registry.by_evidence()`, re-confirmed 2026-10-30): 143 tools total — **114 live-verified, 0 plan-verified, 29 unit-tested**. If these numbers drift from what's below, `mcp-server/tests/unit/test_registry.py::test_live_verified_tools_match_the_documented_count` will fail — that test is the drift guard.
 
 **What cannot be set at all** — as opposed to how far it is proven — is §6, with one ID per gap.
 
@@ -31,9 +31,9 @@ Three evidence levels, defined in [`mcp-server/src/mcp_server/tools/registry.py`
 
 ---
 
-## 1. MCP Tools — all 141
+## 1. MCP Tools — all 143
 
-### Live-verified (112)
+### Live-verified (114)
 
 | # | Tool | Domain | Evidence note |
 |---|---|---|---|
@@ -149,6 +149,8 @@ Three evidence levels, defined in [`mcp-server/src/mcp_server/tools/registry.py`
 | 139 | `create_cdp_interface_policy` | cisco_aci | 2026-10-30, over the real MCP protocol against live Nautobot: Enable_LLDP / Enable_CDP created and selected on ExtL3_IPG / Host_Access_IPG, each read back; unknown policy, unknown group, a name with a space, an empty update and deleting an in-use policy all refused with intent byte-identical. Applied by pipeline 82 (2 added, 2 changed, 1 destroyed), read back from APIC, relations formed, faults 25 -> 25. Not destroyed: production intent |
 | 140 | `create_lldp_interface_policy` | cisco_aci | 2026-10-30, over the real MCP protocol against live Nautobot: Enable_LLDP / Enable_CDP created and selected on ExtL3_IPG / Host_Access_IPG, each read back; unknown policy, unknown group, a name with a space, an empty update and deleting an in-use policy all refused with intent byte-identical. Applied by pipeline 82 (2 added, 2 changed, 1 destroyed), read back from APIC, relations formed, faults 25 -> 25. Not destroyed: production intent |
 | 141 | `update_leaf_interface_policy_group` | cisco_aci | 2026-10-30, over the real MCP protocol against live Nautobot: Enable_LLDP / Enable_CDP created and selected on ExtL3_IPG / Host_Access_IPG, each read back; unknown policy, unknown group, a name with a space, an empty update and deleting an in-use policy all refused with intent byte-identical. Applied by pipeline 82 (2 added, 2 changed, 1 destroyed), read back from APIC, relations formed, faults 25 -> 25. Not destroyed: production intent |
+| 142 | `add_bridge_domain_subnet` | cisco_aci | 2026-10-30, over the real MCP protocol against live Nautobot: unknown BD (`dummy_bd`), overlap in the VRF, network address as gateway, absent gateway, last subnet and a no-subnet BD all refused with prefixes, VLANs and VRF assignments byte-identical; `10.0.5.254/24` added to `DB_BD`, read back via `get_tenant_intent`, REST and the generator (one `DB_BD`, three subnets, VRF and L3Out unchanged), removed, Nautobot and generator output byte-identical to before. Carry-over of BD-level settings unit-tested only. Not applied to the APIC: no generator or Terraform change; multi-subnet BDs applied by pipeline 78 |
+| 143 | `remove_bridge_domain_subnet` | cisco_aci | 2026-10-30, over the real MCP protocol against live Nautobot: unknown BD (`dummy_bd`), overlap in the VRF, network address as gateway, absent gateway, last subnet and a no-subnet BD all refused with prefixes, VLANs and VRF assignments byte-identical; `10.0.5.254/24` added to `DB_BD`, read back via `get_tenant_intent`, REST and the generator (one `DB_BD`, three subnets, VRF and L3Out unchanged), removed, Nautobot and generator output byte-identical to before. Carry-over of BD-level settings unit-tested only. Not applied to the APIC: no generator or Terraform change; multi-subnet BDs applied by pipeline 78 |
 
 ### Unit-tested only (29) — reason stated per tool, not as a group
 

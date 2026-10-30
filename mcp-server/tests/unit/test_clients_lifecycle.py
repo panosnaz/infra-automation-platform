@@ -256,3 +256,109 @@ def test_delete_tenant_keeps_a_namespace_something_else_still_uses(lab):
     result = lab.client.delete_tenant("ACI:sales")
     assert result["namespace_deleted"] is False
     assert lab.api.ipam.namespaces.get(name="ACI:sales") is ns
+
+
+# --- one subnet of a bridge domain ----------------------------------------------
+
+def test_add_subnet_refuses_a_bridge_domain_that_does_not_exist_and_writes_nothing(lab):
+    """The point of the tool: create_bridge_domain with a misspelt name used
+    to create a brand-new bridge domain instead of failing."""
+    before = len(lab.api.ipam.prefixes.all())
+    with pytest.raises(NautobotError, match=r"'dummy_bd' not found .*known: spare-bd, web-bd"):
+        lab.client.add_bridge_domain_subnet("ACI:sales", "dummy_bd", "10.0.5.254/24")
+    assert len(lab.api.ipam.prefixes.all()) == before
+    assert lab.api.ipam.vrf_prefix_assignments.all()[2:] == []
+
+
+def test_add_subnet_stores_the_network_with_the_gateway_in_the_bds_vrf(lab):
+    result = lab.client.add_bridge_domain_subnet("ACI:sales", "web-bd", "10.0.5.254/24", subnet_scope="public",
+                                                 description="demo")
+    new = lab.api.ipam.prefixes.get(prefix="10.0.5.0/24")
+    assert new.description == "ACI Bridge Domain: web-bd:sales -- demo"
+    assert new.custom_fields == {"aci_gateway_ip": "10.0.5.254/24", "aci_bd_subnet_scope": "public"}
+    [assignment] = [a for a in lab.api.ipam.vrf_prefix_assignments.all() if a.prefix.id == new.id]
+    assert assignment.vrf.id == "v1"  # web-bd's VRF, not chosen by the caller
+    assert result["vrf"] == "prod"
+    assert result["subnets"] == ["10.0.1.0/24", "10.0.2.0/24", "10.0.5.0/24"]
+    # it is a subnet of web-bd now, not a second bridge domain
+    intent = lab.client.get_tenant_intent("ACI:sales")
+    assert sorted(bd["name"] for bd in intent["bridge_domains"]) == ["spare-bd", "web-bd"]
+
+
+def test_add_subnet_private_writes_no_scope_key(lab):
+    """Negative: an absent scope must stay absent, not be written as ''."""
+    lab.client.add_bridge_domain_subnet("ACI:sales", "web-bd", "10.0.5.254/24")
+    assert "aci_bd_subnet_scope" not in lab.api.ipam.prefixes.get(prefix="10.0.5.0/24").custom_fields
+
+
+def test_add_subnet_refuses_an_overlap_in_the_same_vrf(lab):
+    with pytest.raises(NautobotError, match=r"overlaps 10.0.2.0/24 of bridge domain 'web-bd'"):
+        lab.client.add_bridge_domain_subnet("ACI:sales", "web-bd", "10.0.2.1/23")
+
+
+def test_add_subnet_refuses_a_no_subnet_bridge_domain(lab):
+    with pytest.raises(NautobotError, match="no-subnet"):
+        lab.client.add_bridge_domain_subnet("ACI:sales", "spare-bd", "10.0.5.254/24")
+
+
+def test_remove_subnet_deletes_only_that_prefix(lab):
+    result = lab.client.remove_bridge_domain_subnet("ACI:sales", "web-bd", "10.0.2.254/24")
+    assert lab.p2.deleted and not lab.p1.deleted
+    assert result["removed"] == "10.0.2.0/24"
+    assert result["remaining_subnets"] == ["10.0.1.0/24"]
+    assert result["carried_over"] == {}
+
+
+def test_remove_subnet_moves_bd_level_attributes_to_a_remaining_subnet(lab):
+    """DB_BD's L3Out association lives on ONE of its prefixes. Removing that
+    prefix must not silently take the association with it."""
+    lab.p1.update({"custom_fields": {**lab.p1.custom_fields, "aci_bd_l3outs": ["wan"], "aci_bd_arp_flooding": False}})
+    result = lab.client.remove_bridge_domain_subnet("ACI:sales", "web-bd", "10.0.1.254/24")
+    assert lab.p1.deleted
+    assert lab.p2.custom_fields == {"aci_bd_l3outs": ["wan"], "aci_bd_arp_flooding": False}
+    assert result["carried_over"] == {"aci_bd_l3outs": ["wan"], "aci_bd_arp_flooding": False}
+    # the gateway and scope belong to the removed subnet and are not carried
+    assert "aci_gateway_ip" not in lab.p2.custom_fields
+
+
+def test_remove_subnet_does_not_overwrite_what_the_remaining_subnet_already_sets(lab):
+    lab.p1.update({"custom_fields": {**lab.p1.custom_fields, "aci_bd_mac": "00:22:BD:F8:19:01"}})
+    lab.p2.update({"custom_fields": {"aci_bd_mac": "00:22:BD:F8:19:02"}})
+    result = lab.client.remove_bridge_domain_subnet("ACI:sales", "web-bd", "10.0.1.254/24")
+    assert lab.p2.custom_fields == {"aci_bd_mac": "00:22:BD:F8:19:02"}
+    assert result["carried_over"] == {}
+
+
+def test_remove_subnet_refuses_the_last_one(lab):
+    lab.client.remove_bridge_domain_subnet("ACI:sales", "web-bd", "10.0.2.254/24")
+    with pytest.raises(NautobotError, match="only subnet .*delete_tenant_object"):
+        lab.client.remove_bridge_domain_subnet("ACI:sales", "web-bd", "10.0.1.254/24")
+    assert not lab.p1.deleted
+
+
+def test_remove_subnet_refuses_a_gateway_the_bd_does_not_have(lab):
+    with pytest.raises(NautobotError, match=r"no subnet 10.0.5.254/24 .*10.0.1.254/24, 10.0.2.0/24"):
+        lab.client.remove_bridge_domain_subnet("ACI:sales", "web-bd", "10.0.5.254/24")
+    with pytest.raises(NautobotError, match=r"gateway is 10.0.1.254/24, not 10.0.1.1/24"):
+        lab.client.remove_bridge_domain_subnet("ACI:sales", "web-bd", "10.0.1.1/24")
+    with pytest.raises(NautobotError, match="'dummy_bd' not found"):
+        lab.client.remove_bridge_domain_subnet("ACI:sales", "dummy_bd", "10.0.1.254/24")
+    assert not lab.p1.deleted and not lab.p2.deleted
+
+
+def test_remove_subnet_names_tenant_intent_that_still_mentions_it(lab):
+    lab.tenant.update({"custom_fields": {**lab.tenant.custom_fields,
+                                         "aci_route_control": {"match_rules": [{"name": "m", "subnets": [{"ip": "10.0.2.0/24"}]}]}}})
+    result = lab.client.remove_bridge_domain_subnet("ACI:sales", "web-bd", "10.0.2.254/24")
+    assert result["still_mentioned_in"] == ["aci_route_control"]
+
+
+def test_create_epg_refuses_a_bridge_domain_that_does_not_exist(lab):
+    with pytest.raises(NautobotError, match=r"'dummy_bd' does not exist .*spare-bd, web-bd"):
+        lab.client.create_epg("ACI:sales", "app", "dummy_bd", "demo", 20)
+    assert lab.api.ipam.vlans.get(name="demo") is None
+
+
+def test_create_epg_on_an_existing_bridge_domain(lab):
+    lab.client.create_epg("ACI:sales", "app", "web-bd", "demo", 20)
+    assert lab.api.ipam.vlans.get(name="demo").custom_fields["aci_epg_bridge_domain"] == "web-bd"

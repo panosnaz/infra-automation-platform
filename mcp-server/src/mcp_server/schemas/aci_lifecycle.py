@@ -6,6 +6,7 @@ instead of discovering them from a rejection.
 """
 from __future__ import annotations
 
+import ipaddress
 import re
 from typing import Literal
 
@@ -164,6 +165,63 @@ class UpdateEpgRequest(BaseModel):
 
 for _cls in (UpdateVrfRequest, UpdateBridgeDomainRequest, UpdateEpgRequest):
     _cls.__doc__ = (_cls.__doc__ or "") + _NO_CLEAR
+
+
+# ---------------------------------------------------------------------------
+# One subnet of an existing bridge domain
+# ---------------------------------------------------------------------------
+
+_GATEWAY_FIELD = Field(
+    description="Pervasive gateway as address/prefix-length, e.g. '10.0.5.254/24' -- a host address, "
+                "not the network address.",
+)
+
+
+def _validate_gateway(v: str) -> str:
+    if "/" not in v:
+        raise ValueError(f"'{v}' needs a prefix length, e.g. '10.0.5.254/24'")
+    try:
+        iface = ipaddress.ip_interface(v)
+    except ValueError:
+        raise ValueError(f"'{v}' is not an IP address with a prefix length") from None
+    net = iface.network
+    if iface.version == 4 and net.num_addresses > 2:
+        if iface.ip == net.network_address:
+            raise ValueError(f"'{v}' is the network address; a gateway is a host address, e.g. "
+                             f"'{net.broadcast_address - 1}/{net.prefixlen}'")
+        if iface.ip == net.broadcast_address:
+            raise ValueError(f"'{v}' is the broadcast address; a gateway is a host address")
+    return str(iface)
+
+
+class AddBridgeDomainSubnetRequest(BaseModel):
+    tenant: str = Field(description="Name of the Tenant that owns the bridge domain.")
+    bridge_domain: str = Field(
+        description="Name of the EXISTING bridge domain. Refused if it does not exist -- create_bridge_domain "
+                    "makes a new one.")
+    gateway_ip: str = _GATEWAY_FIELD
+    subnet_scope: Literal["private", "public", "shared", "public,shared"] = Field(
+        default="private",
+        description="Scope of this subnet. 'public' advertises it out of the L3Outs the BD is associated with. "
+                    "ACI default: private.",
+    )
+    description: str = Field(default="", description="Optional free-text description of this subnet.")
+
+    @field_validator("gateway_ip")
+    @classmethod
+    def _gateway(cls, v: str) -> str:
+        return _validate_gateway(v)
+
+
+class RemoveBridgeDomainSubnetRequest(BaseModel):
+    tenant: str = Field(description="Name of the Tenant that owns the bridge domain.")
+    bridge_domain: str = Field(description="Name of the bridge domain the subnet belongs to.")
+    gateway_ip: str = _GATEWAY_FIELD
+
+    @field_validator("gateway_ip")
+    @classmethod
+    def _gateway(cls, v: str) -> str:
+        return _validate_gateway(v)
 
 
 # ---------------------------------------------------------------------------

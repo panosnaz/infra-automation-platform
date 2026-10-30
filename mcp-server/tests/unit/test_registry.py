@@ -208,15 +208,20 @@ def test_live_verified_tools_match_the_documented_count():
     create_lldp_interface_policy and update_leaf_interface_policy_group, run
     over the real MCP protocol (writes read back, five refusals writing
     nothing) and applied by pipeline 82 with no new APIC faults.
+
+    141 -> 143 and live 112 -> 114 the same day: add_bridge_domain_subnet and
+    remove_bridge_domain_subnet, run over the real MCP protocol against live
+    Nautobot (six refusals writing nothing; one subnet added to DB_BD, read
+    back, removed, Nautobot and generator output byte-identical afterwards).
     """
     import mcp_server.tools.aci  # noqa: F401
     import mcp_server.tools.evpn  # noqa: F401
     import mcp_server.tools.generic  # noqa: F401
     from mcp_server.tools.registry import registry
 
-    assert len(registry.by_evidence("live-verified")) == 112
+    assert len(registry.by_evidence("live-verified")) == 114
     assert len(registry.by_evidence("unit-tested")) == 29
-    assert len(registry.catalogue()) == 141
+    assert len(registry.catalogue()) == 143
 
 
 def test_live_verified_tools_carry_a_note_saying_how():

@@ -25,6 +25,7 @@ from mcp_server.intent_refs import bare_tenant_name
 from mcp_server.clients.nautobot_lifecycle import DEPLOY_NOT_TRIGGERED as _DEPLOY_OBJECT
 from mcp_server.not_settable import NOT_SETTABLE
 from mcp_server.schemas.aci_lifecycle import (
+    AddBridgeDomainSubnetRequest,
     DeleteFabricObjectRequest,
     DeleteTenantObjectRequest,
     DeleteTenantRequest,
@@ -33,6 +34,7 @@ from mcp_server.schemas.aci_lifecycle import (
     GetPlanChangesRequest,
     GetTenantIntentRequest,
     ListAciTenantsRequest,
+    RemoveBridgeDomainSubnetRequest,
     UnbindEpgContractRequest,
     UnbindEpgDomainRequest,
     UpdateBridgeDomainRequest,
@@ -48,6 +50,18 @@ _LIVE = (
     "refusal confirmed to change nothing, and the real Location's fabric intent byte-identical "
     "afterwards. Not applied to the APIC: no generator or Terraform code changed, and removal "
     "from intent becomes a destroy through the existing pipeline."
+)
+
+
+_LIVE_BD_SUBNET = (
+    "2026-10-30, over the real MCP protocol against live Nautobot: every refusal (unknown BD, "
+    "overlap in the VRF, network address, absent gateway, last subnet, no-subnet BD) returned its "
+    "error with prefixes, VLANs and VRF assignments byte-identical before and after; then "
+    "10.0.5.254/24 added to the transit lab's DB_BD, read back via get_tenant_intent, REST and the "
+    "generator (one DB_BD, three subnets, VRF and L3Out unchanged), removed, and Nautobot plus "
+    "generator output byte-identical to before. The carry-over of BD-level settings is unit-tested "
+    "only. Not applied to the APIC: no generator or Terraform code changed, and multi-subnet BDs "
+    "were already applied by pipeline 78."
 )
 
 
@@ -329,6 +343,52 @@ def update_bridge_domain(request: UpdateBridgeDomainRequest, *, nautobot: Nautob
     if request.subnet_scope in ("public", "public,shared") and request.l3outs == []:
         note += " WARNING: a public subnet with no L3Out is never advertised."
     return {**result, "deploy": note}
+
+
+@registry.register(
+    name="add_bridge_domain_subnet",
+    domain="cisco_aci",
+    evidence="live-verified",
+    evidence_note=_LIVE_BD_SUBNET,
+    description=(
+        "Add one subnet (pervasive gateway, e.g. '10.0.5.254/24') to an EXISTING bridge domain. "
+        "REFUSES, writing nothing, if the bridge domain does not exist in the tenant, and names the "
+        "ones that do -- unlike create_bridge_domain, which would make a new BD of that name. The VRF "
+        "is the bridge domain's own; a subnet overlapping another BD subnet in that VRF is refused. "
+        "Reaches the APIC on the next pipeline run, after the manual apply approval."
+    ),
+    schema=AddBridgeDomainSubnetRequest,
+)
+def add_bridge_domain_subnet(request: AddBridgeDomainSubnetRequest, *, nautobot: NautobotClient) -> dict:
+    result = nautobot.add_bridge_domain_subnet(
+        tenant=request.tenant, bridge_domain=request.bridge_domain, gateway_ip=request.gateway_ip,
+        subnet_scope=request.subnet_scope, description=request.description,
+    )
+    if "public" in request.subnet_scope:
+        result["deploy"] = (result.get("deploy") or "") + (
+            " NOTE: a public subnet is only advertised through an L3Out the bridge domain is associated "
+            "with (update_bridge_domain l3outs=...).")
+    return result
+
+
+@registry.register(
+    name="remove_bridge_domain_subnet",
+    domain="cisco_aci",
+    evidence="live-verified",
+    evidence_note=_LIVE_BD_SUBNET,
+    description=(
+        "Remove one subnet (gateway) from a bridge domain and keep the bridge domain and its other "
+        "subnets. Refuses the BD's last subnet (that is delete_tenant_object kind='bridge_domain'). A "
+        "BD-level setting stored only on the removed subnet, such as the L3Out association, is moved to "
+        "a remaining subnet first and reported as carried_over, so the rest of the BD does not change. "
+        "Reaches the APIC on the next pipeline run, after the manual apply approval."
+    ),
+    schema=RemoveBridgeDomainSubnetRequest,
+)
+def remove_bridge_domain_subnet(request: RemoveBridgeDomainSubnetRequest, *, nautobot: NautobotClient) -> dict:
+    return nautobot.remove_bridge_domain_subnet(
+        tenant=request.tenant, bridge_domain=request.bridge_domain, gateway_ip=request.gateway_ip,
+    )
 
 
 @registry.register(

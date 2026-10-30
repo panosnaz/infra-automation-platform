@@ -14,6 +14,9 @@ cached state, so mutating a shallow copy silently sends nothing (measured
 from __future__ import annotations
 
 import copy
+import ipaddress
+import json
+import re
 from collections import defaultdict
 from contextlib import contextmanager
 
@@ -354,6 +357,140 @@ class LifecycleMixin:
         if description is not None:
             changed["description"] = description
         return {"tenant": tenant, "bridge_domain": name, "prefixes_updated": [bd["prefix"] for bd in targets], "changed": changed}
+
+    def _existing_bridge_domain(self, tenant_obj, tenant: str, name: str) -> tuple[list[dict], list[dict]]:
+        """(the BD's own Prefixes, every BD Prefix in the tenant); refuses an
+        unknown name before anything is written."""
+        bridge_domains = self._tenant_bridge_domains(tenant_obj)
+        targets = [bd for bd in bridge_domains if bd["name"] == name]
+        if not targets:
+            known = ", ".join(sorted({bd["name"] for bd in bridge_domains})) or "none"
+            raise NautobotError(
+                f"Bridge domain '{name}' not found in tenant '{tenant}' (known: {known}). Nothing was written."
+            )
+        return targets, bridge_domains
+
+    def add_bridge_domain_subnet(
+        self, tenant: str, bridge_domain: str, gateway_ip: str,
+        subnet_scope: str = "private", description: str = "",
+    ) -> dict:
+        """Add one subnet to an EXISTING bridge domain: one more Prefix that
+        names the same BD, which the generator merges into it.
+
+        create_bridge_domain never looks for the BD first, so a misspelt name
+        silently became a second bridge domain; this refuses instead. The VRF
+        and namespace are copied from the BD's existing subnets rather than
+        asked for, so one BD cannot end up in two VRFs."""
+        iface = ipaddress.ip_interface(gateway_ip)
+        with _nautobot_errors(f"subnet {gateway_ip} of bridge domain '{bridge_domain}'"):
+            tenant_obj = self._get_tenant_or_raise(tenant)
+            targets, bridge_domains = self._existing_bridge_domain(tenant_obj, tenant, bridge_domain)
+            if any(refs.parse_bd_description(bd["description"])[0] for bd in targets):
+                raise NautobotError(
+                    f"Bridge domain '{bridge_domain}' is declared no-subnet: its subnet is defined on an EPG "
+                    "instead. Nothing was written."
+                )
+            vrfs = sorted({v for bd in targets for v in bd["vrfs"]})
+            if len(vrfs) != 1:
+                raise NautobotError(
+                    f"Bridge domain '{bridge_domain}' has {vrfs or 'no'} VRF assignment(s); expected exactly one"
+                )
+            vrf_name = vrfs[0]
+            # APIC refuses overlapping BD subnets in one VRF; other VRFs may reuse space.
+            for bd in bridge_domains:
+                if vrf_name in bd["vrfs"] and not refs.parse_bd_description(bd["description"])[0] \
+                        and ipaddress.ip_network(bd["prefix"]).overlaps(iface.network):
+                    raise NautobotError(
+                        f"{gateway_ip} overlaps {bd['prefix']} of bridge domain '{bd['name']}' in VRF "
+                        f"'{vrf_name}'. Nothing was written."
+                    )
+
+            vrf_obj = self.api.ipam.vrfs.get(name=vrf_name, tenant_id=tenant_obj.id)
+            namespace = getattr(targets[0]["record"], "namespace", None) or self._get_or_create_namespace(tenant_obj.name)
+            custom_fields = {"aci_gateway_ip": str(iface)}
+            if subnet_scope != "private":
+                custom_fields["aci_bd_subnet_scope"] = subnet_scope
+            prefix = self.api.ipam.prefixes.create(
+                prefix=str(iface.network),
+                tenant=tenant_obj.id,
+                namespace=namespace.id,
+                status=self._get_status("ipam.prefix").id,
+                description=refs.compose_bd_description(
+                    bridge_domain, refs.bare_tenant_name(tenant_obj.name), text=description),
+                custom_fields=custom_fields,
+            )
+            self.api.ipam.vrf_prefix_assignments.create(vrf=vrf_obj.id, prefix=prefix.id)
+        return {
+            "tenant": tenant, "bridge_domain": bridge_domain, "vrf": vrf_name,
+            "added": str(iface.network), "gateway_ip": str(iface), "subnet_scope": subnet_scope,
+            "subnets": sorted([bd["prefix"] for bd in targets] + [str(iface.network)]),
+            "deploy": DEPLOY_NOT_TRIGGERED.format(what="Prefix (bridge domain subnet)"),
+        }
+
+    def remove_bridge_domain_subnet(self, tenant: str, bridge_domain: str, gateway_ip: str) -> dict:
+        """Remove one subnet of a bridge domain and keep the bridge domain.
+
+        delete_tenant_object(kind='bridge_domain') removes every subnet. The
+        generator takes a BD-level attribute from whichever Prefix sets it, so
+        one set only on the removed Prefix -- the transit lab's DB_BD keeps its
+        L3Out association on 10.0.3.0/24 alone -- is first copied to a
+        remaining subnet; otherwise removing a subnet would quietly change the
+        rest of the bridge domain."""
+        wanted = ipaddress.ip_interface(gateway_ip)
+        with _nautobot_errors(f"subnet {gateway_ip} of bridge domain '{bridge_domain}'"):
+            tenant_obj = self._get_tenant_or_raise(tenant)
+            targets, _ = self._existing_bridge_domain(tenant_obj, tenant, bridge_domain)
+            match = [bd for bd in targets if ipaddress.ip_network(bd["prefix"]) == wanted.network]
+            if not match:
+                have = ", ".join(sorted(bd["cf"].get("aci_gateway_ip") or bd["prefix"] for bd in targets))
+                raise NautobotError(
+                    f"Bridge domain '{bridge_domain}' has no subnet {gateway_ip} (its subnets: {have}). "
+                    "Nothing was written."
+                )
+            removed = match[0]
+            recorded = removed["cf"].get("aci_gateway_ip")
+            if recorded and ipaddress.ip_interface(recorded) != wanted:
+                raise NautobotError(
+                    f"The {removed['prefix']} subnet of '{bridge_domain}': its gateway is {recorded}, not "
+                    f"{gateway_ip}. Nothing was written."
+                )
+            remaining = [bd for bd in targets if bd is not removed]
+            if not remaining:
+                raise NautobotError(
+                    f"{gateway_ip} is the only subnet of bridge domain '{bridge_domain}'. Removing it removes "
+                    "the bridge domain: use delete_tenant_object(kind='bridge_domain') for that."
+                )
+
+            carried: dict = {}
+            for key in _BD_ATTRIBUTE_FIELDS.values():
+                value = removed["cf"].get(key)
+                if value is None or value == "" or value == []:
+                    continue
+                if key == "aci_bd_l3outs":
+                    # The generator unions L3Outs across subnets.
+                    kept = {o for bd in remaining for o in (bd["cf"].get(key) or [])}
+                    value = [o for o in (value if isinstance(value, list) else [value]) if o not in kept]
+                    if value:
+                        carried[key] = list(remaining[0]["cf"].get(key) or []) + value
+                elif all(bd["cf"].get(key) in (None, "") for bd in remaining):
+                    carried[key] = value
+            if carried:
+                remaining[0]["record"].update({"custom_fields": {**remaining[0]["cf"], **carried}})
+            removed["record"].delete()
+
+            # A route-control match rule or a PBR policy naming the old network
+            # is not a dangling reference to the generator, but is likely stale.
+            pattern = re.compile(rf"(?<![\d.]){re.escape(removed['prefix'])}(?![\d])")
+            tenant_cf = dict(tenant_obj.custom_fields or {})
+            mentions = sorted(k for k in _TENANT_INTENT_FIELDS if pattern.search(json.dumps(tenant_cf.get(k) or {})))
+        result = {
+            "tenant": tenant, "bridge_domain": bridge_domain, "removed": removed["prefix"],
+            "remaining_subnets": sorted(bd["prefix"] for bd in remaining), "carried_over": carried,
+            "deploy": DEPLOY_NOT_TRIGGERED.format(what="Prefix (bridge domain subnet)"),
+        }
+        if mentions:
+            result["still_mentioned_in"] = mentions
+        return result
 
     def update_epg(
         self, tenant: str, application_profile: str, name: str,

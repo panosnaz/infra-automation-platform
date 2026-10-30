@@ -323,6 +323,15 @@ class NautobotClient(LifecycleMixin, AccessMixin, FabricPolicyMixin, SecurityGro
         reads)."""
         try:
             tenant_obj = self._get_tenant_or_raise(tenant)
+            # The generator does not check this either: an EPG naming a BD that
+            # does not exist was only caught at terraform plan, as an invalid
+            # index into aci_bridge_domain.this.
+            known = sorted({bd["name"] for bd in self._tenant_bridge_domains(tenant_obj)})
+            if bridge_domain not in known:
+                raise NautobotError(
+                    f"Bridge domain '{bridge_domain}' does not exist in tenant '{tenant}' "
+                    f"(known: {', '.join(known) or 'none'}). Nothing was written."
+                )
             status_obj = self._get_status("ipam.vlan")
             fields = {
                 "aci_application_profile": application_profile,
