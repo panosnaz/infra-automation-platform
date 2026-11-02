@@ -265,7 +265,7 @@ Offline: 13 tests in `reasoning/tests/test_review.py` and 14 for the MCP tool (`
 
 A workflow that writes (guided build, decommission, drift correction) may not be built until all of these hold:
 
-1. **MCP client authentication is enforced.** Found while building this: `MCP_API_KEY` is declared in `mcp-server/src/mcp_server/config.py` and set by the compose file, but nothing reads it. Any process that can reach port 8071 can call every tool, deletes included. Acceptable on this isolated lab; not acceptable for an autonomous writer. The reasoning layer then gets its own per-client key.
+1. **MCP client authentication is enforced.** Found while building this: `MCP_API_KEY` is declared in `mcp-server/src/mcp_server/config.py` and set by the compose file, but nothing reads it. Any process that can reach port 8071 can call every tool, deletes included. Acceptable on this isolated lab; not acceptable for an autonomous writer. The reasoning layer then gets its own per-client key. *(2026-11-02: one shared key is now enforced when `MCP_API_KEY` is set, `mcp_server/auth.py`, and the reader sends it; the per-client key remains.)*
 2. **A durable checkpoint store.** A write workflow pauses at the plan review and at the GitLab approval gate, possibly for hours. Its state must survive a restart: a dedicated Postgres database, never Nautobot's.
 3. **Human approval is an interrupt, not a step.** Plan review uses LangGraph's `interrupt`. The `terraform_apply` gate stays in GitLab; the workflow waits for it and never presses it (Decision 6).
 4. **Read-back after every write.** Each write is confirmed with `get_tenant_intent` / `get_fabric_intent` before the next, so a silently discarded write stops the workflow.
