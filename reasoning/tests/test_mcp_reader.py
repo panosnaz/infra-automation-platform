@@ -6,7 +6,17 @@ from types import SimpleNamespace
 
 import pytest
 
-from platform_reasoning.mcp_reader import READ_ONLY_TOOLS, McpReader, ToolCallFailed, WriteToolRefused
+from platform_reasoning.mcp_reader import READ_ONLY_TOOLS, auth_headers, McpReader, ToolCallFailed, WriteToolRefused
+
+
+def test_no_key_sends_no_header(monkeypatch):
+    monkeypatch.delenv("MCP_API_KEY", raising=False)
+    assert auth_headers() is None
+
+
+def test_the_key_goes_out_as_a_bearer_header(monkeypatch):
+    monkeypatch.setenv("MCP_API_KEY", "s3cret")
+    assert auth_headers() == {"Authorization": "Bearer s3cret"}
 
 
 class _Session:

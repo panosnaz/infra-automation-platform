@@ -8,11 +8,13 @@ this allowlist is what makes that structural rather than a convention.
 from __future__ import annotations
 
 import json
+import os
 from contextlib import asynccontextmanager
 from typing import Any, AsyncIterator
 
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
+from mcp.shared._httpx_utils import create_mcp_http_client
 
 READ_ONLY_TOOLS: frozenset[str] = frozenset({
     "show_status",
@@ -79,10 +81,16 @@ def _payload(result: Any) -> dict:
     return value if isinstance(value, dict) else {"result": value}
 
 
+def auth_headers() -> dict[str, str] | None:
+    """The MCP Server's key from the environment, when it has one."""
+    key = os.environ.get("MCP_API_KEY", "")
+    return {"Authorization": f"Bearer {key}"} if key else None
+
+
 @asynccontextmanager
 async def connect(url: str, required: frozenset[str] = REQUIRED_TOOLS) -> AsyncIterator[McpReader]:
     """`required`: the tools the calling workflow cannot run without."""
-    async with streamable_http_client(url) as (read, write):
+    async with create_mcp_http_client(headers=auth_headers()) as http_client,             streamable_http_client(url, http_client=http_client) as (read, write):
         async with ClientSession(read, write) as session:
             await session.initialize()
             listed = await session.list_tools()

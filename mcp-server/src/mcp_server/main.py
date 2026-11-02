@@ -26,6 +26,7 @@ from pydantic import ValidationError as PydanticValidationError
 import mcp_server.tools.aci  # noqa: F401
 import mcp_server.tools.evpn  # noqa: F401
 import mcp_server.tools.generic  # noqa: F401
+from mcp_server.auth import ApiKeyMiddleware
 from mcp_server.clients.gitlab import GitLabClient
 from mcp_server.clients.nautobot import NautobotClient
 from mcp_server.config import Settings, load_settings
@@ -184,10 +185,17 @@ def _register_with_mcp(server: MCPServer, spec, available_clients: dict) -> None
 
 def main() -> None:
     server, settings = build_server()
-    if settings.mcp_transport == "streamable-http":
+    if settings.mcp_transport != "streamable-http":
+        server.run(transport="stdio")
+    elif not settings.mcp_api_key:
         server.run(transport="streamable-http", host=settings.mcp_host, port=settings.mcp_port)
     else:
-        server.run(transport="stdio")
+        # Same app and server as server.run() builds, with the key check in front.
+        import uvicorn
+
+        app = server.streamable_http_app(host=settings.mcp_host)
+        app.add_middleware(ApiKeyMiddleware, api_key=settings.mcp_api_key)
+        uvicorn.run(app, host=settings.mcp_host, port=settings.mcp_port, log_level=settings.log_level.lower())
 
 
 if __name__ == "__main__":

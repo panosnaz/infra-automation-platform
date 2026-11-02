@@ -1,8 +1,19 @@
 {
+  "inputs": [
+    {
+      "id": "mcp-platform-api-key",
+      "type": "promptString",
+      "description": "API key of the shared MCP Server (MCP_API_KEY in the VM's docker/mcp-server/.env)",
+      "password": true
+    }
+  ],
   "servers": {
     "nautobot-aci-platform": {
       "type": "http",
-      "url": "http://localhost:8071/mcp"
+      "url": "http://172.30.46.122:8071/mcp",
+      "headers": {
+        "Authorization": "Bearer ${input:mcp-platform-api-key}"
+      }
     },
     "cml": {
       // CML's own native MCP server (CML 2.10+, not the third-party cml-mcp package).
