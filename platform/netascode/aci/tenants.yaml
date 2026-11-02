@@ -447,8 +447,17 @@ apic:
     leaf_interface_policy_groups:
     - aep: HOST_AAEP
       name: Host_Access_IPG
+      cdp_policy: Enable_CDP
     - aep: EXTERNAL_SWITCH_AAEP
       name: ExtL3_IPG
+      lldp_policy: Enable_LLDP
+    cdp_interface_policies:
+    - name: Enable_CDP
+      admin_state: enabled
+    lldp_interface_policies:
+    - name: Enable_LLDP
+      receive_state: enabled
+      transmit_state: enabled
     access_port_profiles:
     - name: Leaf101_IntProf
       selectors:
