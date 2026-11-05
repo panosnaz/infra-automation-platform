@@ -57,7 +57,7 @@ apic:
           resolution_immediacy: immediate
         static_paths:
         - mode: regular
-          port: 10
+          port: 5
           encap: vlan-11
           module: 1
           pod_id: 1
@@ -78,7 +78,7 @@ apic:
           - shared
         static_paths:
         - mode: regular
-          port: 10
+          port: 5
           encap: vlan-13
           module: 1
           pod_id: 1
@@ -465,9 +465,9 @@ apic:
         blocks:
         - name: blk1
           to_card: 1
-          to_port: 10
+          to_port: 5
           from_card: 1
-          from_port: 10
+          from_port: 5
         policy_group: Host_Access_IPG
         selector_type: range
       - name: Ext_Nexus
@@ -485,9 +485,9 @@ apic:
         blocks:
         - name: blk1
           to_card: 1
-          to_port: 10
+          to_port: 5
           from_card: 1
-          from_port: 10
+          from_port: 5
         policy_group: Host_Access_IPG
         selector_type: range
       - name: Ext_Catalyst
