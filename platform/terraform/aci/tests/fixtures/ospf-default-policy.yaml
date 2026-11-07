@@ -12,7 +12,9 @@
 # Expected plan: 3 aci_l3out_ospf_interface_profile, exactly 1
 # aci_ospf_interface_policy (ospfdef_named).
 #
-# EVIDENCE: plan-verified on Terraform 1.9.8 against the lab APIC (2026-11-07).
+# EVIDENCE: live-verified, apply + destroy on Terraform 1.9.8 against the lab
+# APIC (2026-11-07): ip_absent / ip_null resolve to common/ospfIfPol-default,
+# ip_named to ospfdef_named; re-plan No changes; no new faults. See ADR-020.
 apic:
   tenants:
     - name: ospfdef-fixture
