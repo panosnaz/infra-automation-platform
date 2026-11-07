@@ -1,0 +1,60 @@
+# OSPF interfaces that name no OSPF Interface Policy (2026-11-07).
+#
+# `policy` is optional on an L3Out's ospf_interfaces entry: without one the
+# APIC's default OSPF interface policy applies, and nothing should be created.
+# Three interface profiles, one per form:
+#   ip_absent  -- no `policy` key (hand-written YAML)
+#   ip_null    -- `policy: null` (what create_ospf_interface stores when not given)
+#   ip_named   -- a named policy that is not defined, so the module infers one
+#                 (network type broadcast); kept to prove inference still works
+# Before the fix in main.tf `inferred_ospf_policies`, the first two failed the
+# whole plan on Terraform 1.9.8 (see tests/unit/test_terraform_ospf_policy.py).
+# Expected plan: 3 aci_l3out_ospf_interface_profile, exactly 1
+# aci_ospf_interface_policy (ospfdef_named).
+#
+# EVIDENCE: plan-verified on Terraform 1.9.8 against the lab APIC (2026-11-07).
+apic:
+  tenants:
+    - name: ospfdef-fixture
+      description: Throwaway fixture; OSPF interfaces without a named policy
+      vrfs:
+        - name: ospfdef_VRF
+      l3outs:
+        - name: ospfdef_L3Out
+          vrf: ospfdef_VRF
+          domain: ospfdef_L3Dom
+          protocol: ospf
+          node_profiles:
+            - name: ospfdef_NP
+              nodes:
+                - pod_id: 1
+                  node_id: 102
+                  router_id: 10.203.255.1
+                  router_id_as_loopback: false
+              interface_profiles:
+                - name: ip_absent
+                  interfaces:
+                    - {ip: 10.203.254.1/30, mtu: inherit, svi: true, mode: regular, port: 31, vlan: 3101,
+                       module: 1, pod_id: 1, node_id: 102, interface_key: ospfdef_NP/ip_absent}
+                - name: ip_null
+                  interfaces:
+                    - {ip: 10.203.254.5/30, mtu: inherit, svi: true, mode: regular, port: 32, vlan: 3102,
+                       module: 1, pod_id: 1, node_id: 102, interface_key: ospfdef_NP/ip_null}
+                - name: ip_named
+                  interfaces:
+                    - {ip: 10.203.254.9/30, mtu: inherit, svi: true, mode: regular, port: 33, vlan: 3103,
+                       module: 1, pod_id: 1, node_id: 102, interface_key: ospfdef_NP/ip_named}
+          ospf_interfaces:
+            - {name: ospf, area: 0.0.0.0, area_type: regular, interface_key: ospfdef_NP/ip_absent}
+            - {name: ospf, area: 0.0.0.0, area_type: regular, interface_key: ospfdef_NP/ip_null, policy: null}
+            - {name: ospf, area: 0.0.0.0, area_type: regular, interface_key: ospfdef_NP/ip_named, policy: ospfdef_named}
+  fabric_policies:
+    vlan_pools:
+      - name: ospfdef_Pool
+        alloc_mode: static
+        ranges:
+          - {from: 3101, to: 3110, role: external}
+  access_policies:
+    l3_domains:
+      - name: ospfdef_L3Dom
+        vlan_pool: ospfdef_Pool

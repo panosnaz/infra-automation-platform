@@ -456,16 +456,21 @@ locals {
     }
   ]...)
 
-  # Inferred OSPF policies for any L3Out referencing an interface policy
+  # Inferred OSPF policies for any L3Out referencing an interface policy.
+  # `policy` is optional: absent, or null as create_ospf_interface stores it,
+  # means the APIC's default OSPF interface policy. Those interfaces are dropped
+  # by the inner `for` BEFORE anything reads `.policy`: Terraform 1.9.8 does not
+  # short-circuit `&&`, so `policy != null && ...o.policy...` failed the whole
+  # plan (tests/unit/test_terraform_ospf_policy.py, 2026-11-07).
   inferred_ospf_policies = merge([
     for l3out_key, l3out in local.l3outs : {
-      for o in lookup(l3out, "ospf_interfaces", []) :
+      for o in [for x in lookup(l3out, "ospf_interfaces", []) : x if try(x.policy, null) != null] :
       "${l3out.tenant_name}/${o.policy}" => {
         tenant_name  = l3out.tenant_name
         name         = o.policy
         network_type = "broadcast"
       }
-      if lookup(o, "policy", null) != null && !contains(keys(local.ospf_interface_policies), "${l3out.tenant_name}/${o.policy}")
+      if !contains(keys(local.ospf_interface_policies), "${l3out.tenant_name}/${o.policy}")
     }
   ]...)
 

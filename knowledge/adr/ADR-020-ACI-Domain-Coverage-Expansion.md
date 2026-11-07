@@ -821,6 +821,20 @@ A subnet is a Prefix whose description names the BD; the generator merges them (
 
 **Evidence: live-verified** over the real MCP protocol against live Nautobot (`Evidence-Matrix.md` rows 142-143). Six refusals left prefixes, VLANs and VRF assignments byte-identical; adding `10.0.5.254/24` to `DB_BD` produced exactly one more subnet in the generator output, and removing it restored Nautobot and the generator output byte for byte. The carry-over path is unit-tested only, because exercising it live means removing a production subnet. Not applied to the APIC: no generator or Terraform code changed, and multi-subnet BDs were already applied by pipeline 78. The new `create_epg` refusal was checked the same way (`dummy_bd`, nothing written).
 
+## An OSPF interface without a named policy failed every plan (fixed 2026-11-07)
+
+`policy` on an L3Out's `ospf_interfaces` entry is optional: without one the APIC's default OSPF interface policy applies. `create_ospf_interface` stores it as `"policy": null` when not given, and the generator passes that through; hand-written YAML may omit the key. The module's `inferred_ospf_policies` local (which creates a broadcast policy for a named-but-undefined one) tested `lookup(o, "policy", null) != null && ...${o.policy}...`. **Terraform 1.9.8, the pipeline's version, does not short-circuit `&&`**, so both forms failed the whole plan, not just the L3Out: `Unsupported attribute` for the missing key, `Invalid template interpolation value` for the null. One such interface in Nautobot would have blocked every ACI pipeline.
+
+**How it was found:** the Day-2 ownership evaluation (throwaway tenants `evalcolleague` / `evalansible`, 2026-11-07) planned an OSPF L3Out with no policy. It was worked around there by naming one, and recorded. The transit lab never hit it because each of its OSPF interfaces names a policy.
+
+**Fix:** an inner `for ... if try(x.policy, null) != null` drops interfaces without a policy before anything reads `.policy`. The interface profile resource already left `relation_ospf_rs_if_pol` unset for them, so the APIC default applies and no policy object is created.
+
+### Evidence
+
+* **Unit:** `tests/unit/test_terraform_ospf_policy.py` extracts the real block from `main.tf` and evaluates it with Terraform: missing key, null, named-and-undefined (still inferred), named-and-defined (not inferred again), and the three mixed. **On Terraform 1.9.8 the old code failed 4 of 6, the fix passes 6 of 6.** Terraform 1.15.8 short-circuits, so there the behavioural tests pass on the old code too; a static test pins the shape of the fix for that case.
+* **Plan-verified against the lab APIC on 1.9.8** with the new fixture `platform/terraform/aci/tests/fixtures/ospf-default-policy.yaml` (tenant `ospfdef-fixture`, three interface profiles: key absent, `null`, named). Old `main.tf`: plan fails with both errors at line 468. Fixed: `19 to add` -- 3 `aci_l3out_ospf_interface_profile`, exactly **1** `aci_ospf_interface_policy` (the named one); `relation_ospf_rs_if_pol` is set only on the named interface.
+* **Not yet applied.**
+
 ## Location resolution: removing an environment fact from the code (2026-09-17)
 
 Eight schemas defaulted `location` to `"ACI-Lab"`. That Location does not exist in this lab, whose Location is `Isolated Lab Site`, so eight tools failed at their documented default.
