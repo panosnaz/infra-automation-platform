@@ -760,8 +760,11 @@ Repeat with --object for OSPF_L3Out, BGP_L3Out, Cat_ExtNet, Nexus_ExtNet, Uni-Ro
 Each diagnose run shows [ok] on layers 1 to 3 (intent, rendered YAML, Terraform). Layer 4 (the APIC) shows either no fault or only one of the known simulator families:
 
 - F1298 “Node Cannot Deploy” and F0699 “Node Not Leaf For Infra Policies” — the switches are not registered in the simulator.
+- F1299 “Interface profile configuration … has not been deployed on node 101/102 because: Node Not Leaf For Infra Policies”, one per switch profile (Leaf101_SwProf, Leaf102_SwProf), for the same reason. F0699 is the same cause reported against an interface policy group; F1299 reports it against the switch profile's interface profile.
 - F1893 “Only spine nodes can be BGP Route-Reflectors” on the route-reflector node, for the same reason.
 - The ten L4-L7 faults (missing-cdev, no vCenter) from the PBR lab's objects, which the same pipeline deploys.
+
+On a physical fabric none of the switch faults is expected: there, F1299 or F0699 means a wrong node ID, a leaf that is not registered, or a spine used as a leaf, and must be investigated.
 
 The access policies are not followed by diagnose, which reads tenant intent only. Check them in the APIC GUI (Section 8.1).
 
